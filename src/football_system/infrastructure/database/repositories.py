@@ -29,6 +29,12 @@ from football_system.infrastructure.database.models import (
     MarketProbabilityRecord,
     MatchRecord,
     PortfolioRecord,
+    PortfolioCashPositionRecord,
+    PortfolioMatchExposureRecord,
+    PortfolioRiskReportRecord,
+    PortfolioSelectionExposureRecord,
+    PortfolioStressResultRecord,
+    PortfolioStressTicketResultRecord,
     ProviderMatchMappingRecord,
     ProviderRecord,
     QuantPredictionOutcomeRecord,
@@ -93,6 +99,7 @@ class SqlAlchemyAnalysisRepository:
             )
             self._persist_predictions(session, artifacts)
             self._persist_betting(session, artifacts)
+            self._persist_risk(session, artifacts)
             session.flush()
             run_record.status = AnalysisRunStatus.COMPLETED.value
             run_record.completed_at_utc = run.completed_at_utc
@@ -462,6 +469,14 @@ class SqlAlchemyAnalysisRepository:
                 )
             )
             session.flush()
+            session.add(
+                PortfolioCashPositionRecord(
+                    cash_position_id=portfolio.cash_position.position_id,
+                    portfolio_id=portfolio.portfolio_id,
+                    amount_fen=portfolio.cash_position.amount_fen,
+                    expected_profit_fen=portfolio.cash_position.expected_profit_fen,
+                )
+            )
             for ticket in portfolio.tickets:
                 candidate = ticket.candidate
                 session.add(
@@ -493,6 +508,106 @@ class SqlAlchemyAnalysisRepository:
                         internal_match_id=leg.match_id,
                     )
                     for index, leg in enumerate(candidate.legs, start=1)
+                )
+
+    def _persist_risk(self, session: Session, artifacts: AnalysisArtifacts) -> None:
+        for report in artifacts.portfolio_risk_reports:
+            session.add(
+                PortfolioRiskReportRecord(
+                    risk_report_id=report.risk_report_id,
+                    analysis_run_id=report.analysis_run_id,
+                    portfolio_id=report.portfolio_id,
+                    policy_version=report.policy_version,
+                    budget_fen=report.budget_fen,
+                    total_stake_fen=report.total_stake_fen,
+                    cash_fen=report.cash_fen,
+                    cash_ratio=report.cash_ratio,
+                    expected_profit_fen=report.expected_profit_fen,
+                    total_stake_at_risk_fen=report.total_stake_at_risk_fen,
+                    max_single_ticket_exposure_fen=(
+                        report.max_single_ticket_exposure_fen
+                    ),
+                    max_match_exposure_fen=report.max_match_exposure_fen,
+                )
+            )
+            session.flush()
+            session.add_all(
+                PortfolioMatchExposureRecord(
+                    exposure_id=exposure.exposure_id,
+                    risk_report_id=exposure.risk_report_id,
+                    internal_match_id=exposure.match_id,
+                    exposed_stake_fen=exposure.exposed_stake_fen,
+                    budget_ratio=exposure.budget_ratio,
+                    deployed_ratio=exposure.deployed_ratio,
+                    ticket_count=len(exposure.ticket_ids),
+                    ticket_ids_json=json.dumps(
+                        exposure.ticket_ids, separators=(",", ":")
+                    ),
+                )
+                for exposure in report.match_exposures
+            )
+            session.add_all(
+                PortfolioSelectionExposureRecord(
+                    exposure_id=exposure.exposure_id,
+                    risk_report_id=exposure.risk_report_id,
+                    internal_match_id=exposure.match_id,
+                    market_key=exposure.market.canonical,
+                    selection_key=exposure.selection.value,
+                    exposed_stake_fen=exposure.exposed_stake_fen,
+                    budget_ratio=exposure.budget_ratio,
+                    deployed_ratio=exposure.deployed_ratio,
+                    ticket_count=len(exposure.ticket_ids),
+                    ticket_ids_json=json.dumps(
+                        exposure.ticket_ids, separators=(",", ":")
+                    ),
+                )
+                for exposure in report.selection_exposures
+            )
+            for result in report.stress_results:
+                session.add(
+                    PortfolioStressResultRecord(
+                        scenario_id=result.scenario_id,
+                        risk_report_id=result.risk_report_id,
+                        portfolio_id=result.portfolio_id,
+                        scenario_key=result.scenario_key,
+                        policy_version=result.policy_version,
+                        outcomes_json=json.dumps(
+                            [
+                                {
+                                    "match_id": outcome.match_id,
+                                    "selection": outcome.selection.value,
+                                }
+                                for outcome in result.outcomes
+                            ],
+                            separators=(",", ":"),
+                            sort_keys=True,
+                        ),
+                        is_complete=result.is_complete,
+                        scenario_exposed_stake_fen=(
+                            result.scenario_exposed_stake_fen
+                        ),
+                        scenario_exposure_ratio=result.scenario_exposure_ratio,
+                        gross_payout_fen=result.gross_payout_fen,
+                        ending_capital_fen=result.ending_capital_fen,
+                        profit_loss_fen=result.profit_loss_fen,
+                        capital_recovery_ratio=result.capital_recovery_ratio,
+                        minimum_ending_capital_fen=(
+                            result.minimum_ending_capital_fen
+                        ),
+                        maximum_ending_capital_fen=(
+                            result.maximum_ending_capital_fen
+                        ),
+                    )
+                )
+                session.flush()
+                session.add_all(
+                    PortfolioStressTicketResultRecord(
+                        scenario_id=result.scenario_id,
+                        ticket_id=ticket_result.ticket_id,
+                        result_state=ticket_result.state.value,
+                        gross_payout_fen=ticket_result.gross_payout_fen,
+                    )
+                    for ticket_result in result.ticket_results
                 )
 
     def _validate_ticket_rules(
@@ -673,6 +788,38 @@ class SqlAlchemyAnalysisRepository:
                 for ticket in portfolio.tickets
             ):
                 raise ValueError("portfolio has inconsistent candidate lineage")
+        portfolios = {
+            portfolio.portfolio_id: portfolio for portfolio in artifacts.portfolios
+        }
+        reports = {
+            report.portfolio_id: report
+            for report in artifacts.portfolio_risk_reports
+        }
+        if len(reports) != len(artifacts.portfolio_risk_reports) or set(reports) != set(
+            portfolios
+        ):
+            raise ValueError("analysis must contain one risk report per portfolio")
+        for portfolio_id, report in reports.items():
+            portfolio = portfolios[portfolio_id]
+            ticket_ids = {ticket.ticket_id for ticket in portfolio.tickets}
+            if (
+                report.analysis_run_id != run_id
+                or report.budget_fen != portfolio.budget_fen
+                or report.total_stake_fen != portfolio.total_stake_fen
+                or report.cash_fen != portfolio.cash_position.amount_fen
+                or any(
+                    set(exposure.ticket_ids) - ticket_ids
+                    for exposure in (
+                        *report.match_exposures,
+                        *report.selection_exposures,
+                    )
+                )
+                or any(
+                    {item.ticket_id for item in result.ticket_results} != ticket_ids
+                    for result in report.stress_results
+                )
+            ):
+                raise ValueError("portfolio risk report has inconsistent lineage")
 
     @staticmethod
     def _assert_manual_input_matches(session: Session, record: object, value: object) -> None:
@@ -769,7 +916,13 @@ class SqlAlchemyAnalysisRepository:
             BetCandidateRecord,
             TicketCandidateRecord,
             PortfolioRecord,
+            PortfolioCashPositionRecord,
             TicketRecord,
+            PortfolioRiskReportRecord,
+            PortfolioMatchExposureRecord,
+            PortfolioSelectionExposureRecord,
+            PortfolioStressResultRecord,
+            PortfolioStressTicketResultRecord,
         )
         with self._session_factory() as session:
             return {

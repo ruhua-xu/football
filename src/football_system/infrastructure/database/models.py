@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -557,6 +558,22 @@ class PortfolioRecord(Base):
     strategy_config_json: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+class PortfolioCashPositionRecord(Base):
+    __tablename__ = "portfolio_cash_positions"
+    __table_args__ = (
+        CheckConstraint("amount_fen >= 0", name="ck_cash_position_amount"),
+    )
+
+    cash_position_id: Mapped[str] = mapped_column(IdColumn, primary_key=True)
+    portfolio_id: Mapped[str] = mapped_column(
+        ForeignKey("portfolios.portfolio_id", ondelete="RESTRICT"),
+        unique=True,
+        nullable=False,
+    )
+    amount_fen: Mapped[int] = mapped_column(Integer, nullable=False)
+    expected_profit_fen: Mapped[Decimal] = mapped_column(MetricColumn, nullable=False)
+
+
 class TicketRecord(Base):
     __tablename__ = "tickets"
     __table_args__ = (
@@ -609,3 +626,167 @@ class TicketLegRecord(Base):
     internal_match_id: Mapped[str] = mapped_column(
         ForeignKey("matches.internal_match_id", ondelete="RESTRICT"), nullable=False
     )
+
+
+class PortfolioRiskReportRecord(Base):
+    __tablename__ = "portfolio_risk_reports"
+    __table_args__ = (
+        CheckConstraint("budget_fen >= 0", name="ck_risk_budget"),
+        CheckConstraint("total_stake_fen >= 0", name="ck_risk_stake"),
+        CheckConstraint("cash_fen >= 0", name="ck_risk_cash"),
+        CheckConstraint(
+            "total_stake_fen + cash_fen = budget_fen",
+            name="ck_risk_capital_balance",
+        ),
+        CheckConstraint(
+            "total_stake_at_risk_fen >= 0",
+            name="ck_risk_stake_at_risk",
+        ),
+        CheckConstraint(
+            "max_single_ticket_exposure_fen >= 0",
+            name="ck_risk_max_ticket",
+        ),
+        CheckConstraint(
+            "max_match_exposure_fen >= 0",
+            name="ck_risk_max_match",
+        ),
+    )
+
+    risk_report_id: Mapped[str] = mapped_column(IdColumn, primary_key=True)
+    analysis_run_id: Mapped[str] = mapped_column(
+        ForeignKey("analysis_runs.analysis_run_id", ondelete="RESTRICT"), nullable=False
+    )
+    portfolio_id: Mapped[str] = mapped_column(
+        ForeignKey("portfolios.portfolio_id", ondelete="RESTRICT"),
+        unique=True,
+        nullable=False,
+    )
+    policy_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    budget_fen: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_stake_fen: Mapped[int] = mapped_column(Integer, nullable=False)
+    cash_fen: Mapped[int] = mapped_column(Integer, nullable=False)
+    cash_ratio: Mapped[Decimal | None] = mapped_column(ProbabilityColumn, nullable=True)
+    expected_profit_fen: Mapped[Decimal] = mapped_column(MetricColumn, nullable=False)
+    total_stake_at_risk_fen: Mapped[int] = mapped_column(Integer, nullable=False)
+    max_single_ticket_exposure_fen: Mapped[int] = mapped_column(Integer, nullable=False)
+    max_match_exposure_fen: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class PortfolioMatchExposureRecord(Base):
+    __tablename__ = "portfolio_match_exposures"
+    __table_args__ = (
+        CheckConstraint("exposed_stake_fen >= 0", name="ck_match_exposure_stake"),
+        CheckConstraint("ticket_count > 0", name="ck_match_exposure_tickets"),
+        UniqueConstraint(
+            "risk_report_id",
+            "internal_match_id",
+            name="uq_risk_match_exposure",
+        ),
+    )
+
+    exposure_id: Mapped[str] = mapped_column(IdColumn, primary_key=True)
+    risk_report_id: Mapped[str] = mapped_column(
+        ForeignKey("portfolio_risk_reports.risk_report_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    internal_match_id: Mapped[str] = mapped_column(
+        ForeignKey("matches.internal_match_id", ondelete="RESTRICT"), nullable=False
+    )
+    exposed_stake_fen: Mapped[int] = mapped_column(Integer, nullable=False)
+    budget_ratio: Mapped[Decimal | None] = mapped_column(ProbabilityColumn, nullable=True)
+    deployed_ratio: Mapped[Decimal | None] = mapped_column(ProbabilityColumn, nullable=True)
+    ticket_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    ticket_ids_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class PortfolioSelectionExposureRecord(Base):
+    __tablename__ = "portfolio_selection_exposures"
+    __table_args__ = (
+        CheckConstraint(
+            "exposed_stake_fen >= 0", name="ck_selection_exposure_stake"
+        ),
+        CheckConstraint("ticket_count > 0", name="ck_selection_exposure_tickets"),
+        UniqueConstraint(
+            "risk_report_id",
+            "internal_match_id",
+            "market_key",
+            "selection_key",
+            name="uq_risk_selection_exposure",
+        ),
+    )
+
+    exposure_id: Mapped[str] = mapped_column(IdColumn, primary_key=True)
+    risk_report_id: Mapped[str] = mapped_column(
+        ForeignKey("portfolio_risk_reports.risk_report_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    internal_match_id: Mapped[str] = mapped_column(
+        ForeignKey("matches.internal_match_id", ondelete="RESTRICT"), nullable=False
+    )
+    market_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    selection_key: Mapped[str] = mapped_column(EnumColumn, nullable=False)
+    exposed_stake_fen: Mapped[int] = mapped_column(Integer, nullable=False)
+    budget_ratio: Mapped[Decimal | None] = mapped_column(ProbabilityColumn, nullable=True)
+    deployed_ratio: Mapped[Decimal | None] = mapped_column(ProbabilityColumn, nullable=True)
+    ticket_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    ticket_ids_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class PortfolioStressResultRecord(Base):
+    __tablename__ = "portfolio_stress_results"
+    __table_args__ = (
+        CheckConstraint(
+            "scenario_exposed_stake_fen >= 0",
+            name="ck_stress_exposed_stake",
+        ),
+        CheckConstraint(
+            "minimum_ending_capital_fen >= 0",
+            name="ck_stress_min_capital",
+        ),
+        CheckConstraint(
+            "maximum_ending_capital_fen >= minimum_ending_capital_fen",
+            name="ck_stress_capital_bounds",
+        ),
+        UniqueConstraint(
+            "risk_report_id", "scenario_key", name="uq_risk_stress_scenario"
+        ),
+    )
+
+    scenario_id: Mapped[str] = mapped_column(IdColumn, primary_key=True)
+    risk_report_id: Mapped[str] = mapped_column(
+        ForeignKey("portfolio_risk_reports.risk_report_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    portfolio_id: Mapped[str] = mapped_column(
+        ForeignKey("portfolios.portfolio_id", ondelete="RESTRICT"), nullable=False
+    )
+    scenario_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    policy_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    outcomes_json: Mapped[str] = mapped_column(Text, nullable=False)
+    is_complete: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    scenario_exposed_stake_fen: Mapped[int] = mapped_column(Integer, nullable=False)
+    scenario_exposure_ratio: Mapped[Decimal | None] = mapped_column(
+        ProbabilityColumn, nullable=True
+    )
+    gross_payout_fen: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ending_capital_fen: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    profit_loss_fen: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    capital_recovery_ratio: Mapped[Decimal | None] = mapped_column(
+        MetricColumn, nullable=True
+    )
+    minimum_ending_capital_fen: Mapped[int] = mapped_column(Integer, nullable=False)
+    maximum_ending_capital_fen: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class PortfolioStressTicketResultRecord(Base):
+    __tablename__ = "portfolio_stress_ticket_results"
+
+    scenario_id: Mapped[str] = mapped_column(
+        ForeignKey("portfolio_stress_results.scenario_id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    ticket_id: Mapped[str] = mapped_column(
+        ForeignKey("tickets.ticket_id", ondelete="RESTRICT"), primary_key=True
+    )
+    result_state: Mapped[str] = mapped_column(EnumColumn, nullable=False)
+    gross_payout_fen: Mapped[int | None] = mapped_column(Integer, nullable=True)

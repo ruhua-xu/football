@@ -50,6 +50,7 @@ from football_system.domain.services.betting import (
 from football_system.domain.services.fusion import get_fusion_policy
 from football_system.domain.services.optimizer import optimize_portfolio
 from football_system.domain.services.probability import normalized_inverse_probability
+from football_system.domain.services.risk import analyze_portfolio_risk
 
 
 class RunAnalysisRequest(DomainModel):
@@ -279,6 +280,9 @@ class RunAnalysisService:
             )
             for budget_fen in request.budgets_fen
         )
+        portfolio_risk_reports = tuple(
+            analyze_portfolio_risk(portfolio) for portfolio in portfolios
+        )
         config_json = _canonical_json(
             {
                 "settings": self._settings.model_dump(mode="json"),
@@ -333,6 +337,7 @@ class RunAnalysisService:
             selection_candidates=selection_candidates,
             ticket_candidates=ticket_candidates,
             portfolios=portfolios,
+            portfolio_risk_reports=portfolio_risk_reports,
         )
         self._repository.save_analysis(artifacts, rules)
         return artifacts

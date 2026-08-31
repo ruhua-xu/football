@@ -33,6 +33,7 @@ where = ["src"]
 "football_system_resources/migrations/versions" = [
     "migrations/versions/1bec5f575834_create_mvp_schema.py",
     "migrations/versions/e3754eb9a102_seal_all_analysis_artifacts.py",
+    "migrations/versions/4f9b2d7c1a60_add_portfolio_risk.py",
 ]
 
 [tool.pytest.ini_options]

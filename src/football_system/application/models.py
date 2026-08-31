@@ -23,6 +23,7 @@ from football_system.domain.prediction import (
     MarketPrediction,
     QuantPrediction,
 )
+from football_system.domain.risk import PortfolioRiskReport
 
 
 class StoredInputManifest(DomainModel):
@@ -48,6 +49,7 @@ class AnalysisArtifacts(DomainModel):
     selection_candidates: tuple[SelectionCandidate, ...]
     ticket_candidates: tuple[TicketCandidate, ...]
     portfolios: tuple[Portfolio, ...]
+    portfolio_risk_reports: tuple[PortfolioRiskReport, ...]
 
     @model_validator(mode="after")
     def validate_lineage(self) -> AnalysisArtifacts:
@@ -61,6 +63,7 @@ class AnalysisArtifacts(DomainModel):
             *self.selection_candidates,
             *self.ticket_candidates,
             *self.portfolios,
+            *self.portfolio_risk_reports,
         )
         if any(item.analysis_run_id != run_id for item in run_scoped):
             raise ValueError("analysis artifacts contain a cross-run reference")
@@ -113,6 +116,10 @@ class AnalysisArtifacts(DomainModel):
         )
         ticket_by_id = _unique_index(
             self.ticket_candidates, "ticket_candidate_id", "ticket candidate"
+        )
+        portfolio_by_id = _unique_index(self.portfolios, "portfolio_id", "portfolio")
+        risk_by_portfolio = _unique_index(
+            self.portfolio_risk_reports, "portfolio_id", "portfolio risk report"
         )
         for context in self.match_contexts:
             odds = odds_by_id.get(context.market_odds_snapshot_id)
@@ -194,6 +201,30 @@ class AnalysisArtifacts(DomainModel):
                 for ticket in portfolio.tickets
             ):
                 raise ValueError("portfolio has inconsistent ticket lineage")
+            report = risk_by_portfolio.get(portfolio.portfolio_id)
+            if report is None or (
+                report.budget_fen != portfolio.budget_fen
+                or report.total_stake_fen != portfolio.total_stake_fen
+                or report.cash_fen != portfolio.cash_position.amount_fen
+            ):
+                raise ValueError("portfolio has inconsistent risk lineage")
+        if set(risk_by_portfolio) != set(portfolio_by_id):
+            raise ValueError("analysis must contain one risk report per portfolio")
+        for report in self.portfolio_risk_reports:
+            portfolio = portfolio_by_id[report.portfolio_id]
+            ticket_ids = {ticket.ticket_id for ticket in portfolio.tickets}
+            exposed_ticket_ids = {
+                ticket_id
+                for exposure in (*report.match_exposures, *report.selection_exposures)
+                for ticket_id in exposure.ticket_ids
+            }
+            if exposed_ticket_ids != ticket_ids:
+                raise ValueError("risk exposure has inconsistent ticket lineage")
+            if any(
+                {item.ticket_id for item in result.ticket_results} != ticket_ids
+                for result in report.stress_results
+            ):
+                raise ValueError("stress result has inconsistent ticket lineage")
         return self
 
 

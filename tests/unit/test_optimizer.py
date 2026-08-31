@@ -76,6 +76,7 @@ def test_optimizer_allocates_only_legal_two_yuan_units() -> None:
     assert len(portfolio.tickets) == 4
     assert portfolio.total_stake_fen == 10_000
     assert portfolio.unused_budget_fen == 0
+    assert portfolio.cash_position.amount_fen == 0
     assert all(ticket.stake_fen % 200 == 0 for ticket in portfolio.tickets)
     assert all(1 <= ticket.multiplier <= 50 for ticket in portfolio.tickets)
     assert max(ticket.multiplier for ticket in portfolio.tickets) - min(
@@ -91,6 +92,7 @@ def test_optimizer_supports_no_bet() -> None:
     assert portfolio.status == PortfolioStatus.NO_BET
     assert portfolio.no_bet_reason == NoBetReason.NO_BET_NO_VALUE
     assert portfolio.total_stake_fen == 0
+    assert portfolio.cash_position.amount_fen == 10_000
 
 
 def test_optimizer_leaves_cash_after_multiplier_cap() -> None:
@@ -105,6 +107,7 @@ def test_optimizer_leaves_cash_after_multiplier_cap() -> None:
     assert portfolio.tickets[0].multiplier == 50
     assert portfolio.total_stake_fen == 10_000
     assert portfolio.unused_budget_fen == 10_000
+    assert portfolio.cash_position.amount_fen == 10_000
 
 
 def test_extra_high_value_independent_ticket_can_exceed_preferred_limit() -> None:

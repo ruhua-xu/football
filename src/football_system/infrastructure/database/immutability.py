@@ -62,6 +62,11 @@ RUN_LOOKUPS = {
         "SELECT 1 FROM analysis_runs r "
         "WHERE r.analysis_run_id = {row}.analysis_run_id AND r.status = 'COMPLETED'"
     ),
+    "portfolio_cash_positions": (
+        "SELECT 1 FROM analysis_runs r JOIN portfolios p "
+        "ON p.analysis_run_id = r.analysis_run_id "
+        "WHERE p.portfolio_id = {row}.portfolio_id AND r.status = 'COMPLETED'"
+    ),
     "tickets": (
         "SELECT 1 FROM analysis_runs r JOIN portfolios p "
         "ON p.analysis_run_id = r.analysis_run_id "
@@ -72,6 +77,34 @@ RUN_LOOKUPS = {
         "ON p.analysis_run_id = r.analysis_run_id "
         "JOIN tickets t ON t.portfolio_id = p.portfolio_id "
         "WHERE t.ticket_id = {row}.ticket_id AND r.status = 'COMPLETED'"
+    ),
+    "portfolio_risk_reports": (
+        "SELECT 1 FROM analysis_runs r "
+        "WHERE r.analysis_run_id = {row}.analysis_run_id AND r.status = 'COMPLETED'"
+    ),
+    "portfolio_match_exposures": (
+        "SELECT 1 FROM analysis_runs r JOIN portfolio_risk_reports x "
+        "ON x.analysis_run_id = r.analysis_run_id "
+        "WHERE x.risk_report_id = {row}.risk_report_id "
+        "AND r.status = 'COMPLETED'"
+    ),
+    "portfolio_selection_exposures": (
+        "SELECT 1 FROM analysis_runs r JOIN portfolio_risk_reports x "
+        "ON x.analysis_run_id = r.analysis_run_id "
+        "WHERE x.risk_report_id = {row}.risk_report_id "
+        "AND r.status = 'COMPLETED'"
+    ),
+    "portfolio_stress_results": (
+        "SELECT 1 FROM analysis_runs r JOIN portfolio_risk_reports x "
+        "ON x.analysis_run_id = r.analysis_run_id "
+        "WHERE x.risk_report_id = {row}.risk_report_id "
+        "AND r.status = 'COMPLETED'"
+    ),
+    "portfolio_stress_ticket_results": (
+        "SELECT 1 FROM analysis_runs r JOIN portfolio_risk_reports x "
+        "ON x.analysis_run_id = r.analysis_run_id "
+        "JOIN portfolio_stress_results s ON s.risk_report_id = x.risk_report_id "
+        "WHERE s.scenario_id = {row}.scenario_id AND r.status = 'COMPLETED'"
     ),
 }
 

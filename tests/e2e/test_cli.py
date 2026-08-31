@@ -35,6 +35,10 @@ def test_cli_displays_full_analysis_and_database_counts(
     assert "简单2串1候选（10 个）" in output
     assert "Portfolio 预算=100.00元" in output
     assert "Portfolio 预算=200.00元" in output
+    assert "Cash Position" in output
+    assert "Portfolio Risk" in output
+    assert "Exposure" in output
+    assert "Stress" in output
     assert "SQLite 持久化计数" in output
 
 
@@ -55,6 +59,8 @@ def test_cli_displays_no_bet_example(tmp_path, capsys) -> None:
     assert result == 0
     assert "状态=NO_BET" in output
     assert "NO_BET 原因: NO_BET_NO_VALUE" in output
+    assert "Cash Position: 100.00元" in output
+    assert "Stress CASH_BASELINE" in output
 
 
 @pytest.mark.parametrize(

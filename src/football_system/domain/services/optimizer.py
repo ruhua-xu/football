@@ -3,6 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from football_system.domain.betting import (
+    CashPosition,
     NoBetReason,
     Portfolio,
     PortfolioConstraints,
@@ -139,6 +140,10 @@ def optimize_portfolio(
         tickets=tuple(allocations),
         total_stake_fen=total_stake,
         unused_budget_fen=budget_fen - total_stake,
+        cash_position=CashPosition(
+            position_id=stable_id("cash", portfolio_id),
+            amount_fen=budget_fen - total_stake,
+        ),
         status=PortfolioStatus.RECOMMENDED,
         constraints=constraints,
     )
@@ -158,6 +163,10 @@ def _no_bet(
         tickets=(),
         total_stake_fen=0,
         unused_budget_fen=budget_fen,
+        cash_position=CashPosition(
+            position_id=stable_id("cash", portfolio_id),
+            amount_fen=budget_fen,
+        ),
         status=PortfolioStatus.NO_BET,
         no_bet_reason=reason,
         constraints=constraints,

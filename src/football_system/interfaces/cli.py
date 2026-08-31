@@ -90,6 +90,9 @@ def format_analysis(
     market_by_match = {item.match_id: item for item in artifacts.market_predictions}
     quant_by_match = {item.match_id: item for item in artifacts.quant_predictions}
     final_by_match = {item.match_id: item for item in artifacts.final_predictions}
+    risk_by_portfolio = {
+        item.portfolio_id: item for item in artifacts.portfolio_risk_reports
+    }
     lines = [
         "Football System MVP 研究建议（非自动下注）",
         f"AnalysisRun: {artifacts.analysis_run.analysis_run_id}",
@@ -147,8 +150,12 @@ def format_analysis(
             f"preferred={portfolio.constraints.preferred_max_tickets}, "
             f"absolute={portfolio.constraints.absolute_max_tickets}"
         )
+        lines.append(
+            f"  Cash Position: {_fen(portfolio.cash_position.amount_fen)}"
+        )
         if portfolio.status == PortfolioStatus.NO_BET:
             lines.append(f"  NO_BET 原因: {portfolio.no_bet_reason.value}")
+            _append_risk(lines, risk_by_portfolio[portfolio.portfolio_id])
             continue
         for ticket in portfolio.tickets:
             leg_text = " + ".join(
@@ -165,6 +172,7 @@ def format_analysis(
             f"  总投入={_fen(portfolio.total_stake_fen)}, "
             f"未使用预算={_fen(portfolio.unused_budget_fen)}"
         )
+        _append_risk(lines, risk_by_portfolio[portfolio.portfolio_id])
 
     lines.extend(["", "SQLite 持久化计数"])
     lines.extend(f"- {name}: {count}" for name, count in sorted(table_counts.items()))
@@ -267,6 +275,41 @@ def _percent(value: Decimal) -> str:
 
 def _fen(value: int | Decimal) -> str:
     return f"{Decimal(value) / Decimal(100):.2f}元"
+
+
+def _append_risk(lines: list[str], report: object) -> None:
+    cash_ratio = "N/A" if report.cash_ratio is None else _percent(report.cash_ratio)
+    lines.append(
+        "  Portfolio Risk: "
+        f"cash={cash_ratio}, stake_at_risk={_fen(report.total_stake_at_risk_fen)}, "
+        f"max_match={_fen(report.max_match_exposure_fen)}"
+    )
+    for exposure in sorted(
+        report.match_exposures,
+        key=lambda item: (-item.exposed_stake_fen, item.match_id),
+    ):
+        ratio = "N/A" if exposure.budget_ratio is None else _percent(exposure.budget_ratio)
+        lines.append(
+            f"    Exposure {exposure.match_id}: {_fen(exposure.exposed_stake_fen)} "
+            f"({ratio} of budget)"
+        )
+    for result in report.stress_results:
+        if result.is_complete:
+            financial = (
+                f"P/L={_fen(result.profit_loss_fen)}, "
+                f"recovery={_percent(result.capital_recovery_ratio)}"
+                if result.capital_recovery_ratio is not None
+                else f"P/L={_fen(result.profit_loss_fen)}, recovery=N/A"
+            )
+        else:
+            financial = (
+                f"capital_range={_fen(result.minimum_ending_capital_fen)}"
+                f"..{_fen(result.maximum_ending_capital_fen)}"
+            )
+        lines.append(
+            f"    Stress {result.scenario_key}: "
+            f"exposed={_fen(result.scenario_exposed_stake_fen)}, {financial}"
+        )
 
 
 if __name__ == "__main__":

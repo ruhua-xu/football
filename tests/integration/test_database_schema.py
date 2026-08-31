@@ -34,6 +34,12 @@ def test_schema_contains_mvp_tables_and_enables_foreign_keys() -> None:
         "bet_candidates",
         "ticket_candidates",
         "portfolios",
+        "portfolio_cash_positions",
+        "portfolio_risk_reports",
+        "portfolio_match_exposures",
+        "portfolio_selection_exposures",
+        "portfolio_stress_results",
+        "portfolio_stress_ticket_results",
         "tickets",
     } <= tables
     with engine.connect() as connection:
@@ -85,12 +91,18 @@ def test_alembic_upgrades_empty_sqlite_database(tmp_path) -> None:
     assert "alembic_version" in tables
     assert "analysis_runs" in tables
     assert "tickets" in tables
+    assert "portfolio_risk_reports" in tables
     with engine.connect() as connection:
         triggers = connection.execute(
             text("SELECT name FROM sqlite_master WHERE type = 'trigger'")
         ).scalars()
         assert "trg_analysis_runs_sealed_update" in set(triggers)
         assert "trg_market_probability_outcomes_sealed_update" in set(
+            connection.execute(
+                text("SELECT name FROM sqlite_master WHERE type = 'trigger'")
+            ).scalars()
+        )
+        assert "trg_portfolio_risk_reports_sealed_update" in set(
             connection.execute(
                 text("SELECT name FROM sqlite_master WHERE type = 'trigger'")
             ).scalars()

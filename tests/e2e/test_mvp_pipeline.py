@@ -129,7 +129,13 @@ def test_full_mvp_analysis_persists_replayable_artifacts() -> None:
         "bet_candidates": 18,
         "ticket_candidates": 10,
         "portfolios": 2,
+        "portfolio_cash_positions": 2,
         "tickets": 8,
+        "portfolio_risk_reports": 2,
+        "portfolio_match_exposures": 8,
+        "portfolio_selection_exposures": 8,
+        "portfolio_stress_results": 6,
+        "portfolio_stress_ticket_results": 24,
     }
     stored_manifest = repository.load_input_manifest("run-e2e-main")
     assert stored_manifest.version == "MVP_INPUT_MANIFEST_V2"
@@ -193,6 +199,9 @@ def test_full_mvp_analysis_persists_replayable_artifacts() -> None:
         "UPDATE final_prediction_outcomes SET probability = 0.99",
         "DELETE FROM ticket_candidate_legs",
         "UPDATE tickets SET multiplier = 1",
+        "UPDATE portfolio_cash_positions SET amount_fen = 1",
+        "UPDATE portfolio_risk_reports SET cash_fen = 1",
+        "DELETE FROM portfolio_stress_results",
         "DELETE FROM ticket_legs",
         "UPDATE matches SET status = 'MUTATED'",
         "INSERT INTO market_odds_quotes "

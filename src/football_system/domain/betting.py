@@ -108,6 +108,12 @@ class TicketAllocation(DomainModel):
     probability_any_payout: Decimal = Field(ge=0, le=1)
 
 
+class CashPosition(DomainModel):
+    position_id: Identifier
+    amount_fen: int = Field(ge=0)
+    expected_profit_fen: Decimal = Decimal(0)
+
+
 class Portfolio(DomainModel):
     portfolio_id: Identifier
     analysis_run_id: Identifier
@@ -115,6 +121,7 @@ class Portfolio(DomainModel):
     tickets: tuple[TicketAllocation, ...]
     total_stake_fen: int = Field(ge=0)
     unused_budget_fen: int = Field(ge=0)
+    cash_position: CashPosition
     status: PortfolioStatus
     no_bet_reason: NoBetReason | None = None
     constraints: PortfolioConstraints
@@ -130,6 +137,10 @@ class Portfolio(DomainModel):
             raise ValueError("portfolio exceeds budget")
         if self.unused_budget_fen != self.budget_fen - self.total_stake_fen:
             raise ValueError("unused budget is inconsistent")
+        if self.cash_position.amount_fen != self.unused_budget_fen:
+            raise ValueError("cash position must equal unused budget")
+        if self.cash_position.expected_profit_fen != 0:
+            raise ValueError("cash position must have zero nominal profit")
         ticket_numbers = [ticket.ticket_no for ticket in self.tickets]
         if len(ticket_numbers) != len(set(ticket_numbers)):
             raise ValueError("ticket numbers must be unique within a portfolio")
