@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "football-system"
+version = "0.1.0"
+description = "Reproducible football analysis and Sporttery portfolio MVP"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.14,<2",
+    "pydantic>=2.10,<3",
+    "SQLAlchemy>=2.0,<3",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.3,<9",
+]
+
+[project.scripts]
+football-system = "football_system.interfaces.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.data-files]
+"football_system_resources" = ["alembic.ini"]
+"football_system_resources/config" = ["config/mvp.toml"]
+"football_system_resources/data/fixtures" = ["data/fixtures/mvp_matches.json"]
+"football_system_resources/migrations" = ["migrations/env.py", "migrations/script.py.mako"]
+"football_system_resources/migrations/versions" = [
+    "migrations/versions/1bec5f575834_create_mvp_schema.py",
+    "migrations/versions/e3754eb9a102_seal_all_analysis_artifacts.py",
+]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
