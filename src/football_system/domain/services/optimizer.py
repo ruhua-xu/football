@@ -44,59 +44,151 @@ def optimize_portfolio(
             constraints,
         )
 
-    unit_budget = budget_fen // rules.base_stake_fen
-    preferred_count = min(
-        constraints.preferred_max_tickets,
-        len(ranked),
-        unit_budget,
-    )
-    selected = list(ranked[:preferred_count])
-    exposed_matches = {
-        leg.match_id for candidate in selected for leg in candidate.legs
-    }
-    for candidate in ranked[preferred_count:]:
-        if (
-            len(selected) >= constraints.absolute_max_tickets
-            or len(selected) >= unit_budget
-        ):
-            break
-        extra_position = len(selected) - constraints.preferred_max_tickets + 1
-        adjusted_roi = candidate.expected_roi - (
-            constraints.operational_complexity_penalty * Decimal(extra_position)
-        )
-        candidate_matches = {leg.match_id for leg in candidate.legs}
-        adds_independent_exposure = bool(candidate_matches - exposed_matches)
-        if (
-            adjusted_roi < constraints.extra_ticket_min_roi
-            or not adds_independent_exposure
-        ):
+    minimum_stakes: dict[str, int] = {}
+    for candidate in ranked:
+        try:
+            minimum_stake = calculate_stake_fen(candidate.atomic_bet_count, 1, rules)
+        except ValueError:
             continue
-        selected.append(candidate)
-        exposed_matches.update(candidate_matches)
-    multipliers = {candidate.ticket_candidate_id: 0 for candidate in selected}
+        if minimum_stake <= budget_fen:
+            minimum_stakes[candidate.ticket_candidate_id] = minimum_stake
+    if not minimum_stakes:
+        return _no_bet(
+            portfolio_id,
+            analysis_run_id,
+            budget_fen,
+            NoBetReason.NO_BET_NO_FEASIBLE_TICKET,
+            constraints,
+        )
+
+    selected: list[TicketCandidate] = []
+    multipliers: dict[str, int] = {}
+    match_exposures: dict[str, int] = {}
+    selection_exposures: dict[tuple[str, str, str], int] = {}
     total_stake = 0
 
-    while True:
-        allocated = False
-        for candidate in selected:
-            current = multipliers[candidate.ticket_candidate_id]
-            next_multiplier = current + 1
-            try:
-                next_stake = calculate_stake_fen(
-                    candidate.atomic_bet_count, next_multiplier, rules
+    while (
+        len(selected) < constraints.absolute_max_tickets
+        and len(selected) < len(minimum_stakes)
+    ):
+        is_extra = len(selected) >= constraints.preferred_max_tickets
+        extra_position = len(selected) - constraints.preferred_max_tickets + 1
+        opening_choices: list[tuple[TicketCandidate, int, Decimal]] = []
+        for candidate in ranked:
+            if candidate.ticket_candidate_id in multipliers:
+                continue
+            minimum_stake = minimum_stakes.get(candidate.ticket_candidate_id)
+            if minimum_stake is None:
+                continue
+            if is_extra:
+                adjusted_roi = candidate.expected_roi - (
+                    constraints.operational_complexity_penalty
+                    * Decimal(extra_position)
                 )
-            except ValueError:
+                candidate_matches = {leg.match_id for leg in candidate.legs}
+                if (
+                    adjusted_roi < constraints.extra_ticket_min_roi
+                    or not candidate_matches - match_exposures.keys()
+                ):
+                    continue
+            if not _allocation_is_feasible(
+                candidate,
+                minimum_stake,
+                total_stake,
+                budget_fen,
+                match_exposures,
+                selection_exposures,
+                constraints,
+            ):
                 continue
-            current_stake = (
-                calculate_stake_fen(candidate.atomic_bet_count, current, rules)
-                if current > 0
-                else 0
+            score = _marginal_score(
+                candidate,
+                minimum_stake,
+                budget_fen,
+                match_exposures,
+                selection_exposures,
+                constraints,
             )
-            marginal_stake = next_stake - current_stake
-            if total_stake + marginal_stake > budget_fen:
-                continue
-            multipliers[candidate.ticket_candidate_id] = next_multiplier
+            if score >= constraints.min_marginal_score:
+                opening_choices.append((candidate, minimum_stake, score))
+        if not opening_choices:
+            break
+        candidate, minimum_stake, _ = min(
+            opening_choices,
+            key=lambda item: (-item[2], item[0].ticket_candidate_id),
+        )
+        selected.append(candidate)
+        multipliers[candidate.ticket_candidate_id] = 1
+        total_stake += minimum_stake
+        _add_exposure(
+            candidate,
+            minimum_stake,
+            match_exposures,
+            selection_exposures,
+        )
+
+    if not selected:
+        return _no_bet(
+            portfolio_id,
+            analysis_run_id,
+            budget_fen,
+            NoBetReason.NO_BET_RISK_LIMIT,
+            constraints,
+        )
+
+    while True:
+        pending = list(selected)
+        allocated = False
+        while pending:
+            allocation_choices: list[tuple[TicketCandidate, int, Decimal]] = []
+            for candidate in pending:
+                current = multipliers[candidate.ticket_candidate_id]
+                next_multiplier = current + 1
+                try:
+                    next_stake = calculate_stake_fen(
+                        candidate.atomic_bet_count, next_multiplier, rules
+                    )
+                    current_stake = calculate_stake_fen(
+                        candidate.atomic_bet_count, current, rules
+                    )
+                except ValueError:
+                    continue
+                marginal_stake = next_stake - current_stake
+                if not _allocation_is_feasible(
+                    candidate,
+                    marginal_stake,
+                    total_stake,
+                    budget_fen,
+                    match_exposures,
+                    selection_exposures,
+                    constraints,
+                ):
+                    continue
+                score = _marginal_score(
+                    candidate,
+                    marginal_stake,
+                    budget_fen,
+                    match_exposures,
+                    selection_exposures,
+                    constraints,
+                )
+                if score >= constraints.min_marginal_score:
+                    allocation_choices.append((candidate, marginal_stake, score))
+            if not allocation_choices:
+                break
+            candidate, marginal_stake, _ = min(
+                allocation_choices,
+                key=lambda item: (-item[2], item[0].ticket_candidate_id),
+            )
+            pending.remove(candidate)
+            multipliers[candidate.ticket_candidate_id] += 1
             total_stake += marginal_stake
+            _add_exposure(
+                candidate,
+                marginal_stake,
+                match_exposures,
+                selection_exposures,
+            )
             allocated = True
         if not allocated:
             break
@@ -147,6 +239,71 @@ def optimize_portfolio(
         status=PortfolioStatus.RECOMMENDED,
         constraints=constraints,
     )
+
+
+def _allocation_is_feasible(
+    candidate: TicketCandidate,
+    marginal_stake: int,
+    total_stake: int,
+    budget_fen: int,
+    match_exposures: dict[str, int],
+    selection_exposures: dict[tuple[str, str, str], int],
+    constraints: PortfolioConstraints,
+) -> bool:
+    if total_stake + marginal_stake > budget_fen:
+        return False
+    match_limit = Decimal(budget_fen) * constraints.max_match_exposure_ratio
+    selection_limit = Decimal(budget_fen) * constraints.max_selection_exposure_ratio
+    if any(
+        Decimal(match_exposures.get(match_id, 0) + marginal_stake) > match_limit
+        for match_id in {leg.match_id for leg in candidate.legs}
+    ):
+        return False
+    return not any(
+        Decimal(selection_exposures.get(key, 0) + marginal_stake) > selection_limit
+        for key in _selection_keys(candidate)
+    )
+
+
+def _marginal_score(
+    candidate: TicketCandidate,
+    marginal_stake: int,
+    budget_fen: int,
+    match_exposures: dict[str, int],
+    selection_exposures: dict[tuple[str, str, str], int],
+    constraints: PortfolioConstraints,
+) -> Decimal:
+    projected_exposures = tuple(
+        match_exposures.get(match_id, 0) + marginal_stake
+        for match_id in {leg.match_id for leg in candidate.legs}
+    ) + tuple(
+        selection_exposures.get(key, 0) + marginal_stake
+        for key in _selection_keys(candidate)
+    )
+    projected_exposure = max(projected_exposures)
+    projected_ratio = Decimal(projected_exposure) / Decimal(budget_fen)
+    return candidate.expected_roi - (
+        constraints.concentration_penalty * projected_ratio
+    )
+
+
+def _add_exposure(
+    candidate: TicketCandidate,
+    marginal_stake: int,
+    match_exposures: dict[str, int],
+    selection_exposures: dict[tuple[str, str, str], int],
+) -> None:
+    for match_id in {leg.match_id for leg in candidate.legs}:
+        match_exposures[match_id] = match_exposures.get(match_id, 0) + marginal_stake
+    for key in _selection_keys(candidate):
+        selection_exposures[key] = selection_exposures.get(key, 0) + marginal_stake
+
+
+def _selection_keys(candidate: TicketCandidate) -> set[tuple[str, str, str]]:
+    return {
+        (leg.match_id, leg.market.canonical, leg.selection.value)
+        for leg in candidate.legs
+    }
 
 
 def _no_bet(

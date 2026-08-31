@@ -7,7 +7,10 @@ from sqlalchemy.exc import IntegrityError
 
 from football_system.infrastructure.database.models import (
     AnalysisPacketRecord,
+    FinalPredictionOutcomeRecord,
+    FusionRunRecord,
     LLMReviewArtifactRecord,
+    PortfolioRevisionRecord,
 )
 from football_system.infrastructure.database.session import (
     create_database_engine,
@@ -46,101 +49,305 @@ def _review_for(packet: dict) -> dict:
     }
 
 
+def _review_for_v2(packet: dict) -> dict:
+    review = _review_for(packet)
+    review["schema_version"] = "LLM_REVIEW_V2"
+    for match_review, packet_match in zip(
+        review["match_reviews"], packet["matches"], strict=True
+    ):
+        match_review["review_context_id"] = packet_match["review_context_id"]
+        match_review["review_context_hash"] = packet_match["review_context_hash"]
+    return review
+
+
+def test_cli_v2_packet_contains_auditable_mock_context(tmp_path) -> None:
+    database_url = _database_url(tmp_path / "review-v2.db")
+    packet_path = tmp_path / "analysis_packet_v2.json"
+    packet_v1_path = tmp_path / "analysis_packet_v1.json"
+    review_path = tmp_path / "llm_review_v2.json"
+
+    assert (
+        main(
+            [
+                "--database-url",
+                database_url,
+                "--budget-yuan",
+                "100",
+                "--analysis-run-id",
+                "run-review-v2",
+            ]
+        )
+        == 0
+    )
+    engine = create_database_engine(database_url)
+    sessions = create_session_factory(engine)
+    with sessions() as session:
+        original_probabilities = tuple(
+            session.execute(
+                select(
+                    FinalPredictionOutcomeRecord.final_prediction_id,
+                    FinalPredictionOutcomeRecord.selection_key,
+                    FinalPredictionOutcomeRecord.probability,
+                ).order_by(
+                    FinalPredictionOutcomeRecord.final_prediction_id,
+                    FinalPredictionOutcomeRecord.selection_key,
+                )
+            )
+        )
+    assert (
+        main(
+            [
+                "analysis-packet",
+                "export",
+                "--database-url",
+                database_url,
+                "--analysis-run-id",
+                "run-review-v2",
+                "--schema-version",
+                "ANALYSIS_PACKET_V2",
+                "--output",
+                str(packet_path),
+            ]
+        )
+        == 0
+    )
+    assert (
+        main(
+            [
+                "analysis-packet",
+                "export",
+                "--database-url",
+                database_url,
+                "--analysis-run-id",
+                "run-review-v2",
+                "--output",
+                str(packet_v1_path),
+            ]
+        )
+        == 0
+    )
+    assert json.loads(packet_v1_path.read_text(encoding="utf-8"))[
+        "schema_version"
+    ] == "ANALYSIS_PACKET_V1"
+    with sessions() as session:
+        assert set(
+            session.scalars(select(AnalysisPacketRecord.schema_version))
+        ) == {"ANALYSIS_PACKET_V1", "ANALYSIS_PACKET_V2"}
+    packet = json.loads(packet_path.read_text(encoding="utf-8"))
+    assert packet["schema_version"] == "ANALYSIS_PACKET_V2"
+    for match in packet["matches"]:
+        context = match["review_context"]
+        assert context["international_odds"]
+        assert context["sporttery_odds"]
+        assert context["data_quality"]["status"] == "PARTIAL"
+        assert all(
+            item["body"] and item["source_reference"] for item in context["evidence"]
+        )
+    serialized = packet_path.read_text(encoding="utf-8").lower()
+    for forbidden in ('"p_final"', '"ev"', '"budget"', '"stake"', '"tickets"'):
+        assert forbidden not in serialized
+
+    review_path.write_text(
+        json.dumps(_review_for_v2(packet), ensure_ascii=False), encoding="utf-8"
+    )
+    assert (
+        main(
+            [
+                "llm-review",
+                "validate",
+                "--packet",
+                str(packet_path),
+                "--review",
+                str(review_path),
+            ]
+        )
+        == 0
+    )
+    assert (
+        main(
+            [
+                "llm-review",
+                "import",
+                "--database-url",
+                database_url,
+                "--packet",
+                str(packet_path),
+                "--review",
+                str(review_path),
+            ]
+        )
+        == 0
+    )
+    with sessions() as session:
+        artifact_id = session.scalar(select(LLMReviewArtifactRecord.review_artifact_id))
+    assert (
+        main(
+            [
+                "fusion-run",
+                "create",
+                "--database-url",
+                database_url,
+                "--review-artifact-id",
+                artifact_id,
+            ]
+        )
+        == 0
+    )
+    with sessions() as session:
+        fusion_run_id = session.scalar(select(FusionRunRecord.fusion_run_id))
+    assert (
+        main(
+            [
+                "portfolio-revision",
+                "create",
+                "--database-url",
+                database_url,
+                "--fusion-run-id",
+                fusion_run_id,
+            ]
+        )
+        == 0
+    )
+    with sessions() as session:
+        revision_record = session.scalar(select(PortfolioRevisionRecord))
+        revision = json.loads(revision_record.revision_json)
+        assert revision["parent_analysis_run_id"] == "run-review-v2"
+        assert revision["fusion_run_id"] == fusion_run_id
+        assert all(
+            item["analysis_run_id"] == revision["portfolio_revision_id"]
+            for item in revision["final_predictions"]
+        )
+        assert (
+            tuple(
+                session.execute(
+                    select(
+                        FinalPredictionOutcomeRecord.final_prediction_id,
+                        FinalPredictionOutcomeRecord.selection_key,
+                        FinalPredictionOutcomeRecord.probability,
+                    ).order_by(
+                        FinalPredictionOutcomeRecord.final_prediction_id,
+                        FinalPredictionOutcomeRecord.selection_key,
+                    )
+                )
+            )
+            == original_probabilities
+        )
+
+
 def test_cli_exports_validates_and_imports_append_only_review(tmp_path, capsys) -> None:
     database_path = tmp_path / "review-bridge.db"
     database_url = _database_url(database_path)
     packet_path = tmp_path / "analysis_packet.json"
     review_path = tmp_path / "llm_review.json"
 
-    assert main(
-        [
-            "--database-url",
-            database_url,
-            "--budget-yuan",
-            "100",
-            "--analysis-run-id",
-            "run-review-bridge",
-        ]
-    ) == 0
-    assert main(
-        [
-            "analysis-packet",
-            "export",
-            "--database-url",
-            database_url,
-            "--analysis-run-id",
-            "run-review-bridge",
-            "--output",
-            str(packet_path),
-        ]
-    ) == 0
+    assert (
+        main(
+            [
+                "--database-url",
+                database_url,
+                "--budget-yuan",
+                "100",
+                "--analysis-run-id",
+                "run-review-bridge",
+            ]
+        )
+        == 0
+    )
+    assert (
+        main(
+            [
+                "analysis-packet",
+                "export",
+                "--database-url",
+                database_url,
+                "--analysis-run-id",
+                "run-review-bridge",
+                "--output",
+                str(packet_path),
+            ]
+        )
+        == 0
+    )
     packet_bytes = packet_path.read_bytes()
     packet = json.loads(packet_bytes)
     serialized = packet_bytes.decode("utf-8").lower()
     for forbidden in ('"p_final"', '"ev"', '"budget"', '"stake"', '"tickets"'):
         assert forbidden not in serialized
     assert '"config_hash"' not in serialized
-    assert main(
-        [
-            "analysis-packet",
-            "export",
-            "--database-url",
-            database_url,
-            "--analysis-run-id",
-            "run-review-bridge",
-            "--output",
-            str(packet_path),
-        ]
-    ) == 0
+    assert (
+        main(
+            [
+                "analysis-packet",
+                "export",
+                "--database-url",
+                database_url,
+                "--analysis-run-id",
+                "run-review-bridge",
+                "--output",
+                str(packet_path),
+            ]
+        )
+        == 0
+    )
     assert packet_path.read_bytes() == packet_bytes
 
     review_path.write_text(
         json.dumps(_review_for(packet), ensure_ascii=False), encoding="utf-8"
     )
-    assert main(
-        [
-            "llm-review",
-            "validate",
-            "--packet",
-            str(packet_path),
-            "--review",
-            str(review_path),
-        ]
-    ) == 0
-    assert main(
-        [
-            "llm-review",
-            "import",
-            "--database-url",
-            database_url,
-            "--packet",
-            str(packet_path),
-            "--review",
-            str(review_path),
-        ]
-    ) == 0
-    assert main(
-        [
-            "llm-review",
-            "import",
-            "--database-url",
-            database_url,
-            "--packet",
-            str(packet_path),
-            "--review",
-            str(review_path),
-        ]
-    ) == 0
+    assert (
+        main(
+            [
+                "llm-review",
+                "validate",
+                "--packet",
+                str(packet_path),
+                "--review",
+                str(review_path),
+            ]
+        )
+        == 0
+    )
+    assert (
+        main(
+            [
+                "llm-review",
+                "import",
+                "--database-url",
+                database_url,
+                "--packet",
+                str(packet_path),
+                "--review",
+                str(review_path),
+            ]
+        )
+        == 0
+    )
+    assert (
+        main(
+            [
+                "llm-review",
+                "import",
+                "--database-url",
+                database_url,
+                "--packet",
+                str(packet_path),
+                "--review",
+                str(review_path),
+            ]
+        )
+        == 0
+    )
 
     engine = create_database_engine(database_url)
     sessions = create_session_factory(engine)
     with sessions() as session:
-        assert session.scalar(
-            select(func.count()).select_from(AnalysisPacketRecord)
-        ) == 1
-        assert session.scalar(
-            select(func.count()).select_from(LLMReviewArtifactRecord)
-        ) == 1
+        assert (
+            session.scalar(select(func.count()).select_from(AnalysisPacketRecord)) == 1
+        )
+        assert (
+            session.scalar(select(func.count()).select_from(LLMReviewArtifactRecord))
+            == 1
+        )
 
     for statement in (
         "UPDATE analysis_packets SET schema_version = 'MUTATED'",
@@ -199,17 +406,22 @@ def test_validate_command_never_opens_database(tmp_path, monkeypatch, capsys) ->
     review_path.write_text(json.dumps(_review_for(packet)), encoding="utf-8")
     monkeypatch.setattr(
         "football_system.interfaces.cli.upgrade_database",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("database opened")),
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("database opened")
+        ),
     )
 
-    assert main(
-        [
-            "llm-review",
-            "validate",
-            "--packet",
-            str(packet_path),
-            "--review",
-            str(review_path),
-        ]
-    ) == 0
+    assert (
+        main(
+            [
+                "llm-review",
+                "validate",
+                "--packet",
+                str(packet_path),
+                "--review",
+                str(review_path),
+            ]
+        )
+        == 0
+    )
     assert "valid for AnalysisPacket" in capsys.readouterr().out

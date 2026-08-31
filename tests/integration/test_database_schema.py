@@ -46,6 +46,9 @@ def test_schema_contains_mvp_tables_and_enables_foreign_keys() -> None:
         "portfolio_stress_ticket_results",
         "analysis_packets",
         "llm_review_artifacts",
+        "fusion_runs",
+        "fusion_run_results",
+        "portfolio_revisions",
         "tickets",
     } <= tables
     with engine.connect() as connection:
@@ -265,6 +268,9 @@ def test_alembic_upgrades_empty_sqlite_database(tmp_path) -> None:
     assert "portfolio_risk_reports" in tables
     assert "analysis_packets" in tables
     assert "llm_review_artifacts" in tables
+    assert "fusion_runs" in tables
+    assert "fusion_run_results" in tables
+    assert "portfolio_revisions" in tables
     stress_columns = {
         column["name"]: column for column in inspect(engine).get_columns(
             "portfolio_stress_results"
@@ -291,6 +297,59 @@ def test_alembic_upgrades_empty_sqlite_database(tmp_path) -> None:
                 text("SELECT name FROM sqlite_master WHERE type = 'trigger'")
             ).scalars()
         )
+        assert "trg_fusion_runs_append_only_insert_existing" in set(
+            connection.execute(
+                text("SELECT name FROM sqlite_master WHERE type = 'trigger'")
+            ).scalars()
+        )
+        assert "trg_fusion_run_results_completed_parent_insert" in set(
+            connection.execute(
+                text("SELECT name FROM sqlite_master WHERE type = 'trigger'")
+            ).scalars()
+        )
+        assert "trg_portfolio_revisions_append_only_delete" in set(
+            connection.execute(
+                text("SELECT name FROM sqlite_master WHERE type = 'trigger'")
+            ).scalars()
+        )
+
+
+def test_post_review_migration_upgrades_0_2_head_and_downgrades(tmp_path) -> None:
+    database_path = tmp_path / "post-review-upgrade.db"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config("alembic.ini")
+    config.set_main_option("sqlalchemy.url", database_url)
+
+    command.upgrade(config, "9d4e6f1a2c70")
+    engine = create_database_engine(database_url)
+    assert "fusion_runs" not in set(inspect(engine).get_table_names())
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    assert {
+        "fusion_runs",
+        "fusion_run_results",
+        "portfolio_revisions",
+    } <= set(inspect(engine).get_table_names())
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "c8b7e2a4f190"
+        )
+    engine.dispose()
+
+    command.downgrade(config, "9d4e6f1a2c70")
+    engine = create_database_engine(database_url)
+    assert not {
+        "fusion_runs",
+        "fusion_run_results",
+        "portfolio_revisions",
+    } & set(inspect(engine).get_table_names())
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "9d4e6f1a2c70"
+        )
+    engine.dispose()
 
 
 def test_hardening_migration_rejects_existing_cross_run_risk_lineage(tmp_path) -> None:
@@ -417,7 +476,7 @@ def test_hardening_migration_accepts_valid_completed_risk_graph(tmp_path) -> Non
     engine = create_database_engine(database_url)
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "9d4e6f1a2c70"
+            "c8b7e2a4f190"
         )
         assert connection.scalar(
             text(

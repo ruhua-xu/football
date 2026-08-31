@@ -3,8 +3,9 @@ from __future__ import annotations
 from typing import Protocol
 
 from football_system.domain.review import (
-    AnalysisPacket,
+    AnalysisPacketContract,
     AnalysisPacketSource,
+    AnalysisPacketSourceV2,
     LLMReviewArtifact,
     StoredAnalysisPacket,
 )
@@ -12,6 +13,8 @@ from football_system.domain.review import (
 
 class ReviewArtifactRepository(Protocol):
     def load_packet_source(self, analysis_run_id: str) -> AnalysisPacketSource: ...
+
+    def load_packet_source_v2(self, analysis_run_id: str) -> AnalysisPacketSourceV2: ...
 
     def find_analysis_packet(
         self,
@@ -21,7 +24,7 @@ class ReviewArtifactRepository(Protocol):
 
     def save_analysis_packet(
         self,
-        packet: AnalysisPacket,
+        packet: AnalysisPacketContract,
         packet_json: str,
     ) -> StoredAnalysisPacket: ...
 

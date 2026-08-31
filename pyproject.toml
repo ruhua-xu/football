@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "football-system"
-version = "0.2.0"
-description = "Reproducible football analysis, portfolio risk, and offline review bridge"
+version = "0.3.0"
+description = "Reproducible football analysis with offline review fusion and revisions"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -29,7 +29,10 @@ where = ["src"]
 "football_system_resources" = ["alembic.ini"]
 "football_system_resources/config" = ["config/mvp.toml"]
 "football_system_resources/data/fixtures" = ["data/fixtures/mvp_matches.json"]
-"football_system_resources/fankui" = ["fankui/llm_review_v1_contract.md"]
+"football_system_resources/fankui" = [
+    "fankui/llm_review_v1_contract.md",
+    "fankui/llm_review_v2_contract.md",
+]
 "football_system_resources/migrations" = ["migrations/env.py", "migrations/script.py.mako"]
 "football_system_resources/migrations/versions" = [
     "migrations/versions/1bec5f575834_create_mvp_schema.py",
@@ -37,6 +40,7 @@ where = ["src"]
     "migrations/versions/4f9b2d7c1a60_add_portfolio_risk.py",
     "migrations/versions/7a2c5e8f9b31_add_offline_review_bridge.py",
     "migrations/versions/9d4e6f1a2c70_harden_artifact_integrity.py",
+    "migrations/versions/c8b7e2a4f190_add_post_review_persistence.py",
 ]
 
 [tool.pytest.ini_options]

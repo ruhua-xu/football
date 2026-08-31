@@ -14,15 +14,22 @@ from football_system.application.ports.review_artifacts import (
 from football_system.domain.common import stable_id, utc_now
 from football_system.domain.review import (
     AnalysisPacket,
+    AnalysisPacketContract,
+    AnalysisPacketMatchV2,
     AnalysisPacketSource,
+    AnalysisPacketSourceV2,
+    AnalysisPacketV2,
     LLMReviewArtifact,
     LLMReviewSubmission,
+    LLMReviewSubmissionContract,
+    LLMReviewSubmissionV2,
     MAX_CONTRACT_FILE_BYTES,
     StoredAnalysisPacket,
     ValidLLMMatchReview,
 )
 
 VALIDATOR_VERSION = "OFFLINE_REVIEW_VALIDATOR_V1"
+VALIDATOR_VERSION_V2 = "OFFLINE_REVIEW_VALIDATOR_V2"
 MAX_JSON_NESTING = 128
 EXACT_WIRE_FIELDS = {
     "schema_version",
@@ -52,17 +59,27 @@ class ExportAnalysisPacketService:
     def __init__(self, repository: ReviewArtifactRepository) -> None:
         self._repository = repository
 
-    def export(self, analysis_run_id: str) -> tuple[AnalysisPacket, str]:
+    def export(
+        self,
+        analysis_run_id: str,
+        schema_version: str = "ANALYSIS_PACKET_V1",
+    ) -> tuple[AnalysisPacketContract, str]:
+        if schema_version not in {"ANALYSIS_PACKET_V1", "ANALYSIS_PACKET_V2"}:
+            raise ValueError(f"unsupported AnalysisPacket schema: {schema_version}")
         stored = self._repository.find_analysis_packet(
             analysis_run_id,
-            "ANALYSIS_PACKET_V1",
+            schema_version,
         )
         if stored is not None:
             packet = _parse_analysis_packet(stored.packet_json.encode("utf-8"))
             _validate_stored_packet(stored, packet)
             return packet, stored.packet_json
-        source = self._repository.load_packet_source(analysis_run_id)
-        packet = build_analysis_packet(source, utc_now())
+        if schema_version == "ANALYSIS_PACKET_V1":
+            source = self._repository.load_packet_source(analysis_run_id)
+            packet = build_analysis_packet(source, utc_now())
+        else:
+            source_v2 = self._repository.load_packet_source_v2(analysis_run_id)
+            packet = build_analysis_packet_v2(source_v2, utc_now())
         packet_json = canonical_json(packet.model_dump(mode="json"))
         _validate_contract_size(packet_json, include_trailing_newline=True)
         stored = self._repository.save_analysis_packet(packet, packet_json)
@@ -87,12 +104,13 @@ class ImportLLMReviewService:
         stored = self._repository.load_analysis_packet(packet.packet_id)
         _validate_stored_packet(stored, packet)
         normalized_hash = sha256_text(normalized_review_json)
+        validator_version = _validator_version(packet.schema_version)
         artifact = LLMReviewArtifact(
             review_artifact_id=stable_id(
                 "llm-review-artifact",
                 packet.packet_id,
                 normalized_hash,
-                VALIDATOR_VERSION,
+                validator_version,
             ),
             parent_analysis_run_id=packet.analysis_run.analysis_run_id,
             packet_id=packet.packet_id,
@@ -103,6 +121,7 @@ class ImportLLMReviewService:
             raw_review_hash=hashlib.sha256(review_bytes).hexdigest(),
             normalized_review_json=normalized_review_json,
             normalized_review_hash=normalized_hash,
+            validator_version=validator_version,
         )
         stored_artifact = self._repository.save_llm_review(artifact)
         _validate_stored_review_artifact(stored_artifact, packet)
@@ -136,15 +155,91 @@ def build_analysis_packet(
     )
 
 
+def build_analysis_packet_v2(
+    source: AnalysisPacketSourceV2,
+    generated_at_utc: datetime,
+) -> AnalysisPacketV2:
+    run = source.analysis_run
+    matches: list[AnalysisPacketMatchV2] = []
+    for source_match in sorted(source.matches, key=lambda item: item.match_id):
+        context = source_match.review_context.model_copy(
+            update={
+                "evidence": tuple(
+                    sorted(
+                        source_match.review_context.evidence,
+                        key=lambda item: item.evidence_id,
+                    )
+                ),
+                "data_quality": source_match.review_context.data_quality.model_copy(
+                    update={
+                        "available_fields": tuple(
+                            sorted(
+                                source_match.review_context.data_quality.available_fields
+                            )
+                        ),
+                        "missing_fields": tuple(
+                            sorted(
+                                source_match.review_context.data_quality.missing_fields
+                            )
+                        ),
+                        "notes": tuple(
+                            sorted(source_match.review_context.data_quality.notes)
+                        ),
+                    }
+                ),
+            }
+        )
+        context_hash = sha256_text(canonical_json(context.model_dump(mode="json")))
+        context_id = stable_id(
+            "match-review-context",
+            run.analysis_run_id,
+            source_match.match_id,
+            context_hash,
+        )
+        match_payload = source_match.model_dump(
+            mode="python",
+            exclude={"review_context", "evidence_ids"},
+        )
+        matches.append(
+            AnalysisPacketMatchV2(
+                **match_payload,
+                evidence_ids=tuple(item.evidence_id for item in context.evidence),
+                review_context=context,
+                review_context_id=context_id,
+                review_context_hash=context_hash,
+            )
+        )
+    packet_id = stable_id(
+        "analysis-packet",
+        run.analysis_run_id,
+        "ANALYSIS_PACKET_V2",
+        run.input_manifest_hash,
+        run.code_revision,
+    )
+    without_hash = {
+        "schema_version": "ANALYSIS_PACKET_V2",
+        "packet_id": packet_id,
+        "generated_at_utc": _utc_json(generated_at_utc),
+        "analysis_run": run.model_dump(mode="json"),
+        "matches": [match.model_dump(mode="json") for match in matches],
+    }
+    return AnalysisPacketV2(
+        **without_hash,
+        packet_hash=sha256_text(canonical_json(without_hash)),
+    )
+
+
 def validate_review_files(
     packet_bytes: bytes,
     review_bytes: bytes,
-) -> tuple[AnalysisPacket, LLMReviewSubmission, str]:
+) -> tuple[AnalysisPacketContract, LLMReviewSubmissionContract, str]:
     try:
         packet = _parse_analysis_packet(packet_bytes)
-        submission = LLMReviewSubmission.model_validate(
-            strict_json_loads(review_bytes)
-        )
+        review_payload = strict_json_loads(review_bytes)
+        if packet.schema_version == "ANALYSIS_PACKET_V1":
+            submission = LLMReviewSubmission.model_validate(review_payload)
+        else:
+            submission = LLMReviewSubmissionV2.model_validate(review_payload)
     except ValidationError as error:
         raise ValueError(f"file contract validation failed: {error}") from error
     validate_review_binding(packet, submission)
@@ -154,8 +249,8 @@ def validate_review_files(
 
 
 def validate_review_binding(
-    packet: AnalysisPacket,
-    submission: LLMReviewSubmission,
+    packet: AnalysisPacketContract,
+    submission: LLMReviewSubmissionContract,
 ) -> None:
     if (
         submission.analysis_run_id != packet.analysis_run.analysis_run_id
@@ -171,6 +266,12 @@ def validate_review_binding(
         packet_match = packet_matches[match_id]
         if review.market_key != packet_match.market_key:
             raise ValueError(f"LLM review market mismatch for {match_id}")
+        if isinstance(packet, AnalysisPacketV2):
+            if (
+                review.review_context_id != packet_match.review_context_id
+                or review.review_context_hash != packet_match.review_context_hash
+            ):
+                raise ValueError(f"LLM review context mismatch for {match_id}")
         if isinstance(review, ValidLLMMatchReview):
             nested_markets = {
                 item.market_key
@@ -193,7 +294,9 @@ def validate_review_binding(
                 for evidence_id in item.evidence_ids
             }
             if evidence_ids - set(packet_match.evidence_ids):
-                raise ValueError(f"LLM review references unknown evidence for {match_id}")
+                raise ValueError(
+                    f"LLM review references unknown evidence for {match_id}"
+                )
 
 
 def strict_json_loads(data: bytes) -> object:
@@ -239,7 +342,7 @@ def sha256_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def _validate_packet_hash(packet: AnalysisPacket) -> None:
+def _validate_packet_hash(packet: AnalysisPacketContract) -> None:
     payload = packet.model_dump(mode="json", exclude={"packet_hash"})
     expected_hash = sha256_text(canonical_json(payload))
     if packet.packet_hash != expected_hash:
@@ -257,7 +360,7 @@ def _validate_packet_hash(packet: AnalysisPacket) -> None:
 
 def _validate_stored_packet(
     stored: StoredAnalysisPacket,
-    packet: AnalysisPacket,
+    packet: AnalysisPacketContract,
 ) -> None:
     if (
         stored.packet_id != packet.packet_id
@@ -271,23 +374,25 @@ def _validate_stored_packet(
 
 def _validate_stored_review_artifact(
     artifact: LLMReviewArtifact,
-    packet: AnalysisPacket,
+    packet: AnalysisPacketContract,
 ) -> None:
     raw_review_bytes = artifact.raw_review_json.encode("utf-8")
     normalized_hash = sha256_text(artifact.normalized_review_json)
+    validator_version = _validator_version(packet.schema_version)
+    review_schema_version = _review_schema_version(packet.schema_version)
     expected_id = stable_id(
         "llm-review-artifact",
         packet.packet_id,
         normalized_hash,
-        VALIDATOR_VERSION,
+        validator_version,
     )
     if (
         artifact.review_artifact_id != expected_id
         or artifact.parent_analysis_run_id != packet.analysis_run.analysis_run_id
         or artifact.packet_id != packet.packet_id
         or artifact.packet_hash != packet.packet_hash
-        or artifact.review_schema_version != "LLM_REVIEW_V1"
-        or artifact.validator_version != VALIDATOR_VERSION
+        or artifact.review_schema_version != review_schema_version
+        or artifact.validator_version != validator_version
         or artifact.raw_review_hash != hashlib.sha256(raw_review_bytes).hexdigest()
         or artifact.normalized_review_hash != normalized_hash
     ):
@@ -298,7 +403,9 @@ def _validate_stored_review_artifact(
             raw_review_bytes,
         )
     except ValueError as error:
-        raise ValueError("stored LLM review artifact failed contract validation") from error
+        raise ValueError(
+            "stored LLM review artifact failed contract validation"
+        ) from error
     if (
         submission.schema_version != artifact.review_schema_version
         or normalized != artifact.normalized_review_json
@@ -336,19 +443,34 @@ def _validate_wire_strings(value: object) -> None:
         elif isinstance(item, dict):
             for key, child in item.items():
                 if key != key.strip():
-                    raise ValueError("JSON object keys cannot have surrounding whitespace")
+                    raise ValueError(
+                        "JSON object keys cannot have surrounding whitespace"
+                    )
                 pending.append((key, child, depth + 1))
         elif isinstance(item, list):
             pending.extend((field, child, depth + 1) for child in item)
 
 
-def _parse_analysis_packet(data: bytes) -> AnalysisPacket:
-    packet = AnalysisPacket.model_validate(strict_json_loads(data))
+def _parse_analysis_packet(data: bytes) -> AnalysisPacketContract:
+    payload = strict_json_loads(data)
+    if not isinstance(payload, dict):
+        raise ValueError("AnalysisPacket root must be a JSON object")
+    schema_version = payload.get("schema_version")
+    if schema_version is None:
+        raise ValueError("AnalysisPacket requires schema_version")
+    if schema_version == "ANALYSIS_PACKET_V1":
+        packet = AnalysisPacket.model_validate(payload)
+    elif schema_version == "ANALYSIS_PACKET_V2":
+        packet = AnalysisPacketV2.model_validate(payload)
+    else:
+        raise ValueError(f"unsupported AnalysisPacket schema: {schema_version}")
     _validate_packet_hash(packet)
     return packet
 
 
-def _normalized_review_payload(submission: LLMReviewSubmission) -> dict[str, object]:
+def _normalized_review_payload(
+    submission: LLMReviewSubmissionContract,
+) -> dict[str, object]:
     payload = submission.model_dump(mode="python", exclude={"match_reviews"})
     reviews = []
     for review in sorted(submission.match_reviews, key=lambda item: item.match_id):
@@ -411,3 +533,19 @@ def _validate_contract_size(
     serialized = content + ("\n" if include_trailing_newline else "")
     if len(serialized.encode("utf-8")) > MAX_CONTRACT_FILE_BYTES:
         raise ValueError("contract JSON exceeds the size limit")
+
+
+def _validator_version(packet_schema_version: str) -> str:
+    if packet_schema_version == "ANALYSIS_PACKET_V1":
+        return VALIDATOR_VERSION
+    if packet_schema_version == "ANALYSIS_PACKET_V2":
+        return VALIDATOR_VERSION_V2
+    raise ValueError(f"unsupported AnalysisPacket schema: {packet_schema_version}")
+
+
+def _review_schema_version(packet_schema_version: str) -> str:
+    if packet_schema_version == "ANALYSIS_PACKET_V1":
+        return "LLM_REVIEW_V1"
+    if packet_schema_version == "ANALYSIS_PACKET_V2":
+        return "LLM_REVIEW_V2"
+    raise ValueError(f"unsupported AnalysisPacket schema: {packet_schema_version}")

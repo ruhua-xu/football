@@ -864,3 +864,129 @@ class LLMReviewArtifactRecord(Base):
     normalized_review_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     validator_version: Mapped[str] = mapped_column(String(80), nullable=False)
     source_kind: Mapped[str] = mapped_column(String(40), nullable=False)
+
+
+class FusionRunRecord(Base):
+    __tablename__ = "fusion_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "length(config_hash) = 64", name="ck_fusion_run_config_hash_length"
+        ),
+        UniqueConstraint(
+            "parent_analysis_run_id",
+            "llm_review_artifact_id",
+            "fusion_policy",
+            "fusion_version",
+            "config_hash",
+            name="uq_fusion_run_idempotency",
+        ),
+    )
+
+    fusion_run_id: Mapped[str] = mapped_column(IdColumn, primary_key=True)
+    parent_analysis_run_id: Mapped[str] = mapped_column(
+        ForeignKey("analysis_runs.analysis_run_id", ondelete="RESTRICT"), nullable=False
+    )
+    llm_review_artifact_id: Mapped[str] = mapped_column(
+        ForeignKey(
+            "llm_review_artifacts.review_artifact_id", ondelete="RESTRICT"
+        ),
+        nullable=False,
+    )
+    fusion_policy: Mapped[str] = mapped_column(String(80), nullable=False)
+    fusion_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    config_json: Mapped[str] = mapped_column(Text, nullable=False)
+    config_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at_utc: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class FusionRunResultRecord(Base):
+    __tablename__ = "fusion_run_results"
+    __table_args__ = (
+        CheckConstraint(
+            "confidence_factor >= 0 AND confidence_factor <= 1",
+            name="ck_fusion_result_confidence_factor",
+        ),
+        CheckConstraint(
+            "data_quality_factor >= 0 AND data_quality_factor <= 1",
+            name="ck_fusion_result_data_quality_factor",
+        ),
+        CheckConstraint(
+            "(p_llm_json IS NULL AND raw_probability_delta_json IS NULL) OR "
+            "(p_llm_json IS NOT NULL AND raw_probability_delta_json IS NOT NULL)",
+            name="ck_fusion_result_llm_delta_pair",
+        ),
+        CheckConstraint(
+            "length(result_hash) = 64", name="ck_fusion_result_hash_length"
+        ),
+        UniqueConstraint(
+            "fusion_run_id",
+            "internal_match_id",
+            name="uq_fusion_result_match",
+        ),
+        UniqueConstraint(
+            "fusion_run_id",
+            "base_prediction_id",
+            name="uq_fusion_result_base_prediction",
+        ),
+    )
+
+    fusion_result_id: Mapped[str] = mapped_column(IdColumn, primary_key=True)
+    fusion_run_id: Mapped[str] = mapped_column(
+        ForeignKey("fusion_runs.fusion_run_id", ondelete="RESTRICT"), nullable=False
+    )
+    internal_match_id: Mapped[str] = mapped_column(
+        ForeignKey("matches.internal_match_id", ondelete="RESTRICT"), nullable=False
+    )
+    market_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    market_type: Mapped[str] = mapped_column(EnumColumn, nullable=False)
+    handicap_value: Mapped[Decimal | None] = mapped_column(Numeric(8, 3), nullable=True)
+    base_prediction_id: Mapped[str] = mapped_column(
+        ForeignKey("final_predictions.final_prediction_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    p_base_json: Mapped[str] = mapped_column(Text, nullable=False)
+    p_llm_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    raw_probability_delta_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    applied_probability_delta_json: Mapped[str] = mapped_column(Text, nullable=False)
+    confidence_factor: Mapped[Decimal] = mapped_column(ProbabilityColumn, nullable=False)
+    data_quality_factor: Mapped[Decimal] = mapped_column(ProbabilityColumn, nullable=False)
+    p_final_json: Mapped[str] = mapped_column(Text, nullable=False)
+    fallback_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    result_json: Mapped[str] = mapped_column(Text, nullable=False)
+    result_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class PortfolioRevisionRecord(Base):
+    __tablename__ = "portfolio_revisions"
+    __table_args__ = (
+        CheckConstraint(
+            "length(config_hash) = 64",
+            name="ck_portfolio_revision_config_hash_length",
+        ),
+        CheckConstraint(
+            "length(revision_hash) = 64",
+            name="ck_portfolio_revision_hash_length",
+        ),
+        UniqueConstraint(
+            "fusion_run_id",
+            "revision_policy",
+            "revision_version",
+            "config_hash",
+            name="uq_portfolio_revision_idempotency",
+        ),
+    )
+
+    portfolio_revision_id: Mapped[str] = mapped_column(IdColumn, primary_key=True)
+    parent_analysis_run_id: Mapped[str] = mapped_column(
+        ForeignKey("analysis_runs.analysis_run_id", ondelete="RESTRICT"), nullable=False
+    )
+    fusion_run_id: Mapped[str] = mapped_column(
+        ForeignKey("fusion_runs.fusion_run_id", ondelete="RESTRICT"), nullable=False
+    )
+    revision_policy: Mapped[str] = mapped_column(String(80), nullable=False)
+    revision_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    generated_at_utc: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    config_json: Mapped[str] = mapped_column(Text, nullable=False)
+    config_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    revision_json: Mapped[str] = mapped_column(Text, nullable=False)
+    revision_hash: Mapped[str] = mapped_column(String(64), nullable=False)

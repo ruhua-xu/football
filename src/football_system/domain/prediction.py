@@ -13,6 +13,7 @@ from football_system.domain.market import MarketKey, ThreeWayProbability
 class FusionPolicyName(StrEnum):
     QUANT_ONLY_V1 = "QUANT_ONLY_V1"
     MARKET_QUANT_BLEND_V1 = "MARKET_QUANT_BLEND_V1"
+    LLM_REVIEW_DELTA_V1 = "LLM_REVIEW_DELTA_V1"
 
 
 class MarketPrediction(DomainModel):

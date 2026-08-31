@@ -18,7 +18,7 @@ class DatabaseSettings(SettingsModel):
 
 
 class AnalysisSettings(SettingsModel):
-    pipeline_version: str = "PORTFOLIO_RISK_V1"
+    pipeline_version: str = "PORTFOLIO_RISK_V2"
     fusion_policy: str = "QUANT_ONLY_V1"
     quant_weight: Decimal = Field(default=Decimal("0.70"), ge=0, le=1)
     min_selection_ev: Decimal = Field(default=Decimal("0.02"), ge=0)
@@ -34,12 +34,23 @@ class PortfolioSettings(SettingsModel):
     )
     extra_ticket_min_roi: Decimal = Field(default=Decimal("0.20"), ge=0)
     operational_complexity_penalty: Decimal = Field(default=Decimal("0.01"), ge=0)
+    max_match_exposure_ratio: Decimal = Field(default=Decimal(1), ge=0, le=1)
+    max_selection_exposure_ratio: Decimal = Field(default=Decimal(1), ge=0, le=1)
+    concentration_penalty: Decimal = Field(default=Decimal(0), ge=0)
+    min_marginal_score: Decimal = Field(default=Decimal(0), ge=0)
 
     @model_validator(mode="after")
     def validate_ticket_limits(self) -> PortfolioSettings:
         if self.preferred_max_tickets > self.absolute_max_tickets:
             raise ValueError("preferred_max_tickets cannot exceed absolute_max_tickets")
         return self
+
+
+class ReviewFusionSettings(SettingsModel):
+    policy: str = "LLM_REVIEW_DELTA_V1"
+    version: str = "1"
+    max_probability_delta: Decimal = Field(default=Decimal("0.08"), ge=0, le=1)
+    legacy_data_quality_factor: Decimal = Field(default=Decimal("0.25"), ge=0, le=1)
 
 
 class SportterySettings(SettingsModel):
@@ -63,13 +74,16 @@ class AppSettings(SettingsModel):
     database: DatabaseSettings = DatabaseSettings()
     analysis: AnalysisSettings = AnalysisSettings()
     portfolio: PortfolioSettings = PortfolioSettings()
+    review_fusion: ReviewFusionSettings = ReviewFusionSettings()
     sporttery: SportterySettings = SportterySettings()
     mock: MockSettings = MockSettings()
 
     @model_validator(mode="after")
     def validate_strategy_thresholds(self) -> AppSettings:
         if self.portfolio.extra_ticket_min_roi <= self.analysis.min_ticket_roi:
-            raise ValueError("extra_ticket_min_roi must exceed the base ticket ROI threshold")
+            raise ValueError(
+                "extra_ticket_min_roi must exceed the base ticket ROI threshold"
+            )
         return self
 
     @classmethod

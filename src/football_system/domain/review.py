@@ -7,7 +7,12 @@ from typing import Annotated, Literal
 from pydantic import Field, StringConstraints, model_validator
 
 from football_system.domain.common import DomainModel, Identifier, UtcDateTime
-from football_system.domain.market import SelectionKey, ThreeWayProbability
+from football_system.domain.market import (
+    SelectionKey,
+    ThreeWayFixedBonus,
+    ThreeWayMarketOdds,
+    ThreeWayProbability,
+)
 
 SHA256_PATTERN = r"^[0-9a-f]{64}$"
 MAX_PACKET_MATCHES = 256
@@ -106,6 +111,152 @@ class AnalysisPacket(DomainModel):
         return self
 
 
+class PacketInternationalOdds(DomainModel):
+    snapshot_id: Identifier
+    provider_id: Identifier
+    provider_name: str = Field(min_length=1, max_length=160)
+    bookmaker_id: Identifier
+    bookmaker_name: str = Field(min_length=1, max_length=160)
+    captured_at_utc: UtcDateTime
+    available_at_utc: UtcDateTime
+    payload_hash: Identifier
+    odds: ThreeWayMarketOdds
+
+
+class PacketSportteryOdds(DomainModel):
+    snapshot_id: Identifier
+    provider_id: Identifier
+    provider_name: str = Field(min_length=1, max_length=160)
+    sporttery_match_no: Identifier
+    sale_status: str = Field(min_length=1, max_length=64)
+    captured_at_utc: UtcDateTime
+    available_at_utc: UtcDateTime
+    payload_hash: Identifier
+    odds: ThreeWayFixedBonus
+
+
+class PacketRestDays(DomainModel):
+    home: int | None = Field(default=None, ge=0, le=365)
+    away: int | None = Field(default=None, ge=0, le=365)
+
+
+class PacketEvidence(DomainModel):
+    evidence_id: Identifier
+    category: str = Field(min_length=1, max_length=80)
+    body: str = Field(min_length=1, max_length=10_000)
+    source_kind: str = Field(min_length=1, max_length=80)
+    source_name: str = Field(min_length=1, max_length=320)
+    source_reference: str = Field(min_length=1, max_length=500)
+    source_record_id: Identifier
+    source_payload_hash: Identifier
+    observed_at_utc: UtcDateTime
+    available_at_utc: UtcDateTime
+
+
+class PacketDataQualityStatus(StrEnum):
+    COMPLETE = "COMPLETE"
+    PARTIAL = "PARTIAL"
+    INSUFFICIENT = "INSUFFICIENT"
+
+
+class PacketDataQuality(DomainModel):
+    status: PacketDataQualityStatus
+    score: Decimal = Field(ge=0, le=1)
+    available_fields: tuple[str, ...] = Field(default=(), max_length=32)
+    missing_fields: tuple[str, ...] = Field(default=(), max_length=32)
+    notes: tuple[str, ...] = Field(default=(), max_length=32)
+
+    @model_validator(mode="after")
+    def validate_fields(self) -> PacketDataQuality:
+        _validate_decimal_precision(self.score, "packet data quality score")
+        _require_unique(self.available_fields, "available review context fields")
+        _require_unique(self.missing_fields, "missing review context fields")
+        _require_unique(self.notes, "data quality notes")
+        if set(self.available_fields) & set(self.missing_fields):
+            raise ValueError(
+                "review context fields cannot be both available and missing"
+            )
+        return self
+
+
+class MatchReviewContext(DomainModel):
+    sporttery_odds: PacketSportteryOdds | None = None
+    international_odds: PacketInternationalOdds | None = None
+    odds_movement_summary: str | None = Field(default=None, max_length=4_000)
+    recent_form: str | None = Field(default=None, max_length=4_000)
+    home_away_form: str | None = Field(default=None, max_length=4_000)
+    rest_days: PacketRestDays | None = None
+    schedule_context: str | None = Field(default=None, max_length=4_000)
+    injuries: tuple[str, ...] = Field(default=(), max_length=128)
+    suspensions: tuple[str, ...] = Field(default=(), max_length=128)
+    expected_lineup: tuple[str, ...] = Field(default=(), max_length=64)
+    confirmed_lineup: tuple[str, ...] = Field(default=(), max_length=64)
+    evidence: tuple[PacketEvidence, ...] = Field(default=(), max_length=128)
+    data_quality: PacketDataQuality
+
+    @model_validator(mode="after")
+    def validate_collections(self) -> MatchReviewContext:
+        evidence_ids = tuple(item.evidence_id for item in self.evidence)
+        _require_unique(evidence_ids, "review context evidence IDs")
+        _require_unique(self.injuries, "review context injuries")
+        _require_unique(self.suspensions, "review context suspensions")
+        _require_unique(self.expected_lineup, "expected lineup players")
+        _require_unique(self.confirmed_lineup, "confirmed lineup players")
+        return self
+
+
+class AnalysisPacketMatchSourceV2(AnalysisPacketMatch):
+    review_context: MatchReviewContext
+
+    @model_validator(mode="after")
+    def validate_context_evidence(self) -> AnalysisPacketMatchSourceV2:
+        context_evidence_ids = tuple(
+            item.evidence_id for item in self.review_context.evidence
+        )
+        if set(self.evidence_ids) != set(context_evidence_ids):
+            raise ValueError("packet evidence IDs must match review context evidence")
+        return self
+
+
+class AnalysisPacketMatchV2(AnalysisPacketMatchSourceV2):
+    review_context_id: Identifier
+    review_context_hash: str = Field(pattern=SHA256_PATTERN)
+
+
+class AnalysisPacketSourceV2(DomainModel):
+    analysis_run: AnalysisPacketRun
+    matches: tuple[AnalysisPacketMatchSourceV2, ...] = Field(
+        min_length=1, max_length=MAX_PACKET_MATCHES
+    )
+
+    @model_validator(mode="after")
+    def validate_matches(self) -> AnalysisPacketSourceV2:
+        match_ids = [match.match_id for match in self.matches]
+        if not match_ids or len(match_ids) != len(set(match_ids)):
+            raise ValueError("analysis packet V2 source requires unique matches")
+        return self
+
+
+class AnalysisPacketV2(DomainModel):
+    schema_version: Literal["ANALYSIS_PACKET_V2"]
+    packet_id: Identifier
+    generated_at_utc: UtcDateTime
+    packet_hash: str = Field(pattern=SHA256_PATTERN)
+    analysis_run: AnalysisPacketRun
+    matches: tuple[AnalysisPacketMatchV2, ...] = Field(
+        min_length=1, max_length=MAX_PACKET_MATCHES
+    )
+
+    @model_validator(mode="after")
+    def validate_matches(self) -> AnalysisPacketV2:
+        match_ids = [match.match_id for match in self.matches]
+        if not match_ids or len(match_ids) != len(set(match_ids)):
+            raise ValueError("analysis packet V2 requires unique matches")
+        if self.generated_at_utc < self.analysis_run.completed_at_utc:
+            raise ValueError("analysis packet cannot predate run completion")
+        return self
+
+
 class StoredAnalysisPacket(DomainModel):
     packet_id: Identifier
     parent_analysis_run_id: Identifier
@@ -185,9 +336,7 @@ class ValidLLMMatchReview(DomainModel):
     preferred_outcomes: tuple[ReviewOutcomeOpinion, ...] = Field(
         default=(), max_length=16
     )
-    avoid_outcomes: tuple[ReviewOutcomeOpinion, ...] = Field(
-        default=(), max_length=16
-    )
+    avoid_outcomes: tuple[ReviewOutcomeOpinion, ...] = Field(default=(), max_length=16)
     counter_scenarios: tuple[ReviewCounterScenario, ...] = Field(
         default=(), max_length=16
     )
@@ -252,6 +401,22 @@ LLMMatchReview = Annotated[
 ]
 
 
+class ValidLLMMatchReviewV2(ValidLLMMatchReview):
+    review_context_id: Identifier
+    review_context_hash: str = Field(pattern=SHA256_PATTERN)
+
+
+class UnavailableLLMMatchReviewV2(UnavailableLLMMatchReview):
+    review_context_id: Identifier
+    review_context_hash: str = Field(pattern=SHA256_PATTERN)
+
+
+LLMMatchReviewV2 = Annotated[
+    ValidLLMMatchReviewV2 | UnavailableLLMMatchReviewV2,
+    Field(discriminator="status"),
+]
+
+
 class LLMReviewSubmission(DomainModel):
     schema_version: Literal["LLM_REVIEW_V1"]
     analysis_run_id: Identifier
@@ -265,6 +430,26 @@ class LLMReviewSubmission(DomainModel):
         if not match_ids or len(match_ids) != len(set(match_ids)):
             raise ValueError("LLM review requires one unique result per match")
         return self
+
+
+class LLMReviewSubmissionV2(DomainModel):
+    schema_version: Literal["LLM_REVIEW_V2"]
+    analysis_run_id: Identifier
+    packet_id: Identifier
+    packet_hash: str = Field(pattern=SHA256_PATTERN)
+    match_reviews: tuple[LLMMatchReviewV2, ...] = Field(max_length=MAX_PACKET_MATCHES)
+
+    @model_validator(mode="after")
+    def validate_matches(self) -> LLMReviewSubmissionV2:
+        match_ids = [review.match_id for review in self.match_reviews]
+        if not match_ids or len(match_ids) != len(set(match_ids)):
+            raise ValueError("LLM review V2 requires one unique result per match")
+        return self
+
+
+AnalysisPacketContract = AnalysisPacket | AnalysisPacketV2
+AnalysisPacketSourceContract = AnalysisPacketSource | AnalysisPacketSourceV2
+LLMReviewSubmissionContract = LLMReviewSubmission | LLMReviewSubmissionV2
 
 
 class LLMReviewArtifact(DomainModel):

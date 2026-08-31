@@ -244,6 +244,40 @@ POST_RUN_PARENT_LOOKUPS = {
         "WHERE r.analysis_run_id = NEW.parent_analysis_run_id "
         "AND r.status = 'COMPLETED'"
     ),
+    "fusion_runs": (
+        "SELECT 1 FROM analysis_runs r JOIN llm_review_artifacts a "
+        "ON a.review_artifact_id = NEW.llm_review_artifact_id "
+        "WHERE r.analysis_run_id = NEW.parent_analysis_run_id "
+        "AND r.status = 'COMPLETED' "
+        "AND r.completed_at_utc IS NOT NULL "
+        "AND a.parent_analysis_run_id = r.analysis_run_id"
+    ),
+    "fusion_run_results": (
+        "SELECT 1 FROM fusion_runs f "
+        "JOIN analysis_runs r ON r.analysis_run_id = f.parent_analysis_run_id "
+        "JOIN analysis_run_matches m "
+        "ON m.analysis_run_id = f.parent_analysis_run_id "
+        "AND m.internal_match_id = NEW.internal_match_id "
+        "JOIN final_predictions p "
+        "ON p.final_prediction_id = NEW.base_prediction_id "
+        "AND p.analysis_run_id = f.parent_analysis_run_id "
+        "AND p.internal_match_id = NEW.internal_match_id "
+        "WHERE f.fusion_run_id = NEW.fusion_run_id "
+        "AND r.status = 'COMPLETED' "
+        "AND r.completed_at_utc IS NOT NULL "
+        "AND p.market_key = NEW.market_key "
+        "AND p.market_type = NEW.market_type "
+        "AND (p.handicap_value = NEW.handicap_value OR "
+        "(p.handicap_value IS NULL AND NEW.handicap_value IS NULL))"
+    ),
+    "portfolio_revisions": (
+        "SELECT 1 FROM fusion_runs f JOIN analysis_runs r "
+        "ON r.analysis_run_id = f.parent_analysis_run_id "
+        "WHERE f.fusion_run_id = NEW.fusion_run_id "
+        "AND f.parent_analysis_run_id = NEW.parent_analysis_run_id "
+        "AND r.status = 'COMPLETED' "
+        "AND r.completed_at_utc IS NOT NULL"
+    ),
 }
 
 POST_RUN_INSERT_CONFLICTS = {
@@ -258,6 +292,31 @@ POST_RUN_INSERT_CONFLICTS = {
         "OR (a.packet_id = NEW.packet_id "
         "AND a.normalized_review_hash = NEW.normalized_review_hash "
         "AND a.validator_version = NEW.validator_version)"
+    ),
+    "fusion_runs": (
+        "SELECT 1 FROM fusion_runs f "
+        "WHERE f.fusion_run_id = NEW.fusion_run_id "
+        "OR (f.parent_analysis_run_id = NEW.parent_analysis_run_id "
+        "AND f.llm_review_artifact_id = NEW.llm_review_artifact_id "
+        "AND f.fusion_policy = NEW.fusion_policy "
+        "AND f.fusion_version = NEW.fusion_version "
+        "AND f.config_hash = NEW.config_hash)"
+    ),
+    "fusion_run_results": (
+        "SELECT 1 FROM fusion_run_results x "
+        "WHERE x.fusion_result_id = NEW.fusion_result_id "
+        "OR (x.fusion_run_id = NEW.fusion_run_id "
+        "AND x.internal_match_id = NEW.internal_match_id) "
+        "OR (x.fusion_run_id = NEW.fusion_run_id "
+        "AND x.base_prediction_id = NEW.base_prediction_id)"
+    ),
+    "portfolio_revisions": (
+        "SELECT 1 FROM portfolio_revisions p "
+        "WHERE p.portfolio_revision_id = NEW.portfolio_revision_id "
+        "OR (p.fusion_run_id = NEW.fusion_run_id "
+        "AND p.revision_policy = NEW.revision_policy "
+        "AND p.revision_version = NEW.revision_version "
+        "AND p.config_hash = NEW.config_hash)"
     ),
 }
 

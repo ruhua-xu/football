@@ -1,37 +1,56 @@
 from __future__ import annotations
 
 import hashlib
+from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from football_system.domain.market import SelectionKey, ThreeWayProbability
+from football_system.domain.common import stable_id
+from football_system.domain.market import (
+    SelectionKey,
+    ThreeWayFixedBonus,
+    ThreeWayMarketOdds,
+    ThreeWayProbability,
+)
 from football_system.domain.review import (
-    AnalysisPacket,
+    AnalysisPacketContract,
     AnalysisPacketMatch,
+    AnalysisPacketMatchSourceV2,
     AnalysisPacketRun,
     AnalysisPacketSource,
+    AnalysisPacketSourceV2,
     LLMReviewArtifact,
+    MatchReviewContext,
+    PacketDataQuality,
+    PacketDataQualityStatus,
+    PacketEvidence,
+    PacketInternationalOdds,
     PacketMarketPrediction,
     PacketQuantPrediction,
+    PacketSportteryOdds,
     StoredAnalysisPacket,
 )
 from football_system.infrastructure.database.models import (
     AnalysisPacketRecord,
     AnalysisRunMatchRecord,
     AnalysisRunRecord,
+    BookmakerRecord,
     CompetitionRecord,
     LLMReviewArtifactRecord,
     ManualQuantInputRecord,
+    MarketOddsQuoteRecord,
     MarketOddsSnapshotRecord,
     MarketProbabilityInputRecord,
     MarketProbabilityOutcomeRecord,
     MarketProbabilityRecord,
     MatchRecord,
+    ProviderRecord,
     QuantPredictionOutcomeRecord,
     QuantPredictionRecord,
     SportteryBonusSnapshotRecord,
+    SportteryBonusQuoteRecord,
     TeamRecord,
 )
 
@@ -58,8 +77,44 @@ class SqlAlchemyReviewArtifactRepository:
                     .order_by(AnalysisRunMatchRecord.internal_match_id)
                 )
             )
-            matches = tuple(self._load_match(session, run, context) for context in contexts)
+            matches = tuple(
+                self._load_match(session, run, context) for context in contexts
+            )
             return AnalysisPacketSource(
+                analysis_run=AnalysisPacketRun(
+                    analysis_run_id=run.analysis_run_id,
+                    as_of_at_utc=run.as_of_at_utc,
+                    completed_at_utc=run.completed_at_utc,
+                    pipeline_version=run.pipeline_version,
+                    code_revision=run.code_revision,
+                    input_manifest_version=run.input_manifest_version,
+                    input_manifest_hash=run.input_manifest_hash,
+                ),
+                matches=matches,
+            )
+
+    def load_packet_source_v2(self, analysis_run_id: str) -> AnalysisPacketSourceV2:
+        with self._session_factory() as session:
+            run = session.get(AnalysisRunRecord, analysis_run_id)
+            if run is None:
+                raise KeyError(f"unknown AnalysisRun: {analysis_run_id}")
+            if run.status != "COMPLETED" or run.completed_at_utc is None:
+                raise ValueError("AnalysisPacket requires a completed AnalysisRun")
+            if _sha256(run.config_json) != run.config_hash:
+                raise ValueError("stored AnalysisRun config failed hash verification")
+            if _sha256(run.input_manifest_json) != run.input_manifest_hash:
+                raise ValueError("stored AnalysisRun manifest failed hash verification")
+            contexts = tuple(
+                session.scalars(
+                    select(AnalysisRunMatchRecord)
+                    .where(AnalysisRunMatchRecord.analysis_run_id == analysis_run_id)
+                    .order_by(AnalysisRunMatchRecord.internal_match_id)
+                )
+            )
+            matches = tuple(
+                self._load_match_v2(session, run, context) for context in contexts
+            )
+            return AnalysisPacketSourceV2(
                 analysis_run=AnalysisPacketRun(
                     analysis_run_id=run.analysis_run_id,
                     as_of_at_utc=run.as_of_at_utc,
@@ -88,7 +143,7 @@ class SqlAlchemyReviewArtifactRepository:
 
     def save_analysis_packet(
         self,
-        packet: AnalysisPacket,
+        packet: AnalysisPacketContract,
         packet_json: str,
     ) -> StoredAnalysisPacket:
         try:
@@ -221,7 +276,9 @@ class SqlAlchemyReviewArtifactRepository:
             quant_prediction.manual_input_id != context.manual_quant_input_id
             or quant_prediction.input_payload_hash != manual_input.payload_hash
         ):
-            raise ValueError("stored packet predictions have inconsistent source lineage")
+            raise ValueError(
+                "stored packet predictions have inconsistent source lineage"
+            )
         return AnalysisPacketMatch(
             match_id=match.internal_match_id,
             competition_id=competition.competition_id,
@@ -256,6 +313,140 @@ class SqlAlchemyReviewArtifactRepository:
             ),
         )
 
+    @classmethod
+    def _load_match_v2(
+        cls,
+        session: Session,
+        run: AnalysisRunRecord,
+        context: AnalysisRunMatchRecord,
+    ) -> AnalysisPacketMatchSourceV2:
+        base = cls._load_match(session, run, context)
+        market_snapshot = _required(
+            session.get(MarketOddsSnapshotRecord, context.market_odds_snapshot_id),
+            "market odds snapshot",
+        )
+        bonus_snapshot = _required(
+            session.get(
+                SportteryBonusSnapshotRecord,
+                context.sporttery_bonus_snapshot_id,
+            ),
+            "Sporttery bonus snapshot",
+        )
+        provider = _required(
+            session.get(ProviderRecord, market_snapshot.provider_id),
+            "market odds provider",
+        )
+        bookmaker = _required(
+            session.get(BookmakerRecord, market_snapshot.bookmaker_id),
+            "bookmaker",
+        )
+        sporttery_provider = _required(
+            session.get(ProviderRecord, bonus_snapshot.provider_id),
+            "Sporttery provider",
+        )
+        international_odds = PacketInternationalOdds(
+            snapshot_id=market_snapshot.snapshot_id,
+            provider_id=provider.provider_id,
+            provider_name=provider.name,
+            bookmaker_id=bookmaker.bookmaker_id,
+            bookmaker_name=bookmaker.name,
+            captured_at_utc=market_snapshot.captured_at_utc,
+            available_at_utc=market_snapshot.available_at_utc,
+            payload_hash=market_snapshot.payload_hash,
+            odds=_three_way_market_odds(session, market_snapshot.snapshot_id),
+        )
+        sporttery_odds = PacketSportteryOdds(
+            snapshot_id=bonus_snapshot.snapshot_id,
+            provider_id=sporttery_provider.provider_id,
+            provider_name=sporttery_provider.name,
+            sporttery_match_no=bonus_snapshot.sporttery_match_no,
+            sale_status=bonus_snapshot.sale_status,
+            captured_at_utc=bonus_snapshot.captured_at_utc,
+            available_at_utc=bonus_snapshot.available_at_utc,
+            payload_hash=bonus_snapshot.payload_hash,
+            odds=_three_way_fixed_bonus(session, bonus_snapshot.snapshot_id),
+        )
+        market_evidence = PacketEvidence(
+            evidence_id=stable_id(
+                "review-evidence",
+                market_snapshot.snapshot_id,
+                market_snapshot.payload_hash,
+            ),
+            category="INTERNATIONAL_ODDS",
+            body=_odds_body(
+                "International odds",
+                base.market_key,
+                international_odds.odds.items(),
+            ),
+            source_kind="SEALED_DATABASE_SNAPSHOT",
+            source_name=f"{provider.name} / {bookmaker.name}",
+            source_reference=f"market_odds_snapshots/{market_snapshot.snapshot_id}",
+            source_record_id=market_snapshot.snapshot_id,
+            source_payload_hash=market_snapshot.payload_hash,
+            observed_at_utc=market_snapshot.captured_at_utc,
+            available_at_utc=market_snapshot.available_at_utc,
+        )
+        sporttery_evidence = PacketEvidence(
+            evidence_id=stable_id(
+                "review-evidence",
+                bonus_snapshot.snapshot_id,
+                bonus_snapshot.payload_hash,
+            ),
+            category="SPORTTERY_ODDS",
+            body=_odds_body(
+                "Sporttery fixed bonus",
+                base.market_key,
+                sporttery_odds.odds.items(),
+            ),
+            source_kind="SEALED_DATABASE_SNAPSHOT",
+            source_name=sporttery_provider.name,
+            source_reference=(
+                f"sporttery_bonus_snapshots/{bonus_snapshot.snapshot_id}"
+            ),
+            source_record_id=bonus_snapshot.snapshot_id,
+            source_payload_hash=bonus_snapshot.payload_hash,
+            observed_at_utc=bonus_snapshot.captured_at_utc,
+            available_at_utc=bonus_snapshot.available_at_utc,
+        )
+        evidence = tuple(
+            sorted(
+                (market_evidence, sporttery_evidence), key=lambda item: item.evidence_id
+            )
+        )
+        review_context = MatchReviewContext(
+            sporttery_odds=sporttery_odds,
+            international_odds=international_odds,
+            evidence=evidence,
+            data_quality=PacketDataQuality(
+                status=PacketDataQualityStatus.PARTIAL,
+                score=Decimal("0.25"),
+                available_fields=(
+                    "evidence",
+                    "international_odds",
+                    "sporttery_odds",
+                ),
+                missing_fields=(
+                    "confirmed_lineup",
+                    "expected_lineup",
+                    "home_away_form",
+                    "injuries",
+                    "odds_movement_summary",
+                    "recent_form",
+                    "rest_days",
+                    "schedule_context",
+                    "suspensions",
+                ),
+                notes=(
+                    "Mock fixture supplies sealed odds snapshots only; contextual football data is unavailable.",
+                ),
+            ),
+        )
+        return AnalysisPacketMatchSourceV2(
+            **base.model_dump(mode="python", exclude={"evidence_ids"}),
+            evidence_ids=tuple(item.evidence_id for item in evidence),
+            review_context=review_context,
+        )
+
 
 def _three_way_probabilities(
     session: Session,
@@ -277,6 +468,56 @@ def _three_way_probabilities(
         raise ValueError("stored packet prediction is incomplete") from error
 
 
+def _three_way_market_odds(session: Session, snapshot_id: str) -> ThreeWayMarketOdds:
+    values = {
+        SelectionKey(row.selection_key): row.odds
+        for row in session.scalars(
+            select(MarketOddsQuoteRecord).where(
+                MarketOddsQuoteRecord.snapshot_id == snapshot_id
+            )
+        )
+    }
+    try:
+        return ThreeWayMarketOdds(
+            home_win=values[SelectionKey.HOME_WIN],
+            draw=values[SelectionKey.DRAW],
+            away_win=values[SelectionKey.AWAY_WIN],
+        )
+    except KeyError as error:
+        raise ValueError("stored market odds snapshot is incomplete") from error
+
+
+def _three_way_fixed_bonus(session: Session, snapshot_id: str) -> ThreeWayFixedBonus:
+    values = {
+        SelectionKey(row.selection_key): row.fixed_bonus
+        for row in session.scalars(
+            select(SportteryBonusQuoteRecord).where(
+                SportteryBonusQuoteRecord.snapshot_id == snapshot_id
+            )
+        )
+    }
+    try:
+        return ThreeWayFixedBonus(
+            home_win=values[SelectionKey.HOME_WIN],
+            draw=values[SelectionKey.DRAW],
+            away_win=values[SelectionKey.AWAY_WIN],
+        )
+    except KeyError as error:
+        raise ValueError("stored Sporttery bonus snapshot is incomplete") from error
+
+
+def _odds_body(
+    label: str,
+    market_key: str,
+    values: tuple[tuple[SelectionKey, Decimal], ...],
+) -> str:
+    prices = ", ".join(
+        f"{selection.value}={format(value.normalize(), 'f')}"
+        for selection, value in values
+    )
+    return f"{label} for {market_key}: {prices}."
+
+
 def _stored_packet(record: AnalysisPacketRecord) -> StoredAnalysisPacket:
     return StoredAnalysisPacket(
         packet_id=record.packet_id,
@@ -289,7 +530,7 @@ def _stored_packet(record: AnalysisPacketRecord) -> StoredAnalysisPacket:
 
 def _find_packet_record(
     session: Session,
-    packet: AnalysisPacket,
+    packet: AnalysisPacketContract,
 ) -> AnalysisPacketRecord | None:
     existing = session.get(AnalysisPacketRecord, packet.packet_id)
     if existing is not None:

@@ -2,7 +2,7 @@
 url = "sqlite:///data/football_mvp.db"
 
 [analysis]
-pipeline_version = "PORTFOLIO_RISK_V1"
+pipeline_version = "PORTFOLIO_RISK_V2"
 fusion_policy = "QUANT_ONLY_V1"
 quant_weight = "0.70"
 min_selection_ev = "0.02"
@@ -13,6 +13,16 @@ preferred_max_tickets = 4
 absolute_max_tickets = 8
 extra_ticket_min_roi = "0.20"
 operational_complexity_penalty = "0.01"
+max_match_exposure_ratio = "0.60"
+max_selection_exposure_ratio = "0.60"
+concentration_penalty = "0.10"
+min_marginal_score = "0.10"
+
+[review_fusion]
+policy = "LLM_REVIEW_DELTA_V1"
+version = "1"
+max_probability_delta = "0.08"
+legacy_data_quality_factor = "0.25"
 
 [sporttery]
 rules_version = "SPORTTERY_MVP_V1"

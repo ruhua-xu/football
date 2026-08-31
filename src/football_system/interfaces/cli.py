@@ -12,16 +12,26 @@ from pathlib import Path
 from sqlalchemy.exc import SQLAlchemyError
 
 from football_system.application.models import AnalysisArtifacts
+from football_system.application.post_review import (
+    CreateFusionRunService,
+    CreatePortfolioRevisionService,
+)
 from football_system.application.review_bridge import (
     ExportAnalysisPacketService,
     ImportLLMReviewService,
     validate_review_files,
 )
-from football_system.application.run_analysis import RunAnalysisRequest, RunAnalysisService
+from football_system.application.run_analysis import (
+    RunAnalysisRequest,
+    RunAnalysisService,
+)
 from football_system.config import AppSettings
 from football_system.domain.betting import CandidateStatus, PortfolioStatus
 from football_system.domain.prediction import FusionPolicyName
 from football_system.infrastructure.database.migrations import upgrade_database
+from football_system.infrastructure.database.post_review_repositories import (
+    SqlAlchemyPostReviewRepository,
+)
 from football_system.infrastructure.database.repositories import (
     SqlAlchemyAnalysisRepository,
 )
@@ -34,9 +44,15 @@ from football_system.infrastructure.database.session import (
 )
 from football_system.infrastructure.providers.mock.dataset import MockDataset
 from football_system.infrastructure.providers.mock.fixtures import MockFixtureProvider
-from football_system.infrastructure.providers.mock.manual_quant import MockManualQuantProvider
-from football_system.infrastructure.providers.mock.market_odds import MockMarketOddsProvider
-from football_system.infrastructure.providers.mock.sporttery import MockSportteryProvider
+from football_system.infrastructure.providers.mock.manual_quant import (
+    MockManualQuantProvider,
+)
+from football_system.infrastructure.providers.mock.market_odds import (
+    MockMarketOddsProvider,
+)
+from football_system.infrastructure.providers.mock.sporttery import (
+    MockSportteryProvider,
+)
 from football_system.infrastructure.files.review_bridge import (
     read_contract_file,
     write_contract_file,
@@ -50,6 +66,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _dispatch_analysis_packet(arguments[1:])
     if arguments[:1] == ["llm-review"]:
         return _dispatch_llm_review(arguments[1:])
+    if arguments[:1] == ["fusion-run"]:
+        return _dispatch_fusion_run(arguments[1:])
+    if arguments[:1] == ["portfolio-revision"]:
+        return _dispatch_portfolio_revision(arguments[1:])
     parser = _build_parser()
     args = parser.parse_args(arguments)
     settings = AppSettings.from_toml(args.config)
@@ -90,7 +110,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         kickoff_from_utc=dataset.as_of_at_utc,
         kickoff_to_utc=dataset.as_of_at_utc + timedelta(days=2),
         budgets_fen=budgets_fen,
-        fusion_policy=FusionPolicyName(args.fusion_policy or settings.analysis.fusion_policy),
+        fusion_policy=FusionPolicyName(
+            args.fusion_policy or settings.analysis.fusion_policy
+        ),
         min_selection_ev=min_selection_ev,
         min_ticket_roi=min_ticket_roi,
         analysis_run_id=args.analysis_run_id,
@@ -120,6 +142,24 @@ def _dispatch_llm_review(arguments: Sequence[str]) -> int:
     raise SystemExit(f"unknown llm-review command: {arguments[0]}")
 
 
+def _dispatch_fusion_run(arguments: Sequence[str]) -> int:
+    if not arguments or arguments[0] in {"-h", "--help"}:
+        print("usage: football-system fusion-run create [options]")
+        return 0
+    if arguments[0] != "create":
+        raise SystemExit(f"unknown fusion-run command: {arguments[0]}")
+    return _create_fusion_run(arguments[1:])
+
+
+def _dispatch_portfolio_revision(arguments: Sequence[str]) -> int:
+    if not arguments or arguments[0] in {"-h", "--help"}:
+        print("usage: football-system portfolio-revision create [options]")
+        return 0
+    if arguments[0] != "create":
+        raise SystemExit(f"unknown portfolio-revision command: {arguments[0]}")
+    return _create_portfolio_revision(arguments[1:])
+
+
 def _export_analysis_packet(arguments: Sequence[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="football-system analysis-packet export",
@@ -127,12 +167,19 @@ def _export_analysis_packet(arguments: Sequence[str]) -> int:
     )
     _add_database_arguments(parser)
     parser.add_argument("--analysis-run-id", required=True)
+    parser.add_argument(
+        "--schema-version",
+        choices=("ANALYSIS_PACKET_V1", "ANALYSIS_PACKET_V2"),
+        default="ANALYSIS_PACKET_V1",
+        help="Contract version; V1 remains the compatibility default.",
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(arguments)
     try:
         repository = _review_repository(args.config, args.database_url)
         packet, packet_json = ExportAnalysisPacketService(repository).export(
-            args.analysis_run_id
+            args.analysis_run_id,
+            args.schema_version,
         )
         write_contract_file(args.output, packet_json)
     except (KeyError, OSError, SQLAlchemyError, ValueError) as error:
@@ -184,6 +231,57 @@ def _import_llm_review(arguments: Sequence[str]) -> int:
     return 0
 
 
+def _create_fusion_run(arguments: Sequence[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="football-system fusion-run create",
+        description="Create an append-only local fusion from an imported review.",
+    )
+    _add_database_arguments(parser)
+    parser.add_argument("--review-artifact-id", required=True)
+    args = parser.parse_args(arguments)
+    try:
+        settings, repository = _post_review_repository(args.config, args.database_url)
+        fusion_run = CreateFusionRunService(repository, settings).create(
+            args.review_artifact_id
+        )
+    except (KeyError, OSError, SQLAlchemyError, ValueError) as error:
+        parser.error(str(error))
+    fallback_count = sum(item.fallback_code is not None for item in fusion_run.results)
+    print(
+        f"FusionRun created: {fusion_run.fusion_run_id}; "
+        f"parent={fusion_run.parent_analysis_run_id}; "
+        f"matches={len(fusion_run.results)}; fallbacks={fallback_count}"
+    )
+    return 0
+
+
+def _create_portfolio_revision(arguments: Sequence[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="football-system portfolio-revision create",
+        description="Recompute immutable decisions from an append-only FusionRun.",
+    )
+    _add_database_arguments(parser)
+    parser.add_argument("--fusion-run-id", required=True)
+    args = parser.parse_args(arguments)
+    try:
+        settings, repository = _post_review_repository(args.config, args.database_url)
+        revision = CreatePortfolioRevisionService(repository, settings).create(
+            args.fusion_run_id
+        )
+    except (KeyError, OSError, SQLAlchemyError, ValueError) as error:
+        parser.error(str(error))
+    print(
+        f"PortfolioRevision created: {revision.portfolio_revision_id}; "
+        f"parent={revision.parent_analysis_run_id}; fusion={revision.fusion_run_id}"
+    )
+    for portfolio in revision.portfolios:
+        print(
+            f"  budget={portfolio.budget_fen}; status={portfolio.status.value}; "
+            f"stake={portfolio.total_stake_fen}; cash={portfolio.cash_position.amount_fen}"
+        )
+    return 0
+
+
 def _add_database_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--config", type=Path, default=_resource_root() / "config" / "mvp.toml"
@@ -200,6 +298,18 @@ def _review_repository(
     upgrade_database(resolved_url, _resource_root() / "alembic.ini")
     engine = create_database_engine(resolved_url)
     return SqlAlchemyReviewArtifactRepository(create_session_factory(engine))
+
+
+def _post_review_repository(
+    config_path: Path,
+    database_url: str | None,
+) -> tuple[AppSettings, SqlAlchemyPostReviewRepository]:
+    settings = AppSettings.from_toml(config_path)
+    resolved_url = _resolve_database_url(database_url or settings.database.url)
+    upgrade_database(resolved_url, _resource_root() / "alembic.ini")
+    engine = create_database_engine(resolved_url)
+    repository = SqlAlchemyPostReviewRepository(create_session_factory(engine))
+    return settings, repository
 
 
 def format_analysis(
@@ -240,7 +350,12 @@ def format_analysis(
         for item in artifacts.selection_candidates
         if item.status == CandidateStatus.ELIGIBLE
     ]
-    lines.extend(["", f"Selection EV（合格 {len(eligible)} / 总计 {len(artifacts.selection_candidates)}）"])
+    lines.extend(
+        [
+            "",
+            f"Selection EV（合格 {len(eligible)} / 总计 {len(artifacts.selection_candidates)}）",
+        ]
+    )
     for candidate in eligible:
         match = matches[candidate.match_id]
         lines.append(
@@ -271,9 +386,7 @@ def format_analysis(
             f"preferred={portfolio.constraints.preferred_max_tickets}, "
             f"absolute={portfolio.constraints.absolute_max_tickets}"
         )
-        lines.append(
-            f"  Cash Position: {_fen(portfolio.cash_position.amount_fen)}"
-        )
+        lines.append(f"  Cash Position: {_fen(portfolio.cash_position.amount_fen)}")
         if portfolio.status == PortfolioStatus.NO_BET:
             lines.append(f"  NO_BET 原因: {portfolio.no_bet_reason.value}")
             _append_risk(lines, risk_by_portfolio[portfolio.portfolio_id])
@@ -305,7 +418,8 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Run deterministic football analysis against Mock data.",
         epilog=(
             "Offline commands: analysis-packet export; "
-            "llm-review validate; llm-review import"
+            "llm-review validate/import; fusion-run create; "
+            "portfolio-revision create"
         ),
     )
     parser.add_argument(
@@ -313,7 +427,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--database-url")
     parser.add_argument("--budget-yuan", nargs="+", default=("100", "200"))
-    parser.add_argument("--fusion-policy", choices=[item.value for item in FusionPolicyName])
+    parser.add_argument(
+        "--fusion-policy", choices=[item.value for item in FusionPolicyName]
+    )
     parser.add_argument("--min-selection-ev")
     parser.add_argument("--min-ticket-roi")
     parser.add_argument("--analysis-run-id")
@@ -371,9 +487,13 @@ def _resolve_database_url(database_url: str) -> str:
 
 
 def _resource_root() -> Path:
-    source_root = Path(__file__).resolve().parents[3]
+    module_path = Path(__file__).resolve()
+    source_root = module_path.parents[3]
     if (source_root / "config" / "mvp.toml").is_file():
         return source_root
+    adjacent_resources = module_path.parents[2] / "football_system_resources"
+    if (adjacent_resources / "config" / "mvp.toml").is_file():
+        return adjacent_resources
     try:
         distribution_root = Path(
             distribution("football-system").locate_file("football_system_resources")
@@ -413,7 +533,9 @@ def _append_risk(lines: list[str], report: object) -> None:
         report.match_exposures,
         key=lambda item: (-item.exposed_stake_fen, item.match_id),
     ):
-        ratio = "N/A" if exposure.budget_ratio is None else _percent(exposure.budget_ratio)
+        ratio = (
+            "N/A" if exposure.budget_ratio is None else _percent(exposure.budget_ratio)
+        )
         lines.append(
             f"    Exposure {exposure.match_id}: {_fen(exposure.exposed_stake_fen)} "
             f"({ratio} of budget)"

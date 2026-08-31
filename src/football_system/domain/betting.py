@@ -42,6 +42,10 @@ class PortfolioConstraints(DomainModel):
     )
     extra_ticket_min_roi: Decimal = Field(default=Decimal("0.20"), ge=0)
     operational_complexity_penalty: Decimal = Field(default=Decimal("0.01"), ge=0)
+    max_match_exposure_ratio: Decimal = Field(default=Decimal(1), ge=0, le=1)
+    max_selection_exposure_ratio: Decimal = Field(default=Decimal(1), ge=0, le=1)
+    concentration_penalty: Decimal = Field(default=Decimal(0), ge=0)
+    min_marginal_score: Decimal = Field(default=Decimal(0), ge=0)
 
     @model_validator(mode="after")
     def validate_ticket_limits(self) -> PortfolioConstraints:
@@ -132,7 +136,7 @@ class Portfolio(DomainModel):
     status: PortfolioStatus
     no_bet_reason: NoBetReason | None = None
     constraints: PortfolioConstraints
-    strategy_version: str = "EQUAL_UNIT_TOP_EV_V1"
+    strategy_version: str = "RISK_CONTROLLED_MARGINAL_V2"
 
     @model_validator(mode="after")
     def validate_portfolio(self) -> Portfolio:
@@ -159,6 +163,33 @@ class Portfolio(DomainModel):
             for ticket in self.tickets
         ):
             raise ValueError("portfolio tickets must belong to the same analysis run")
+        match_exposures: dict[str, int] = {}
+        selection_exposures: dict[tuple[str, str, str], int] = {}
+        for ticket in self.tickets:
+            for leg in ticket.candidate.legs:
+                match_exposures[leg.match_id] = (
+                    match_exposures.get(leg.match_id, 0) + ticket.stake_fen
+                )
+                selection_key = (
+                    leg.match_id,
+                    leg.market.canonical,
+                    leg.selection.value,
+                )
+                selection_exposures[selection_key] = (
+                    selection_exposures.get(selection_key, 0) + ticket.stake_fen
+                )
+        if any(
+            Decimal(exposure)
+            > Decimal(self.budget_fen) * self.constraints.max_match_exposure_ratio
+            for exposure in match_exposures.values()
+        ):
+            raise ValueError("portfolio exceeds maximum match exposure")
+        if any(
+            Decimal(exposure)
+            > Decimal(self.budget_fen) * self.constraints.max_selection_exposure_ratio
+            for exposure in selection_exposures.values()
+        ):
+            raise ValueError("portfolio exceeds maximum selection exposure")
         if self.status == PortfolioStatus.NO_BET:
             if self.tickets or self.total_stake_fen != 0 or self.no_bet_reason is None:
                 raise ValueError("NO_BET portfolio must be empty and include a reason")

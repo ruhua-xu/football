@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0 - 2026-08-31
+
+- 增加 `ANALYSIS_PACKET_V2` 富 MatchReviewContext、正文 Evidence、来源信息和显式 DataQuality，同时保留 V1 合同。
+- 增加 `LLM_REVIEW_V2` context ID/hash 绑定；LLM 仍只能提交绝对 `P_llm`。
+- 增加 append-only `FusionRun`，本地计算 raw/applied delta、confidence/data-quality 因子、版本化截断及 unavailable fallback。
+- 增加独立 `PortfolioRevision`，从 FusionRun 重算候选、简单2串1、Portfolio 与风险报告，不修改原 AnalysisRun。
+- 将比赛/方向 Exposure 硬约束、集中度惩罚和边际分配停止策略纳入 Optimizer，允许主动保留 Cash 或输出 `NO_BET_RISK_LIMIT`。
+- 增加从 0.2.0 schema 升级的 `c8b7e2a4f190` 迁移、append-only/跨运行血缘触发器及完整 CLI 文件协作闭环。
+
 ## 0.2.0 - 2026-08-31
 
 - 将现金建模为每个 Portfolio 的显式合法持仓，包括全现金 `NO_BET`。

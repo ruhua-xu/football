@@ -2,6 +2,8 @@ from decimal import Decimal
 
 import pytest
 
+from football_system.application.run_analysis import _portfolio_constraints
+from football_system.config import AppSettings
 from football_system.domain.betting import (
     CandidateStatus,
     NoBetReason,
@@ -29,12 +31,17 @@ DEFAULT_CONSTRAINTS = PortfolioConstraints(
 )
 
 
-def ticket_candidate(index: int, roi: str) -> TicketCandidate:
+def ticket_candidate(
+    index: int,
+    roi: str,
+    match_ids: tuple[str, str] | None = None,
+) -> TicketCandidate:
+    match_ids = match_ids or (f"match-{index}-1", f"match-{index}-2")
     legs = tuple(
         SelectionCandidate(
             candidate_id=f"selection-{index}-{leg}",
             analysis_run_id="run-1",
-            match_id=f"match-{index}-{leg}",
+            match_id=match_ids[leg - 1],
             market=MARKET,
             selection=SelectionKey.HOME_WIN,
             final_prediction_id=f"final-{index}-{leg}",
@@ -134,3 +141,92 @@ def test_optimizer_rejects_cross_run_candidate() -> None:
         optimize_portfolio(
             "run-1", (candidate,), 10_000, DEFAULT_CONSTRAINTS, RULES
         )
+
+
+def test_concentration_penalty_reselects_and_hard_limits_reduce_stake() -> None:
+    candidates = (
+        ticket_candidate(1, "0.30", ("shared", "match-a")),
+        ticket_candidate(2, "0.29", ("shared", "match-b")),
+        ticket_candidate(3, "0.28", ("match-c", "match-d")),
+    )
+    constraints = PortfolioConstraints(
+        preferred_max_tickets=2,
+        absolute_max_tickets=2,
+        max_match_exposure_ratio=Decimal("0.30"),
+        max_selection_exposure_ratio=Decimal("0.30"),
+        concentration_penalty=Decimal("0.20"),
+    )
+
+    portfolio = optimize_portfolio("run-1", candidates, 2_000, constraints, RULES)
+
+    assert portfolio.status == PortfolioStatus.RECOMMENDED
+    assert [ticket.candidate.ticket_candidate_id for ticket in portfolio.tickets] == [
+        "candidate-1",
+        "candidate-3",
+    ]
+    assert portfolio.total_stake_fen == 1_200
+    assert portfolio.unused_budget_fen == 800
+    assert all(ticket.stake_fen == 600 for ticket in portfolio.tickets)
+
+
+def test_marginal_policy_proactively_retains_cash_before_hard_limits() -> None:
+    constraints = _portfolio_constraints(AppSettings.from_toml("config/mvp.toml"))
+
+    portfolio = optimize_portfolio(
+        "run-1",
+        (ticket_candidate(1, "0.12"),),
+        2_000,
+        constraints,
+        RULES,
+    )
+
+    assert portfolio.status == PortfolioStatus.RECOMMENDED
+    assert portfolio.tickets[0].multiplier == 2
+    assert portfolio.total_stake_fen == 400
+    assert portfolio.cash_position.amount_fen == 1_600
+
+
+def test_risk_limits_can_make_every_allocation_no_bet() -> None:
+    constraints = PortfolioConstraints(
+        max_match_exposure_ratio=Decimal(0),
+        max_selection_exposure_ratio=Decimal(0),
+    )
+
+    portfolio = optimize_portfolio(
+        "run-1",
+        (ticket_candidate(1, "0.20"),),
+        2_000,
+        constraints,
+        RULES,
+    )
+
+    assert portfolio.status == PortfolioStatus.NO_BET
+    assert portfolio.no_bet_reason == NoBetReason.NO_BET_RISK_LIMIT
+    assert portfolio.tickets == ()
+    assert portfolio.cash_position.amount_fen == 2_000
+
+
+def test_recommended_portfolio_never_exceeds_selection_limit() -> None:
+    candidates = tuple(
+        ticket_candidate(index, "0.20", ("shared", f"match-{index}"))
+        for index in range(1, 4)
+    )
+    constraints = PortfolioConstraints(
+        preferred_max_tickets=3,
+        absolute_max_tickets=3,
+        max_match_exposure_ratio=Decimal(1),
+        max_selection_exposure_ratio=Decimal("0.30"),
+    )
+
+    portfolio = optimize_portfolio("run-1", candidates, 2_000, constraints, RULES)
+
+    assert portfolio.status == PortfolioStatus.RECOMMENDED
+    shared_exposure = sum(
+        ticket.stake_fen
+        for ticket in portfolio.tickets
+        if any(leg.match_id == "shared" for leg in ticket.candidate.legs)
+    )
+    assert shared_exposure == 600
+    assert Decimal(shared_exposure) / Decimal(portfolio.budget_fen) <= (
+        constraints.max_selection_exposure_ratio
+    )

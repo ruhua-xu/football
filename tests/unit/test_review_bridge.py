@@ -9,6 +9,7 @@ from football_system.application.review_bridge import (
     ExportAnalysisPacketService,
     ImportLLMReviewService,
     build_analysis_packet,
+    build_analysis_packet_v2,
     canonical_json,
     strict_json_loads,
     validate_review_files,
@@ -17,13 +18,25 @@ from football_system.infrastructure.files.review_bridge import (
     read_contract_file,
     write_contract_file,
 )
-from football_system.domain.market import ThreeWayProbability
+from football_system.domain.market import (
+    ThreeWayFixedBonus,
+    ThreeWayMarketOdds,
+    ThreeWayProbability,
+)
 from football_system.domain.review import (
     AnalysisPacketMatch,
+    AnalysisPacketMatchSourceV2,
     AnalysisPacketRun,
     AnalysisPacketSource,
+    AnalysisPacketSourceV2,
+    MatchReviewContext,
+    PacketDataQuality,
+    PacketDataQualityStatus,
+    PacketEvidence,
+    PacketInternationalOdds,
     PacketMarketPrediction,
     PacketQuantPrediction,
+    PacketSportteryOdds,
     StoredAnalysisPacket,
 )
 
@@ -103,6 +116,108 @@ def _review(packet, **match_updates) -> dict:
     }
 
 
+def _source_v2() -> AnalysisPacketSourceV2:
+    base = _source()
+    evidence = (
+        PacketEvidence(
+            evidence_id="evidence-market-1",
+            category="INTERNATIONAL_ODDS",
+            body="International odds for THREE_WAY: HOME_WIN=2, DRAW=3, AWAY_WIN=4.",
+            source_kind="SEALED_DATABASE_SNAPSHOT",
+            source_name="Mock Provider / Mock Bookmaker",
+            source_reference="market_odds_snapshots/snapshot-1",
+            source_record_id="snapshot-1",
+            source_payload_hash="payload-market-1",
+            observed_at_utc=NOW,
+            available_at_utc=NOW,
+        ),
+        PacketEvidence(
+            evidence_id="evidence-sporttery-1",
+            category="SPORTTERY_ODDS",
+            body="Sporttery fixed bonus for THREE_WAY: HOME_WIN=2.1, DRAW=3.1, AWAY_WIN=3.5.",
+            source_kind="SEALED_DATABASE_SNAPSHOT",
+            source_name="Mock Sporttery",
+            source_reference="sporttery_bonus_snapshots/bonus-1",
+            source_record_id="bonus-1",
+            source_payload_hash="payload-sporttery-1",
+            observed_at_utc=NOW,
+            available_at_utc=NOW,
+        ),
+    )
+    context = MatchReviewContext(
+        sporttery_odds=PacketSportteryOdds(
+            snapshot_id="bonus-1",
+            provider_id="provider-sporttery",
+            provider_name="Mock Sporttery",
+            sporttery_match_no="M001",
+            sale_status="OPEN",
+            captured_at_utc=NOW,
+            available_at_utc=NOW,
+            payload_hash="payload-sporttery-1",
+            odds=ThreeWayFixedBonus(
+                home_win=Decimal("2.1"),
+                draw=Decimal("3.1"),
+                away_win=Decimal("3.5"),
+            ),
+        ),
+        international_odds=PacketInternationalOdds(
+            snapshot_id="snapshot-1",
+            provider_id="provider-market",
+            provider_name="Mock Provider",
+            bookmaker_id="bookmaker-1",
+            bookmaker_name="Mock Bookmaker",
+            captured_at_utc=NOW,
+            available_at_utc=NOW,
+            payload_hash="payload-market-1",
+            odds=ThreeWayMarketOdds(
+                home_win=Decimal("2"),
+                draw=Decimal("3"),
+                away_win=Decimal("4"),
+            ),
+        ),
+        evidence=evidence,
+        data_quality=PacketDataQuality(
+            status=PacketDataQualityStatus.PARTIAL,
+            score=Decimal("0.25"),
+            available_fields=("evidence", "international_odds", "sporttery_odds"),
+            missing_fields=(
+                "confirmed_lineup",
+                "expected_lineup",
+                "home_away_form",
+                "injuries",
+                "odds_movement_summary",
+                "recent_form",
+                "rest_days",
+                "schedule_context",
+                "suspensions",
+            ),
+            notes=("Mock contextual data is unavailable.",),
+        ),
+    )
+    return AnalysisPacketSourceV2(
+        analysis_run=base.analysis_run,
+        matches=(
+            AnalysisPacketMatchSourceV2(
+                **base.matches[0].model_dump(mode="python", exclude={"evidence_ids"}),
+                evidence_ids=tuple(item.evidence_id for item in evidence),
+                review_context=context,
+            ),
+        ),
+    )
+
+
+def _review_v2(packet, **match_updates) -> dict:
+    review = _review(packet, **match_updates)
+    review["schema_version"] = "LLM_REVIEW_V2"
+    review["match_reviews"][0]["review_context_id"] = packet.matches[
+        0
+    ].review_context_id
+    review["match_reviews"][0]["review_context_hash"] = packet.matches[
+        0
+    ].review_context_hash
+    return review
+
+
 def _packet_bytes(packet) -> bytes:
     return canonical_json(packet.model_dump(mode="json")).encode("utf-8")
 
@@ -117,6 +232,68 @@ def test_analysis_packet_is_deterministic_and_excludes_betting_outputs() -> None
     for forbidden in ("p_final", "ev", "budget", "stake", "ticket", "portfolio"):
         assert f'"{forbidden}"' not in serialized.lower()
     assert '"config_hash"' not in serialized
+
+
+def test_analysis_packet_v2_contains_auditable_context_and_strict_whitelist() -> None:
+    packet = build_analysis_packet_v2(_source_v2(), NOW)
+    repeated = build_analysis_packet_v2(_source_v2(), NOW)
+
+    assert packet == repeated
+    serialized = canonical_json(packet.model_dump(mode="json"))
+    context = packet.matches[0].review_context
+    assert context.evidence[0].body
+    assert context.evidence[0].source_reference
+    assert context.data_quality.status == PacketDataQualityStatus.PARTIAL
+    for field in (
+        "sporttery_odds",
+        "international_odds",
+        "odds_movement_summary",
+        "recent_form",
+        "home_away_form",
+        "rest_days",
+        "schedule_context",
+        "injuries",
+        "suspensions",
+        "expected_lineup",
+        "confirmed_lineup",
+        "evidence",
+        "data_quality",
+    ):
+        assert f'"{field}"' in serialized
+    for forbidden in (
+        "p_final",
+        "ev",
+        "ranking",
+        "ticket",
+        "portfolio",
+        "budget",
+        "stake",
+        "fusion_weight",
+        "strategy_profile",
+    ):
+        assert f'"{forbidden}"' not in serialized.lower()
+
+
+def test_review_v2_binds_the_exact_review_context_and_rejects_mixed_versions() -> None:
+    packet = build_analysis_packet_v2(_source_v2(), NOW)
+    packet_bytes = _packet_bytes(packet)
+
+    _, submission, _ = validate_review_files(
+        packet_bytes,
+        canonical_json(_review_v2(packet)).encode("utf-8"),
+    )
+    assert submission.schema_version == "LLM_REVIEW_V2"
+
+    tampered = _review_v2(packet)
+    tampered["match_reviews"][0]["review_context_hash"] = "0" * 64
+    with pytest.raises(ValueError, match="context mismatch"):
+        validate_review_files(packet_bytes, canonical_json(tampered).encode("utf-8"))
+
+    with pytest.raises(ValueError, match="file contract validation"):
+        validate_review_files(
+            packet_bytes,
+            canonical_json(_review(packet)).encode("utf-8"),
+        )
 
 
 def test_offline_review_contract_validates_binding_and_absolute_probability() -> None:
@@ -205,9 +382,9 @@ def test_review_normalization_is_stable_for_semantic_collection_order() -> None:
     source = _source().model_copy(
         update={
             "matches": (
-                _source().matches[0].model_copy(
-                    update={"evidence_ids": ("evidence-1", "evidence-2")}
-                ),
+                _source()
+                .matches[0]
+                .model_copy(update={"evidence_ids": ("evidence-1", "evidence-2")}),
             )
         }
     )
@@ -269,7 +446,10 @@ def test_review_normalization_is_stable_for_semantic_collection_order() -> None:
         ],
         preferred_outcomes=[
             opinions[1],
-            {**opinions[0], "evidence_ids": list(reversed(opinions[0]["evidence_ids"]))},
+            {
+                **opinions[0],
+                "evidence_ids": list(reversed(opinions[0]["evidence_ids"])),
+            },
         ],
         risk_tags=["TAG_A", "TAG_B"],
         limitations=["LIMIT_A", "LIMIT_B"],
@@ -305,8 +485,7 @@ def test_review_rejects_duplicate_logical_opinions() -> None:
 def test_packet_rejects_more_matches_than_a_review_can_cover() -> None:
     source = _source().model_dump(mode="python")
     source["matches"] = [
-        {**source["matches"][0], "match_id": f"match-{index}"}
-        for index in range(257)
+        {**source["matches"][0], "match_id": f"match-{index}"} for index in range(257)
     ]
 
     with pytest.raises(ValueError, match="256"):

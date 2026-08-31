@@ -374,6 +374,12 @@ def _portfolio_constraints(settings: AppSettings) -> PortfolioConstraints:
         operational_complexity_penalty=(
             settings.portfolio.operational_complexity_penalty
         ),
+        max_match_exposure_ratio=settings.portfolio.max_match_exposure_ratio,
+        max_selection_exposure_ratio=(
+            settings.portfolio.max_selection_exposure_ratio
+        ),
+        concentration_penalty=settings.portfolio.concentration_penalty,
+        min_marginal_score=settings.portfolio.min_marginal_score,
     )
 
 
