@@ -113,45 +113,105 @@ def _build_stress_results(
     if not portfolio.tickets:
         return (_evaluate_scenario(portfolio, report_id, "CASH_BASELINE", ()),)
 
-    selected_stake = {
-        (item.match_id, item.selection): item.exposed_stake_fen
-        for item in selection_exposures
-    }
     ranked_matches = sorted(
         match_exposures,
         key=lambda item: (-item.exposed_stake_fen, item.match_id),
     )
 
-    def adverse_outcome(match_id: str) -> StressOutcome:
-        selection = min(
-            SelectionKey,
-            key=lambda item: (selected_stake.get((match_id, item), 0), item.value),
-        )
-        return StressOutcome(match_id=match_id, selection=selection)
-
     definitions = [
         (
             "TOP_EXPOSURE_MATCH_ADVERSE",
-            (adverse_outcome(ranked_matches[0].match_id),),
+            _select_adverse_outcomes(
+                portfolio,
+                report_id,
+                (ranked_matches[0].match_id,),
+                selection_exposures,
+            ),
         ),
         (
             "TOP_TWO_EXPOSURE_MATCHES_ADVERSE",
-            tuple(adverse_outcome(item.match_id) for item in ranked_matches[:2]),
+            _select_adverse_outcomes(
+                portfolio,
+                report_id,
+                tuple(item.match_id for item in ranked_matches[:2]),
+                selection_exposures,
+            ),
         ),
         (
             "ALL_EXPOSED_MATCHES_ADVERSE",
-            tuple(adverse_outcome(item.match_id) for item in ranked_matches),
+            _select_adverse_outcomes(
+                portfolio,
+                report_id,
+                tuple(item.match_id for item in ranked_matches),
+                selection_exposures,
+            ),
         ),
     ]
-    seen: set[tuple[tuple[str, SelectionKey], ...]] = set()
-    results = []
-    for key, outcomes in definitions:
-        fingerprint = tuple((item.match_id, item.selection) for item in outcomes)
-        if fingerprint in seen:
-            continue
-        seen.add(fingerprint)
-        results.append(_evaluate_scenario(portfolio, report_id, key, outcomes))
-    return tuple(results)
+    return tuple(
+        _evaluate_scenario(portfolio, report_id, key, outcomes)
+        for key, outcomes in definitions
+    )
+
+
+def _select_adverse_outcomes(
+    portfolio: Portfolio,
+    report_id: str,
+    match_ids: tuple[str, ...],
+    selection_exposures: tuple[SelectionExposure, ...],
+) -> tuple[StressOutcome, ...]:
+    selected_stake = {
+        (item.match_id, item.selection): item.exposed_stake_fen
+        for item in selection_exposures
+    }
+    options = []
+    for match_id in match_ids:
+        dominant = min(
+            SelectionKey,
+            key=lambda selection: (
+                -selected_stake.get((match_id, selection), 0),
+                selection.value,
+            ),
+        )
+        options.append(
+            tuple(selection for selection in SelectionKey if selection != dominant)
+        )
+
+    def score(outcomes: tuple[StressOutcome, ...]) -> tuple:
+        result = _evaluate_scenario(
+            portfolio,
+            report_id,
+            "ADVERSE_CANDIDATE",
+            outcomes,
+        )
+        return (
+            result.maximum_ending_capital_fen,
+            result.minimum_ending_capital_fen,
+            -result.scenario_exposed_stake_fen,
+            tuple((item.match_id, item.selection.value) for item in outcomes),
+        )
+
+    ticket_selections: dict[str, dict[int, SelectionKey]] = defaultdict(dict)
+    for index, ticket in enumerate(portfolio.tickets):
+        for leg in ticket.candidate.legs:
+            ticket_selections[leg.match_id][index] = leg.selection
+
+    all_tickets = (1 << len(portfolio.tickets)) - 1
+    states: dict[int, tuple[StressOutcome, ...]] = {all_tickets: ()}
+    for match_id, match_options in zip(match_ids, options, strict=True):
+        next_states: dict[int, tuple[StressOutcome, ...]] = {}
+        selections = ticket_selections[match_id]
+        for alive_tickets, outcomes in states.items():
+            for selection in match_options:
+                next_alive = alive_tickets
+                for ticket_index, required_selection in selections.items():
+                    if required_selection != selection:
+                        next_alive &= ~(1 << ticket_index)
+                candidate = (*outcomes, StressOutcome(match_id=match_id, selection=selection))
+                existing = next_states.get(next_alive)
+                if existing is None or _outcome_key(candidate) < _outcome_key(existing):
+                    next_states[next_alive] = candidate
+        states = next_states
+    return min(states.values(), key=score)
 
 
 def _evaluate_scenario(
@@ -236,3 +296,7 @@ def _ratio(numerator: int, denominator: int) -> Decimal | None:
         RATIO_QUANTUM,
         rounding=ROUND_HALF_EVEN,
     )
+
+
+def _outcome_key(outcomes: tuple[StressOutcome, ...]) -> tuple[tuple[str, str], ...]:
+    return tuple((item.match_id, item.selection.value) for item in outcomes)

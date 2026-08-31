@@ -6,6 +6,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from football_system.domain.betting import MAX_EXACT_STRESS_TICKETS
+
 
 class SettingsModel(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -16,7 +18,7 @@ class DatabaseSettings(SettingsModel):
 
 
 class AnalysisSettings(SettingsModel):
-    pipeline_version: str = "MVP_V1"
+    pipeline_version: str = "PORTFOLIO_RISK_V1"
     fusion_policy: str = "QUANT_ONLY_V1"
     quant_weight: Decimal = Field(default=Decimal("0.70"), ge=0, le=1)
     min_selection_ev: Decimal = Field(default=Decimal("0.02"), ge=0)
@@ -25,7 +27,11 @@ class AnalysisSettings(SettingsModel):
 
 class PortfolioSettings(SettingsModel):
     preferred_max_tickets: int = Field(default=4, ge=1)
-    absolute_max_tickets: int = Field(default=8, ge=1)
+    absolute_max_tickets: int = Field(
+        default=8,
+        ge=1,
+        le=MAX_EXACT_STRESS_TICKETS,
+    )
     extra_ticket_min_roi: Decimal = Field(default=Decimal("0.20"), ge=0)
     operational_complexity_penalty: Decimal = Field(default=Decimal("0.01"), ge=0)
 

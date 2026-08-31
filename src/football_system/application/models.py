@@ -24,6 +24,7 @@ from football_system.domain.prediction import (
     QuantPrediction,
 )
 from football_system.domain.risk import PortfolioRiskReport
+from football_system.domain.services.risk import analyze_portfolio_risk
 
 
 class StoredInputManifest(DomainModel):
@@ -212,6 +213,8 @@ class AnalysisArtifacts(DomainModel):
             raise ValueError("analysis must contain one risk report per portfolio")
         for report in self.portfolio_risk_reports:
             portfolio = portfolio_by_id[report.portfolio_id]
+            if report != analyze_portfolio_risk(portfolio):
+                raise ValueError("portfolio risk report does not match frozen portfolio")
             ticket_ids = {ticket.ticket_id for ticket in portfolio.tickets}
             exposed_ticket_ids = {
                 ticket_id

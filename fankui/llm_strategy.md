@@ -140,6 +140,8 @@ strategy_config
 
 ## LLMMatchAssessment
 
+> 本节是后续扩展设计，不是当前离线导入合同。当前实现采用严格的 `LLM_REVIEW_V1` 子集；准确字段及示例见 `llm_review_v1_contract.md`。未列入该合同的 `semantic_factors`、`risk_score`、`market_interpretation`、`scenario_relationships`、`opinion` 和 `relationship` 字段都会被拒绝。
+
 ### 系统 Envelope
 
 以下字段由系统附加，不能由模型自行填写：

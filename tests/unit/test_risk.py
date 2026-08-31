@@ -1,8 +1,11 @@
 from decimal import Decimal
 
+import pytest
+
 from football_system.domain.betting import (
     CandidateStatus,
     CashPosition,
+    MAX_EXACT_STRESS_TICKETS,
     Portfolio,
     PortfolioConstraints,
     PortfolioStatus,
@@ -24,14 +27,15 @@ def _ticket(
     stake_fen: int,
     first_match: str,
     second_match: str,
+    selection: SelectionKey = SelectionKey.HOME_WIN,
 ) -> TicketAllocation:
     legs = tuple(
         SelectionCandidate(
-            candidate_id=f"candidate-{ticket_no}-{match_id}",
+            candidate_id=f"candidate-{ticket_no}-{match_id}-{selection.value}",
             analysis_run_id="run-risk",
             match_id=match_id,
             market=MARKET,
-            selection=SelectionKey.HOME_WIN,
+            selection=selection,
             final_prediction_id=f"final-{match_id}",
             sporttery_bonus_snapshot_id=f"bonus-{match_id}",
             probability=Decimal("0.6"),
@@ -67,6 +71,14 @@ def _ticket(
         expected_roi=Decimal("0.2996"),
         probability_any_payout=Decimal("0.36"),
     )
+
+
+def test_domain_rejects_ticket_count_above_exact_stress_bound() -> None:
+    with pytest.raises(ValueError):
+        PortfolioConstraints(
+            preferred_max_tickets=MAX_EXACT_STRESS_TICKETS + 1,
+            absolute_max_tickets=MAX_EXACT_STRESS_TICKETS + 1,
+        )
 
 
 def test_risk_report_calculates_cash_and_top_level_exposure() -> None:
@@ -135,3 +147,106 @@ def test_all_cash_and_zero_budget_are_valid_risk_choices() -> None:
         assert report.stress_results[0].capital_recovery_ratio == (
             None if budget == 0 else Decimal("1.000000000000")
         )
+
+
+def test_adverse_complete_scenario_accounts_for_opposing_selections() -> None:
+    tickets = (
+        _ticket(1, 600, "match-1", "match-2", SelectionKey.HOME_WIN),
+        _ticket(2, 200, "match-1", "match-2", SelectionKey.DRAW),
+        _ticket(3, 400, "match-1", "match-2", SelectionKey.AWAY_WIN),
+    )
+    portfolio = Portfolio(
+        portfolio_id="portfolio-opposing",
+        analysis_run_id="run-risk",
+        budget_fen=1_200,
+        tickets=tickets,
+        total_stake_fen=1_200,
+        unused_budget_fen=0,
+        cash_position=CashPosition(
+            position_id=stable_id("cash", "portfolio-opposing"), amount_fen=0
+        ),
+        status=PortfolioStatus.RECOMMENDED,
+        constraints=CONSTRAINTS,
+    )
+
+    report = analyze_portfolio_risk(portfolio)
+    complete = next(
+        result
+        for result in report.stress_results
+        if result.scenario_key == "ALL_EXPOSED_MATCHES_ADVERSE"
+    )
+
+    assert complete.is_complete
+    assert complete.scenario_exposed_stake_fen == 1_200
+    assert complete.ending_capital_fen == 0
+    assert complete.profit_loss_fen == -1_200
+
+
+def test_adverse_search_remains_exact_above_sixteen_matches() -> None:
+    def ticket(
+        number: int,
+        stake: int,
+        payout: int,
+        first_match: str,
+        first_selection: SelectionKey,
+        second_match: str,
+        second_selection: SelectionKey,
+    ) -> TicketAllocation:
+        base = _ticket(number, stake, first_match, second_match, first_selection)
+        second_leg = base.candidate.legs[1].model_copy(
+            update={"selection": second_selection}
+        )
+        return base.model_copy(
+            update={
+                "candidate": base.candidate.model_copy(
+                    update={"legs": (base.candidate.legs[0], second_leg)}
+                ),
+                "potential_gross_payout_fen": payout,
+            }
+        )
+
+    tickets = (
+        ticket(1, 200, 400, "A", SelectionKey.DRAW, "B", SelectionKey.DRAW),
+        ticket(2, 200, 400, "A", SelectionKey.DRAW, "B", SelectionKey.AWAY_WIN),
+        ticket(3, 200, 1_000, "A", SelectionKey.AWAY_WIN, "B", SelectionKey.DRAW),
+        ticket(4, 600, 2_166, "A", SelectionKey.HOME_WIN, "C", SelectionKey.HOME_WIN),
+        ticket(5, 600, 2_166, "B", SelectionKey.HOME_WIN, "D", SelectionKey.HOME_WIN),
+        *(
+            ticket(
+                number,
+                200,
+                722,
+                f"X{number}",
+                SelectionKey.HOME_WIN,
+                f"Y{number}",
+                SelectionKey.HOME_WIN,
+            )
+            for number in range(6, 13)
+        ),
+    )
+    portfolio = Portfolio(
+        portfolio_id="portfolio-many-matches",
+        analysis_run_id="run-risk",
+        budget_fen=3_200,
+        tickets=tickets,
+        total_stake_fen=3_200,
+        unused_budget_fen=0,
+        cash_position=CashPosition(position_id="cash-many-matches", amount_fen=0),
+        status=PortfolioStatus.RECOMMENDED,
+        constraints=PortfolioConstraints(
+            preferred_max_tickets=12,
+            absolute_max_tickets=12,
+        ),
+    )
+
+    report = analyze_portfolio_risk(portfolio)
+    complete = next(
+        result
+        for result in report.stress_results
+        if result.scenario_key == "ALL_EXPOSED_MATCHES_ADVERSE"
+    )
+
+    assert len(complete.outcomes) == 18
+    assert complete.ending_capital_fen == 0
+    assert complete.profit_loss_fen == -3_200
+    assert complete.policy_version == "DETERMINISTIC_PORTFOLIO_STRESS_V2"

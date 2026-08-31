@@ -1,5 +1,7 @@
 # 足球竞彩分析系统 MVP 实现报告
 
+> 冻结版本：`v0.1.0`，Git 提交 `fceb945d07218290dc85b465e885a47ae9912c3f`。后续风险层和离线文件桥属于 `0.2.0`，不回写本报告对应的历史 AnalysisRun。
+
 ## 1. 交付结论
 
 本轮已完成需求文件 `yaoqiu/yaoqiu08311111.md` 约定的 MVP，并纳入最新 Strategy Profile：

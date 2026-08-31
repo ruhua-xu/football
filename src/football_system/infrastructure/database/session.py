@@ -26,10 +26,11 @@ def create_database_engine(database_url: str, echo: bool = False) -> Engine:
 
     if url.get_backend_name() == "sqlite":
         @event.listens_for(engine, "connect")
-        def _enable_sqlite_foreign_keys(dbapi_connection: object, connection_record: object) -> None:
+        def _configure_sqlite_connection(dbapi_connection: object, connection_record: object) -> None:
             del connection_record
             cursor = dbapi_connection.cursor()  # type: ignore[attr-defined]
             cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.execute("PRAGMA recursive_triggers=ON")
             cursor.close()
 
     return engine

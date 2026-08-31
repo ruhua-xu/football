@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import event, select, text
 from sqlalchemy.exc import IntegrityError
 
 from football_system.application.run_analysis import (
@@ -204,6 +204,22 @@ def test_full_mvp_analysis_persists_replayable_artifacts() -> None:
         "DELETE FROM portfolio_stress_results",
         "DELETE FROM ticket_legs",
         "UPDATE matches SET status = 'MUTATED'",
+        "INSERT OR REPLACE INTO matches ("
+        "internal_match_id, competition_id, home_team_id, away_team_id, "
+        "kickoff_at_utc, status, available_at_utc, created_at_utc) "
+        "SELECT internal_match_id, competition_id, home_team_id, away_team_id, "
+        "kickoff_at_utc, 'MUTATED', available_at_utc, created_at_utc "
+        "FROM matches LIMIT 1",
+        "INSERT OR REPLACE INTO analysis_runs ("
+        "analysis_run_id, run_kind, as_of_at_utc, status, started_at_utc, "
+        "completed_at_utc, pipeline_version, code_revision, config_json, "
+        "config_hash, input_manifest_version, input_manifest_json, "
+        "input_manifest_hash, replay_of_run_id) "
+        "SELECT analysis_run_id, run_kind, as_of_at_utc, 'RUNNING', "
+        "started_at_utc, NULL, pipeline_version, code_revision, config_json, "
+        "config_hash, input_manifest_version, input_manifest_json, "
+        "input_manifest_hash, replay_of_run_id FROM analysis_runs "
+        "WHERE analysis_run_id = 'run-e2e-main'",
         "INSERT INTO market_odds_quotes "
         "SELECT snapshot_id, 'INJECTED', 2 FROM market_odds_snapshots LIMIT 1",
         "INSERT INTO manual_quant_input_outcomes "
@@ -262,6 +278,62 @@ def test_full_mvp_analysis_persists_replayable_artifacts() -> None:
         session.execute(
             text(
                 """
+                INSERT INTO portfolios (
+                    portfolio_id, analysis_run_id, budget_fen, total_stake_fen,
+                    unused_budget_fen, status, no_bet_reason,
+                    strategy_version, strategy_config_json
+                ) VALUES (
+                    'partial-portfolio', 'run-partial-source', 100, 0, 100,
+                    'NO_BET', 'NO_BET_NO_VALUE', 'TEST', '{}'
+                )
+                """
+            )
+        )
+        session.execute(
+            text(
+                """
+                INSERT INTO portfolio_cash_positions (
+                    cash_position_id, portfolio_id, amount_fen, expected_profit_fen
+                ) VALUES ('partial-cash', 'partial-portfolio', 100, 0)
+                """
+            )
+        )
+        session.execute(
+            text(
+                """
+                INSERT INTO portfolio_risk_reports (
+                    risk_report_id, analysis_run_id, portfolio_id, policy_version,
+                    budget_fen, total_stake_fen, cash_fen, cash_ratio,
+                    expected_profit_fen, total_stake_at_risk_fen,
+                    max_single_ticket_exposure_fen, max_match_exposure_fen
+                ) VALUES (
+                    'partial-risk', 'run-partial-source', 'partial-portfolio',
+                    'TEST', 100, 0, 100, 1, 0, 99, 0, 0
+                )
+                """
+            )
+        )
+        session.execute(
+            text(
+                """
+                INSERT INTO portfolio_stress_results (
+                    scenario_id, risk_report_id, portfolio_id, scenario_key,
+                    policy_version, outcomes_json, is_complete,
+                    scenario_exposed_stake_fen, scenario_exposure_ratio,
+                    gross_payout_fen, ending_capital_fen, profit_loss_fen,
+                    capital_recovery_ratio, minimum_ending_capital_fen,
+                    maximum_ending_capital_fen
+                ) VALUES (
+                    'partial-stress', 'partial-risk', 'partial-portfolio',
+                    'CASH_BASELINE', 'DETERMINISTIC_PORTFOLIO_STRESS_V2', '[]',
+                    1, 0, 0, 0, 100, 0, 1, 100, 100
+                )
+                """
+            )
+        )
+        session.execute(
+            text(
+                """
                 INSERT INTO analysis_run_matches (
                     analysis_run_id, internal_match_id, market_odds_snapshot_id,
                     sporttery_bonus_snapshot_id, manual_quant_input_id,
@@ -276,22 +348,14 @@ def test_full_mvp_analysis_persists_replayable_artifacts() -> None:
                 """
             )
         )
-        session.execute(
-            text(
-                """
-                UPDATE analysis_runs
-                SET status = 'COMPLETED', completed_at_utc = started_at_utc
-                WHERE analysis_run_id = 'run-partial-source'
-                """
-            )
-        )
     with pytest.raises(IntegrityError):
         with sessions.begin() as session:
             session.execute(
                 text(
                     """
-                    INSERT INTO market_odds_quotes (snapshot_id, selection_key, odds)
-                    VALUES ('partial-source', 'AWAY_WIN', 4)
+                    UPDATE analysis_runs
+                    SET status = 'COMPLETED', completed_at_utc = started_at_utc
+                    WHERE analysis_run_id = 'run-partial-source'
                     """
                 )
             )
@@ -379,6 +443,125 @@ def test_full_mvp_analysis_persists_replayable_artifacts() -> None:
             ),
             _rules(settings),
         )
+
+    bad_risk = artifacts.portfolio_risk_reports[0].model_copy(
+        update={"max_single_ticket_exposure_fen": 999_999}
+    )
+    with pytest.raises(ValueError, match="risk report"):
+        repository.save_analysis(
+            artifacts.model_copy(
+                update={
+                    "portfolio_risk_reports": (
+                        bad_risk,
+                        *artifacts.portfolio_risk_reports[1:],
+                    )
+                }
+            ),
+            _rules(settings),
+        )
+
+
+def test_completion_rejects_stress_outcome_without_selection() -> None:
+    service, _, sessions, dataset, _ = build_service()
+    tampered = False
+
+    def tamper_before_completion(session, flush_context, instances) -> None:
+        nonlocal tampered
+        del flush_context, instances
+        if tampered or not any(
+            isinstance(record, AnalysisRunRecord) and record.status == "COMPLETED"
+            for record in session.dirty
+        ):
+            return
+        tampered = True
+        connection = session.connection()
+        scenario = connection.execute(
+            text(
+                """
+                SELECT s.scenario_id, p.budget_fen, p.unused_budget_fen,
+                       SUM(t.potential_gross_payout_fen) AS gross_payout_fen
+                FROM portfolio_stress_results s
+                JOIN portfolios p ON p.portfolio_id = s.portfolio_id
+                JOIN tickets t ON t.portfolio_id = p.portfolio_id
+                WHERE s.scenario_key = 'ALL_EXPOSED_MATCHES_ADVERSE'
+                GROUP BY s.scenario_id, p.budget_fen, p.unused_budget_fen
+                LIMIT 1
+                """
+            )
+        ).mappings().one()
+        scenario_id = scenario["scenario_id"]
+        gross_payout_fen = int(scenario["gross_payout_fen"])
+        ending_capital_fen = int(scenario["unused_budget_fen"]) + gross_payout_fen
+        budget_fen = int(scenario["budget_fen"])
+        connection.execute(
+            text(
+                """
+                UPDATE portfolio_stress_results
+                SET outcomes_json = (
+                    SELECT json_group_array(json_object(
+                        'match_id', json_extract(outcome.value, '$.match_id')
+                    ))
+                    FROM json_each(portfolio_stress_results.outcomes_json) outcome
+                )
+                WHERE scenario_id = :scenario_id
+                """
+            ),
+            {"scenario_id": scenario_id},
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE portfolio_stress_ticket_results
+                SET result_state = 'WON',
+                    gross_payout_fen = (
+                        SELECT t.potential_gross_payout_fen
+                        FROM tickets t
+                        WHERE t.ticket_id = portfolio_stress_ticket_results.ticket_id
+                    )
+                WHERE scenario_id = :scenario_id
+                """
+            ),
+            {"scenario_id": scenario_id},
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE portfolio_stress_results
+                SET is_complete = 1,
+                    scenario_exposed_stake_fen = 0,
+                    scenario_exposure_ratio = 0,
+                    gross_payout_fen = :gross_payout_fen,
+                    ending_capital_fen = :ending_capital_fen,
+                    profit_loss_fen = :profit_loss_fen,
+                    capital_recovery_ratio = :capital_recovery_ratio,
+                    minimum_ending_capital_fen = :ending_capital_fen,
+                    maximum_ending_capital_fen = :ending_capital_fen
+                WHERE scenario_id = :scenario_id
+                """
+            ),
+            {
+                "scenario_id": scenario_id,
+                "gross_payout_fen": gross_payout_fen,
+                "ending_capital_fen": ending_capital_fen,
+                "profit_loss_fen": ending_capital_fen - budget_fen,
+                "capital_recovery_ratio": ending_capital_fen / budget_fen,
+            },
+        )
+
+    event.listen(sessions, "before_flush", tamper_before_completion)
+    try:
+        with pytest.raises(IntegrityError):
+            asyncio.run(
+                service.run(
+                    request_for(
+                        dataset,
+                        "run-missing-stress-selection",
+                        budgets_fen=(10_000,),
+                    )
+                )
+            )
+    finally:
+        event.remove(sessions, "before_flush", tamper_before_completion)
 
 
 def test_no_bet_is_persisted_without_duplicating_source_snapshots() -> None:

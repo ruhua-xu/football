@@ -12,6 +12,7 @@ from football_system.domain.analysis import AnalysisRunStatus
 from football_system.domain.betting import SportteryRules
 from football_system.domain.common import stable_id
 from football_system.domain.services.payout import calculate_stake_fen
+from football_system.domain.services.risk import analyze_portfolio_risk
 from football_system.infrastructure.database.models import (
     AnalysisRunMatchRecord,
     AnalysisRunRecord,
@@ -807,6 +808,7 @@ class SqlAlchemyAnalysisRepository:
                 or report.budget_fen != portfolio.budget_fen
                 or report.total_stake_fen != portfolio.total_stake_fen
                 or report.cash_fen != portfolio.cash_position.amount_fen
+                or report != analyze_portfolio_risk(portfolio)
                 or any(
                     set(exposure.ticket_ids) - ticket_ids
                     for exposure in (

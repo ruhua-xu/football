@@ -9,6 +9,9 @@ from football_system.domain.common import DomainModel, Identifier
 from football_system.domain.market import MarketKey, SelectionKey
 
 
+MAX_EXACT_STRESS_TICKETS = 12
+
+
 class CandidateStatus(StrEnum):
     ELIGIBLE = "ELIGIBLE"
     REJECTED = "REJECTED"
@@ -32,7 +35,11 @@ class NoBetReason(StrEnum):
 
 class PortfolioConstraints(DomainModel):
     preferred_max_tickets: int = Field(default=4, ge=1)
-    absolute_max_tickets: int = Field(default=8, ge=1)
+    absolute_max_tickets: int = Field(
+        default=8,
+        ge=1,
+        le=MAX_EXACT_STRESS_TICKETS,
+    )
     extra_ticket_min_roi: Decimal = Field(default=Decimal("0.20"), ge=0)
     operational_complexity_penalty: Decimal = Field(default=Decimal("0.01"), ge=0)
 

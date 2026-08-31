@@ -3,7 +3,13 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from football_system.config import AnalysisSettings, AppSettings, SportterySettings
+from football_system.config import (
+    AnalysisSettings,
+    AppSettings,
+    PortfolioSettings,
+    SportterySettings,
+)
+from football_system.domain.betting import MAX_EXACT_STRESS_TICKETS
 
 
 def test_loads_versioned_mvp_settings() -> None:
@@ -29,4 +35,12 @@ def test_rejects_negative_or_non_strict_value_thresholds() -> None:
         AppSettings(
             analysis={"min_ticket_roi": "0.20"},
             portfolio={"extra_ticket_min_roi": "0.20"},
+        )
+
+
+def test_rejects_ticket_count_above_exact_stress_bound() -> None:
+    with pytest.raises(ValidationError):
+        PortfolioSettings(
+            preferred_max_tickets=MAX_EXACT_STRESS_TICKETS + 1,
+            absolute_max_tickets=MAX_EXACT_STRESS_TICKETS + 1,
         )

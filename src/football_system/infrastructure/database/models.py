@@ -9,6 +9,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     Numeric,
@@ -52,6 +53,7 @@ EnumColumn = String(64)
 PriceColumn = Numeric(18, 6, asdecimal=True)
 ProbabilityColumn = Numeric(18, 12, asdecimal=True)
 MetricColumn = Numeric(24, 8, asdecimal=True)
+RatioColumn = Numeric(24, 12, asdecimal=True)
 
 
 class ProviderRecord(Base):
@@ -772,7 +774,7 @@ class PortfolioStressResultRecord(Base):
     ending_capital_fen: Mapped[int | None] = mapped_column(Integer, nullable=True)
     profit_loss_fen: Mapped[int | None] = mapped_column(Integer, nullable=True)
     capital_recovery_ratio: Mapped[Decimal | None] = mapped_column(
-        MetricColumn, nullable=True
+        RatioColumn, nullable=True
     )
     minimum_ending_capital_fen: Mapped[int] = mapped_column(Integer, nullable=False)
     maximum_ending_capital_fen: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -790,3 +792,75 @@ class PortfolioStressTicketResultRecord(Base):
     )
     result_state: Mapped[str] = mapped_column(EnumColumn, nullable=False)
     gross_payout_fen: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class AnalysisPacketRecord(Base):
+    __tablename__ = "analysis_packets"
+    __table_args__ = (
+        CheckConstraint("length(packet_hash) = 64", name="ck_packet_hash_length"),
+        UniqueConstraint(
+            "parent_analysis_run_id",
+            "schema_version",
+            name="uq_analysis_packet_run_schema",
+        ),
+        UniqueConstraint(
+            "packet_id",
+            "parent_analysis_run_id",
+            "packet_hash",
+            name="uq_analysis_packet_binding",
+        ),
+    )
+
+    packet_id: Mapped[str] = mapped_column(IdColumn, primary_key=True)
+    parent_analysis_run_id: Mapped[str] = mapped_column(
+        ForeignKey("analysis_runs.analysis_run_id", ondelete="RESTRICT"), nullable=False
+    )
+    schema_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    generated_at_utc: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    packet_json: Mapped[str] = mapped_column(Text, nullable=False)
+    packet_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class LLMReviewArtifactRecord(Base):
+    __tablename__ = "llm_review_artifacts"
+    __table_args__ = (
+        CheckConstraint(
+            "length(packet_hash) = 64", name="ck_review_packet_hash_length"
+        ),
+        CheckConstraint(
+            "length(raw_review_hash) = 64", name="ck_review_raw_hash_length"
+        ),
+        CheckConstraint(
+            "length(normalized_review_hash) = 64",
+            name="ck_review_normalized_hash_length",
+        ),
+        ForeignKeyConstraint(
+            ["packet_id", "parent_analysis_run_id", "packet_hash"],
+            [
+                "analysis_packets.packet_id",
+                "analysis_packets.parent_analysis_run_id",
+                "analysis_packets.packet_hash",
+            ],
+            ondelete="RESTRICT",
+            name="fk_review_packet_binding",
+        ),
+        UniqueConstraint(
+            "packet_id",
+            "normalized_review_hash",
+            "validator_version",
+            name="uq_llm_review_normalized",
+        ),
+    )
+
+    review_artifact_id: Mapped[str] = mapped_column(IdColumn, primary_key=True)
+    parent_analysis_run_id: Mapped[str] = mapped_column(IdColumn, nullable=False)
+    packet_id: Mapped[str] = mapped_column(IdColumn, nullable=False)
+    packet_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    review_schema_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    imported_at_utc: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    raw_review_json: Mapped[str] = mapped_column(Text, nullable=False)
+    raw_review_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    normalized_review_json: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_review_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    validator_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    source_kind: Mapped[str] = mapped_column(String(40), nullable=False)

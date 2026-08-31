@@ -1,153 +1,23 @@
-from __future__ import annotations
+"""harden risk lineage and append-only review artifacts
 
-from sqlalchemy import Connection
+Revision ID: 9d4e6f1a2c70
+Revises: 7a2c5e8f9b31
+Create Date: 2026-08-31 16:00:00.000000
+"""
+
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
 
 
-RUN_LOOKUPS = {
-    "analysis_run_matches": (
-        "SELECT 1 FROM analysis_runs r "
-        "WHERE r.analysis_run_id = {row}.analysis_run_id AND r.status = 'COMPLETED'"
-    ),
-    "market_probabilities": (
-        "SELECT 1 FROM analysis_runs r "
-        "WHERE r.analysis_run_id = {row}.analysis_run_id AND r.status = 'COMPLETED'"
-    ),
-    "market_probability_outcomes": (
-        "SELECT 1 FROM analysis_runs r JOIN market_probabilities p "
-        "ON p.analysis_run_id = r.analysis_run_id "
-        "WHERE p.market_probability_id = {row}.market_probability_id "
-        "AND r.status = 'COMPLETED'"
-    ),
-    "market_probability_inputs": (
-        "SELECT 1 FROM analysis_runs r JOIN market_probabilities p "
-        "ON p.analysis_run_id = r.analysis_run_id "
-        "WHERE p.market_probability_id = {row}.market_probability_id "
-        "AND r.status = 'COMPLETED'"
-    ),
-    "quant_predictions": (
-        "SELECT 1 FROM analysis_runs r "
-        "WHERE r.analysis_run_id = {row}.analysis_run_id AND r.status = 'COMPLETED'"
-    ),
-    "quant_prediction_outcomes": (
-        "SELECT 1 FROM analysis_runs r JOIN quant_predictions p "
-        "ON p.analysis_run_id = r.analysis_run_id "
-        "WHERE p.quant_prediction_id = {row}.quant_prediction_id "
-        "AND r.status = 'COMPLETED'"
-    ),
-    "final_predictions": (
-        "SELECT 1 FROM analysis_runs r "
-        "WHERE r.analysis_run_id = {row}.analysis_run_id AND r.status = 'COMPLETED'"
-    ),
-    "final_prediction_outcomes": (
-        "SELECT 1 FROM analysis_runs r JOIN final_predictions p "
-        "ON p.analysis_run_id = r.analysis_run_id "
-        "WHERE p.final_prediction_id = {row}.final_prediction_id "
-        "AND r.status = 'COMPLETED'"
-    ),
-    "bet_candidates": (
-        "SELECT 1 FROM analysis_runs r "
-        "WHERE r.analysis_run_id = {row}.analysis_run_id AND r.status = 'COMPLETED'"
-    ),
-    "ticket_candidates": (
-        "SELECT 1 FROM analysis_runs r "
-        "WHERE r.analysis_run_id = {row}.analysis_run_id AND r.status = 'COMPLETED'"
-    ),
-    "ticket_candidate_legs": (
-        "SELECT 1 FROM analysis_runs r JOIN ticket_candidates c "
-        "ON c.analysis_run_id = r.analysis_run_id "
-        "WHERE c.ticket_candidate_id = {row}.ticket_candidate_id "
-        "AND r.status = 'COMPLETED'"
-    ),
-    "portfolios": (
-        "SELECT 1 FROM analysis_runs r "
-        "WHERE r.analysis_run_id = {row}.analysis_run_id AND r.status = 'COMPLETED'"
-    ),
-    "portfolio_cash_positions": (
-        "SELECT 1 FROM analysis_runs r JOIN portfolios p "
-        "ON p.analysis_run_id = r.analysis_run_id "
-        "WHERE p.portfolio_id = {row}.portfolio_id AND r.status = 'COMPLETED'"
-    ),
-    "tickets": (
-        "SELECT 1 FROM analysis_runs r JOIN portfolios p "
-        "ON p.analysis_run_id = r.analysis_run_id "
-        "WHERE p.portfolio_id = {row}.portfolio_id AND r.status = 'COMPLETED'"
-    ),
-    "ticket_legs": (
-        "SELECT 1 FROM analysis_runs r JOIN portfolios p "
-        "ON p.analysis_run_id = r.analysis_run_id "
-        "JOIN tickets t ON t.portfolio_id = p.portfolio_id "
-        "WHERE t.ticket_id = {row}.ticket_id AND r.status = 'COMPLETED'"
-    ),
-    "portfolio_risk_reports": (
-        "SELECT 1 FROM analysis_runs r JOIN portfolios p "
-        "ON p.analysis_run_id = r.analysis_run_id "
-        "WHERE p.portfolio_id = {row}.portfolio_id AND r.status = 'COMPLETED'"
-    ),
-    "portfolio_match_exposures": (
-        "SELECT 1 FROM analysis_runs r JOIN portfolios p "
-        "ON p.analysis_run_id = r.analysis_run_id "
-        "JOIN portfolio_risk_reports x ON x.portfolio_id = p.portfolio_id "
-        "WHERE x.risk_report_id = {row}.risk_report_id "
-        "AND r.status = 'COMPLETED'"
-    ),
-    "portfolio_selection_exposures": (
-        "SELECT 1 FROM analysis_runs r JOIN portfolios p "
-        "ON p.analysis_run_id = r.analysis_run_id "
-        "JOIN portfolio_risk_reports x ON x.portfolio_id = p.portfolio_id "
-        "WHERE x.risk_report_id = {row}.risk_report_id "
-        "AND r.status = 'COMPLETED'"
-    ),
-    "portfolio_stress_results": (
-        "SELECT 1 FROM analysis_runs r JOIN portfolios p "
-        "ON p.analysis_run_id = r.analysis_run_id "
-        "JOIN portfolio_risk_reports x ON x.portfolio_id = p.portfolio_id "
-        "WHERE x.risk_report_id = {row}.risk_report_id "
-        "AND r.status = 'COMPLETED'"
-    ),
-    "portfolio_stress_ticket_results": (
-        "SELECT 1 FROM analysis_runs r JOIN portfolios p "
-        "ON p.analysis_run_id = r.analysis_run_id "
-        "JOIN portfolio_risk_reports x ON x.portfolio_id = p.portfolio_id "
-        "JOIN portfolio_stress_results s ON s.risk_report_id = x.risk_report_id "
-        "WHERE s.scenario_id = {row}.scenario_id AND r.status = 'COMPLETED'"
-    ),
-}
+revision: str = "9d4e6f1a2c70"
+down_revision: Union[str, None] = "7a2c5e8f9b31"
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
 
-SOURCE_TABLES = (
-    "providers",
-    "bookmakers",
-    "competitions",
-    "teams",
-    "matches",
-    "provider_match_mappings",
-    "market_odds_snapshots",
-    "market_odds_quotes",
-    "sporttery_bonus_snapshots",
-    "sporttery_bonus_quotes",
-    "manual_quant_inputs",
-    "manual_quant_input_outcomes",
-)
 
-SOURCE_CHILD_INSERT_LOOKUPS = {
-    "market_odds_quotes": (
-        "SELECT 1 FROM analysis_runs r JOIN analysis_run_matches m "
-        "ON m.analysis_run_id = r.analysis_run_id "
-        "WHERE m.market_odds_snapshot_id = NEW.snapshot_id "
-        "AND r.status = 'COMPLETED'"
-    ),
-    "sporttery_bonus_quotes": (
-        "SELECT 1 FROM analysis_runs r JOIN analysis_run_matches m "
-        "ON m.analysis_run_id = r.analysis_run_id "
-        "WHERE m.sporttery_bonus_snapshot_id = NEW.snapshot_id "
-        "AND r.status = 'COMPLETED'"
-    ),
-    "manual_quant_input_outcomes": (
-        "SELECT 1 FROM analysis_runs r JOIN quant_predictions p "
-        "ON p.analysis_run_id = r.analysis_run_id "
-        "WHERE p.manual_input_id = NEW.input_id AND r.status = 'COMPLETED'"
-    ),
-}
-
+# This revision snapshots its trigger DDL; later changes require a new migration.
 IMMUTABLE_INSERT_KEYS = {
     "analysis_runs": (("analysis_run_id",),),
     "providers": (("provider_id",), ("code",)),
@@ -179,9 +49,7 @@ IMMUTABLE_INSERT_KEYS = {
         ("market_probability_id",),
         ("analysis_run_id", "internal_match_id", "market_key"),
     ),
-    "market_probability_outcomes": (
-        ("market_probability_id", "selection_key"),
-    ),
+    "market_probability_outcomes": (("market_probability_id", "selection_key"),),
     "market_probability_inputs": (
         ("market_probability_id", "market_odds_snapshot_id"),
     ),
@@ -204,14 +72,8 @@ IMMUTABLE_INSERT_KEYS = {
         ("ticket_candidate_id", "leg_no"),
         ("ticket_candidate_id", "internal_match_id"),
     ),
-    "portfolios": (
-        ("portfolio_id",),
-        ("analysis_run_id", "budget_fen"),
-    ),
-    "portfolio_cash_positions": (
-        ("cash_position_id",),
-        ("portfolio_id",),
-    ),
+    "portfolios": (("portfolio_id",), ("analysis_run_id", "budget_fen")),
+    "portfolio_cash_positions": (("cash_position_id",), ("portfolio_id",)),
     "tickets": (("ticket_id",), ("portfolio_id", "ticket_no")),
     "ticket_legs": (
         ("ticket_id", "leg_no"),
@@ -233,98 +95,145 @@ IMMUTABLE_INSERT_KEYS = {
     "portfolio_stress_ticket_results": (("scenario_id", "ticket_id"),),
 }
 
-POST_RUN_PARENT_LOOKUPS = {
-    "analysis_packets": (
-        "SELECT 1 FROM analysis_runs r "
-        "WHERE r.analysis_run_id = NEW.parent_analysis_run_id "
-        "AND r.status = 'COMPLETED'"
-    ),
-    "llm_review_artifacts": (
-        "SELECT 1 FROM analysis_runs r "
-        "WHERE r.analysis_run_id = NEW.parent_analysis_run_id "
-        "AND r.status = 'COMPLETED'"
-    ),
-}
 
 POST_RUN_INSERT_CONFLICTS = {
-    "analysis_packets": (
-        "SELECT 1 FROM analysis_packets p WHERE p.packet_id = NEW.packet_id "
-        "OR (p.parent_analysis_run_id = NEW.parent_analysis_run_id "
-        "AND p.schema_version = NEW.schema_version)"
-    ),
-    "llm_review_artifacts": (
-        "SELECT 1 FROM llm_review_artifacts a "
-        "WHERE a.review_artifact_id = NEW.review_artifact_id "
-        "OR (a.packet_id = NEW.packet_id "
-        "AND a.normalized_review_hash = NEW.normalized_review_hash "
-        "AND a.validator_version = NEW.validator_version)"
-    ),
+    "analysis_packets": "SELECT 1 FROM analysis_packets p WHERE p.packet_id = NEW.packet_id OR (p.parent_analysis_run_id = NEW.parent_analysis_run_id AND p.schema_version = NEW.schema_version)",
+    "llm_review_artifacts": "SELECT 1 FROM llm_review_artifacts a WHERE a.review_artifact_id = NEW.review_artifact_id OR (a.packet_id = NEW.packet_id AND a.normalized_review_hash = NEW.normalized_review_hash AND a.validator_version = NEW.validator_version)",
 }
 
 LINEAGE_GUARDS = {
-    "portfolio_cash_positions": (
-        "NOT EXISTS (SELECT 1 FROM portfolios p "
-        "WHERE p.portfolio_id = NEW.portfolio_id "
-        "AND p.unused_budget_fen = NEW.amount_fen "
-        "AND NEW.expected_profit_fen = 0)"
-    ),
-    "portfolio_risk_reports": (
-        "NOT EXISTS (SELECT 1 FROM portfolios p "
-        "WHERE p.portfolio_id = NEW.portfolio_id "
-        "AND p.analysis_run_id = NEW.analysis_run_id "
-        "AND p.budget_fen = NEW.budget_fen "
-        "AND p.total_stake_fen = NEW.total_stake_fen "
-        "AND p.unused_budget_fen = NEW.cash_fen)"
-    ),
-    "portfolio_match_exposures": (
-        "NOT EXISTS (SELECT 1 FROM portfolio_risk_reports x "
-        "JOIN tickets t ON t.portfolio_id = x.portfolio_id "
-        "JOIN ticket_legs l ON l.ticket_id = t.ticket_id "
-        "WHERE x.risk_report_id = NEW.risk_report_id "
-        "AND l.internal_match_id = NEW.internal_match_id)"
-    ),
-    "portfolio_selection_exposures": (
-        "NOT EXISTS (SELECT 1 FROM portfolio_risk_reports x "
-        "JOIN tickets t ON t.portfolio_id = x.portfolio_id "
-        "JOIN ticket_legs l ON l.ticket_id = t.ticket_id "
-        "JOIN bet_candidates b ON b.candidate_id = l.candidate_id "
-        "WHERE x.risk_report_id = NEW.risk_report_id "
-        "AND l.internal_match_id = NEW.internal_match_id "
-        "AND b.market_key = NEW.market_key "
-        "AND b.selection_key = NEW.selection_key)"
-    ),
-    "portfolio_stress_results": (
-        "NOT EXISTS (SELECT 1 FROM portfolio_risk_reports x "
-        "WHERE x.risk_report_id = NEW.risk_report_id "
-        "AND x.portfolio_id = NEW.portfolio_id)"
-    ),
-    "portfolio_stress_ticket_results": (
-        "NOT EXISTS (SELECT 1 FROM portfolio_stress_results s "
-        "JOIN portfolio_risk_reports x ON x.risk_report_id = s.risk_report_id "
-        "JOIN tickets t ON t.ticket_id = NEW.ticket_id "
-        "WHERE s.scenario_id = NEW.scenario_id "
-        "AND s.portfolio_id = x.portfolio_id "
-        "AND t.portfolio_id = s.portfolio_id)"
-    ),
+    "portfolio_cash_positions": "NOT EXISTS (SELECT 1 FROM portfolios p WHERE p.portfolio_id = NEW.portfolio_id AND p.unused_budget_fen = NEW.amount_fen AND NEW.expected_profit_fen = 0)",
+    "portfolio_risk_reports": "NOT EXISTS (SELECT 1 FROM portfolios p WHERE p.portfolio_id = NEW.portfolio_id AND p.analysis_run_id = NEW.analysis_run_id AND p.budget_fen = NEW.budget_fen AND p.total_stake_fen = NEW.total_stake_fen AND p.unused_budget_fen = NEW.cash_fen)",
+    "portfolio_match_exposures": "NOT EXISTS (SELECT 1 FROM portfolio_risk_reports x JOIN tickets t ON t.portfolio_id = x.portfolio_id JOIN ticket_legs l ON l.ticket_id = t.ticket_id WHERE x.risk_report_id = NEW.risk_report_id AND l.internal_match_id = NEW.internal_match_id)",
+    "portfolio_selection_exposures": "NOT EXISTS (SELECT 1 FROM portfolio_risk_reports x JOIN tickets t ON t.portfolio_id = x.portfolio_id JOIN ticket_legs l ON l.ticket_id = t.ticket_id JOIN bet_candidates b ON b.candidate_id = l.candidate_id WHERE x.risk_report_id = NEW.risk_report_id AND l.internal_match_id = NEW.internal_match_id AND b.market_key = NEW.market_key AND b.selection_key = NEW.selection_key)",
+    "portfolio_stress_results": "NOT EXISTS (SELECT 1 FROM portfolio_risk_reports x WHERE x.risk_report_id = NEW.risk_report_id AND x.portfolio_id = NEW.portfolio_id)",
+    "portfolio_stress_ticket_results": "NOT EXISTS (SELECT 1 FROM portfolio_stress_results s JOIN portfolio_risk_reports x ON x.risk_report_id = s.risk_report_id JOIN tickets t ON t.ticket_id = NEW.ticket_id WHERE s.scenario_id = NEW.scenario_id AND s.portfolio_id = x.portfolio_id AND t.portfolio_id = s.portfolio_id)",
+}
+
+RISK_RUN_LOOKUPS = {
+    "portfolio_cash_positions": "SELECT 1 FROM analysis_runs r JOIN portfolios p ON p.analysis_run_id = r.analysis_run_id WHERE p.portfolio_id = {row}.portfolio_id AND r.status = 'COMPLETED'",
+    "portfolio_risk_reports": "SELECT 1 FROM analysis_runs r JOIN portfolios p ON p.analysis_run_id = r.analysis_run_id WHERE p.portfolio_id = {row}.portfolio_id AND r.status = 'COMPLETED'",
+    "portfolio_match_exposures": "SELECT 1 FROM analysis_runs r JOIN portfolios p ON p.analysis_run_id = r.analysis_run_id JOIN portfolio_risk_reports x ON x.portfolio_id = p.portfolio_id WHERE x.risk_report_id = {row}.risk_report_id AND r.status = 'COMPLETED'",
+    "portfolio_selection_exposures": "SELECT 1 FROM analysis_runs r JOIN portfolios p ON p.analysis_run_id = r.analysis_run_id JOIN portfolio_risk_reports x ON x.portfolio_id = p.portfolio_id WHERE x.risk_report_id = {row}.risk_report_id AND r.status = 'COMPLETED'",
+    "portfolio_stress_results": "SELECT 1 FROM analysis_runs r JOIN portfolios p ON p.analysis_run_id = r.analysis_run_id JOIN portfolio_risk_reports x ON x.portfolio_id = p.portfolio_id WHERE x.risk_report_id = {row}.risk_report_id AND r.status = 'COMPLETED'",
+    "portfolio_stress_ticket_results": "SELECT 1 FROM analysis_runs r JOIN portfolios p ON p.analysis_run_id = r.analysis_run_id JOIN portfolio_risk_reports x ON x.portfolio_id = p.portfolio_id JOIN portfolio_stress_results s ON s.risk_report_id = x.risk_report_id WHERE s.scenario_id = {row}.scenario_id AND r.status = 'COMPLETED'",
+}
+
+LEGACY_RISK_RUN_LOOKUPS = {
+    "portfolio_cash_positions": "SELECT 1 FROM analysis_runs r JOIN portfolios p ON p.analysis_run_id = r.analysis_run_id WHERE p.portfolio_id = {row}.portfolio_id AND r.status = 'COMPLETED'",
+    "portfolio_risk_reports": "SELECT 1 FROM analysis_runs r WHERE r.analysis_run_id = {row}.analysis_run_id AND r.status = 'COMPLETED'",
+    "portfolio_match_exposures": "SELECT 1 FROM analysis_runs r JOIN portfolio_risk_reports x ON x.analysis_run_id = r.analysis_run_id WHERE x.risk_report_id = {row}.risk_report_id AND r.status = 'COMPLETED'",
+    "portfolio_selection_exposures": "SELECT 1 FROM analysis_runs r JOIN portfolio_risk_reports x ON x.analysis_run_id = r.analysis_run_id WHERE x.risk_report_id = {row}.risk_report_id AND r.status = 'COMPLETED'",
+    "portfolio_stress_results": "SELECT 1 FROM analysis_runs r JOIN portfolio_risk_reports x ON x.analysis_run_id = r.analysis_run_id WHERE x.risk_report_id = {row}.risk_report_id AND r.status = 'COMPLETED'",
+    "portfolio_stress_ticket_results": "SELECT 1 FROM analysis_runs r JOIN portfolio_risk_reports x ON x.analysis_run_id = r.analysis_run_id JOIN portfolio_stress_results s ON s.risk_report_id = x.risk_report_id WHERE s.scenario_id = {row}.scenario_id AND r.status = 'COMPLETED'",
 }
 
 
-def install_sqlite_immutability_triggers(connection: Connection) -> None:
-    if connection.dialect.name != "sqlite":
-        return
-    connection.exec_driver_sql(
-        """
-        CREATE TRIGGER IF NOT EXISTS trg_analysis_runs_sealed_update
-        BEFORE UPDATE ON analysis_runs
-        WHEN OLD.status = 'COMPLETED'
-        BEGIN
-            SELECT RAISE(ABORT, 'sealed AnalysisRun is immutable');
-        END
-        """
+def upgrade() -> None:
+    connection = op.get_bind()
+    cross_run_count = connection.scalar(
+        sa.text(
+            """
+            SELECT COUNT(*)
+            FROM portfolio_risk_reports x
+            JOIN portfolios p ON p.portfolio_id = x.portfolio_id
+            WHERE x.analysis_run_id <> p.analysis_run_id
+            """
+        )
     )
+    if cross_run_count:
+        raise RuntimeError(
+            "cannot harden schema while cross-run portfolio risk reports exist"
+        )
+    _install_completion_triggers(connection)
+    try:
+        _validate_existing_completed_risk_graphs(connection)
+    except RuntimeError:
+        _drop_completion_triggers(connection)
+        raise
+    _drop_completion_triggers(connection)
+    _drop_risk_sealing_triggers(connection)
+    with op.batch_alter_table("portfolio_stress_results") as batch_op:
+        batch_op.alter_column(
+            "capital_recovery_ratio",
+            existing_type=sa.Numeric(precision=24, scale=8),
+            type_=sa.Numeric(precision=24, scale=12),
+            existing_nullable=True,
+        )
+    _install_risk_sealing_triggers(connection, RISK_RUN_LOOKUPS)
+    for table_name, conflict_lookup in POST_RUN_INSERT_CONFLICTS.items():
+        connection.exec_driver_sql(
+            f"""
+            CREATE TRIGGER trg_{table_name}_append_only_insert_existing
+            BEFORE INSERT ON {table_name}
+            WHEN EXISTS ({conflict_lookup})
+            BEGIN SELECT RAISE(ABORT, 'post-run artifacts are append-only'); END
+            """
+        )
+    for table_name, invalid_condition in LINEAGE_GUARDS.items():
+        for action in ("INSERT", "UPDATE"):
+            connection.exec_driver_sql(
+                f"""
+                CREATE TRIGGER trg_{table_name}_lineage_{action.lower()}
+                BEFORE {action} ON {table_name}
+                WHEN {invalid_condition}
+                BEGIN SELECT RAISE(ABORT, 'artifact lineage is inconsistent'); END
+                """
+            )
+    _install_completion_triggers(connection)
+    _install_immutable_insert_triggers(connection)
+
+
+def downgrade() -> None:
+    connection = op.get_bind()
+    _drop_completion_triggers(connection)
+    for table_name in IMMUTABLE_INSERT_KEYS:
+        connection.exec_driver_sql(
+            f"DROP TRIGGER IF EXISTS trg_{table_name}_immutable_insert_existing"
+        )
+    for table_name in POST_RUN_INSERT_CONFLICTS:
+        connection.exec_driver_sql(
+            f"DROP TRIGGER IF EXISTS trg_{table_name}_append_only_insert_existing"
+        )
+    for table_name in LINEAGE_GUARDS:
+        for action in ("insert", "update"):
+            connection.exec_driver_sql(
+                f"DROP TRIGGER IF EXISTS trg_{table_name}_lineage_{action}"
+            )
+    _drop_risk_sealing_triggers(connection)
+    with op.batch_alter_table("portfolio_stress_results") as batch_op:
+        batch_op.alter_column(
+            "capital_recovery_ratio",
+            existing_type=sa.Numeric(precision=24, scale=12),
+            type_=sa.Numeric(precision=24, scale=8),
+            existing_nullable=True,
+        )
+    _install_risk_sealing_triggers(connection, LEGACY_RISK_RUN_LOOKUPS)
+
+
+def _drop_risk_sealing_triggers(connection: object) -> None:
+    for table_name in RISK_RUN_LOOKUPS:
+        for action in ("insert", "update", "delete"):
+            connection.exec_driver_sql(
+                f"DROP TRIGGER IF EXISTS trg_{table_name}_sealed_{action}"
+            )
+
+
+def _drop_completion_triggers(connection: object) -> None:
+    for trigger_name in (
+        "trg_analysis_runs_completed_insert",
+        "trg_analysis_runs_completion_risk_graph",
+        "trg_analysis_runs_completion_exposures",
+        "trg_analysis_runs_completion_stress",
+        "trg_analysis_runs_completion_stress_coverage",
+    ):
+        connection.exec_driver_sql(f"DROP TRIGGER IF EXISTS {trigger_name}")
+
+
+def _install_completion_triggers(connection: object) -> None:
     connection.exec_driver_sql(
         """
-        CREATE TRIGGER IF NOT EXISTS trg_analysis_runs_completed_insert
+        CREATE TRIGGER trg_analysis_runs_completed_insert
         BEFORE INSERT ON analysis_runs
         WHEN NEW.status = 'COMPLETED'
         BEGIN
@@ -334,17 +243,7 @@ def install_sqlite_immutability_triggers(connection: Connection) -> None:
     )
     connection.exec_driver_sql(
         """
-        CREATE TRIGGER IF NOT EXISTS trg_analysis_runs_sealed_delete
-        BEFORE DELETE ON analysis_runs
-        WHEN OLD.status = 'COMPLETED'
-        BEGIN
-            SELECT RAISE(ABORT, 'sealed AnalysisRun is immutable');
-        END
-        """
-    )
-    connection.exec_driver_sql(
-        """
-        CREATE TRIGGER IF NOT EXISTS trg_analysis_runs_completion_risk_graph
+        CREATE TRIGGER trg_analysis_runs_completion_risk_graph
         BEFORE UPDATE OF status ON analysis_runs
         WHEN NEW.status = 'COMPLETED' AND OLD.status <> 'COMPLETED' AND (
             NEW.completed_at_utc IS NULL
@@ -435,9 +334,14 @@ def install_sqlite_immutability_triggers(connection: Connection) -> None:
         END
         """
     )
+    _install_completion_exposure_trigger(connection)
+    _install_completion_stress_triggers(connection)
+
+
+def _install_completion_exposure_trigger(connection: object) -> None:
     connection.exec_driver_sql(
         """
-        CREATE TRIGGER IF NOT EXISTS trg_analysis_runs_completion_exposures
+        CREATE TRIGGER trg_analysis_runs_completion_exposures
         BEFORE UPDATE OF status ON analysis_runs
         WHEN NEW.status = 'COMPLETED' AND OLD.status <> 'COMPLETED' AND (
             EXISTS (
@@ -599,9 +503,12 @@ def install_sqlite_immutability_triggers(connection: Connection) -> None:
         END
         """
     )
+
+
+def _install_completion_stress_triggers(connection: object) -> None:
     connection.exec_driver_sql(
         """
-        CREATE TRIGGER IF NOT EXISTS trg_analysis_runs_completion_stress
+        CREATE TRIGGER trg_analysis_runs_completion_stress
         BEFORE UPDATE OF status ON analysis_runs
         WHEN NEW.status = 'COMPLETED' AND OLD.status <> 'COMPLETED' AND EXISTS (
             SELECT 1
@@ -753,7 +660,7 @@ def install_sqlite_immutability_triggers(connection: Connection) -> None:
     )
     connection.exec_driver_sql(
         """
-        CREATE TRIGGER IF NOT EXISTS trg_analysis_runs_completion_stress_coverage
+        CREATE TRIGGER trg_analysis_runs_completion_stress_coverage
         BEFORE UPDATE OF status ON analysis_runs
         WHEN NEW.status = 'COMPLETED' AND EXISTS (
             SELECT 1
@@ -797,6 +704,9 @@ def install_sqlite_immutability_triggers(connection: Connection) -> None:
         END
         """
     )
+
+
+def _install_immutable_insert_triggers(connection: object) -> None:
     for table_name, key_sets in IMMUTABLE_INSERT_KEYS.items():
         conflict_condition = " OR ".join(
             "(" + " AND ".join(
@@ -806,7 +716,7 @@ def install_sqlite_immutability_triggers(connection: Connection) -> None:
         )
         connection.exec_driver_sql(
             f"""
-            CREATE TRIGGER IF NOT EXISTS trg_{table_name}_immutable_insert_existing
+            CREATE TRIGGER trg_{table_name}_immutable_insert_existing
             BEFORE INSERT ON {table_name}
             WHEN EXISTS (
                 SELECT 1 FROM {table_name} existing
@@ -817,51 +727,77 @@ def install_sqlite_immutability_triggers(connection: Connection) -> None:
             END
             """
         )
-    for table_name, parent_lookup in POST_RUN_PARENT_LOOKUPS.items():
+
+
+def _validate_existing_completed_risk_graphs(connection: object) -> None:
+    table_name = "_completed_risk_runs_to_validate"
+    connection.exec_driver_sql(f"DROP TABLE IF EXISTS {table_name}")
+    connection.exec_driver_sql(
+        f"""
+        CREATE TEMPORARY TABLE {table_name} AS
+        SELECT DISTINCT r.analysis_run_id
+        FROM analysis_runs r
+        JOIN portfolios p ON p.analysis_run_id = r.analysis_run_id
+        WHERE r.status = 'COMPLETED' AND (
+            EXISTS (
+                SELECT 1 FROM portfolio_cash_positions c
+                WHERE c.portfolio_id = p.portfolio_id
+            )
+            OR EXISTS (
+                SELECT 1 FROM portfolio_risk_reports x
+                WHERE x.portfolio_id = p.portfolio_id
+            )
+        )
+        """
+    )
+    count = connection.scalar(sa.text(f"SELECT COUNT(*) FROM {table_name}"))
+    if not count:
+        connection.exec_driver_sql(f"DROP TABLE {table_name}")
+        return
+
+    connection.exec_driver_sql("SAVEPOINT validate_completed_risk_graphs")
+    try:
+        connection.exec_driver_sql(
+            "DROP TRIGGER IF EXISTS trg_analysis_runs_sealed_update"
+        )
         connection.exec_driver_sql(
             f"""
-            CREATE TRIGGER IF NOT EXISTS trg_{table_name}_completed_parent_insert
-            BEFORE INSERT ON {table_name}
-            WHEN NOT EXISTS ({parent_lookup})
-            BEGIN
-                SELECT RAISE(ABORT, 'post-run artifact requires a completed AnalysisRun');
-            END
+            UPDATE analysis_runs
+            SET status = 'RUNNING'
+            WHERE analysis_run_id IN (SELECT analysis_run_id FROM {table_name})
             """
         )
-        for action in ("UPDATE", "DELETE"):
-            connection.exec_driver_sql(
-                f"""
-                CREATE TRIGGER IF NOT EXISTS trg_{table_name}_append_only_{action.lower()}
-                BEFORE {action} ON {table_name}
-                BEGIN
-                    SELECT RAISE(ABORT, 'post-run artifacts are append-only');
-                END
-                """
-            )
-        conflict_lookup = POST_RUN_INSERT_CONFLICTS[table_name]
         connection.exec_driver_sql(
             f"""
-            CREATE TRIGGER IF NOT EXISTS trg_{table_name}_append_only_insert_existing
-            BEFORE INSERT ON {table_name}
-            WHEN EXISTS ({conflict_lookup})
-            BEGIN
-                SELECT RAISE(ABORT, 'post-run artifacts are append-only');
-            END
+            UPDATE analysis_runs
+            SET status = 'COMPLETED'
+            WHERE analysis_run_id IN (SELECT analysis_run_id FROM {table_name})
             """
         )
-    for table_name, invalid_condition in LINEAGE_GUARDS.items():
-        for action in ("INSERT", "UPDATE"):
-            connection.exec_driver_sql(
-                f"""
-                CREATE TRIGGER IF NOT EXISTS trg_{table_name}_lineage_{action.lower()}
-                BEFORE {action} ON {table_name}
-                WHEN {invalid_condition}
-                BEGIN
-                    SELECT RAISE(ABORT, 'artifact lineage is inconsistent');
-                END
-                """
-            )
-    for table_name, lookup in RUN_LOOKUPS.items():
+    except sa.exc.IntegrityError as error:
+        connection.exec_driver_sql("ROLLBACK TO SAVEPOINT validate_completed_risk_graphs")
+        connection.exec_driver_sql("RELEASE SAVEPOINT validate_completed_risk_graphs")
+        connection.exec_driver_sql(f"DROP TABLE {table_name}")
+        raise RuntimeError(
+            "cannot harden schema while completed portfolio risk graphs are invalid"
+        ) from error
+    connection.exec_driver_sql("RELEASE SAVEPOINT validate_completed_risk_graphs")
+    connection.exec_driver_sql(f"DROP TABLE {table_name}")
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER trg_analysis_runs_sealed_update
+        BEFORE UPDATE ON analysis_runs
+        WHEN OLD.status = 'COMPLETED'
+        BEGIN SELECT RAISE(ABORT, 'sealed AnalysisRun is immutable'); END
+        """
+    )
+
+
+def _install_risk_sealing_triggers(
+    connection: object,
+    lookups: dict[str, str],
+) -> None:
+    for table_name, lookup in lookups.items():
         for action in ("INSERT", "UPDATE", "DELETE"):
             rows = ("NEW",) if action == "INSERT" else ("OLD",)
             if action == "UPDATE":
@@ -871,7 +807,7 @@ def install_sqlite_immutability_triggers(connection: Connection) -> None:
             )
             connection.exec_driver_sql(
                 f"""
-                CREATE TRIGGER IF NOT EXISTS trg_{table_name}_sealed_{action.lower()}
+                CREATE TRIGGER trg_{table_name}_sealed_{action.lower()}
                 BEFORE {action} ON {table_name}
                 WHEN {condition}
                 BEGIN
@@ -879,25 +815,3 @@ def install_sqlite_immutability_triggers(connection: Connection) -> None:
                 END
                 """
             )
-    for table_name in SOURCE_TABLES:
-        for action in ("UPDATE", "DELETE"):
-            connection.exec_driver_sql(
-                f"""
-                CREATE TRIGGER IF NOT EXISTS trg_{table_name}_append_only_{action.lower()}
-                BEFORE {action} ON {table_name}
-                BEGIN
-                    SELECT RAISE(ABORT, 'source records are append-only');
-                END
-                """
-            )
-    for table_name, lookup in SOURCE_CHILD_INSERT_LOOKUPS.items():
-        connection.exec_driver_sql(
-            f"""
-            CREATE TRIGGER IF NOT EXISTS trg_{table_name}_sealed_insert
-            BEFORE INSERT ON {table_name}
-            WHEN EXISTS ({lookup})
-            BEGIN
-                SELECT RAISE(ABORT, 'sealed source aggregate is immutable');
-            END
-            """
-        )

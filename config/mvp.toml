@@ -2,7 +2,7 @@
 url = "sqlite:///data/football_mvp.db"
 
 [analysis]
-pipeline_version = "MVP_V1"
+pipeline_version = "PORTFOLIO_RISK_V1"
 fusion_policy = "QUANT_ONLY_V1"
 quant_weight = "0.70"
 min_selection_ev = "0.02"

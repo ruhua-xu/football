@@ -74,7 +74,7 @@ class StressScenarioResult(DomainModel):
     risk_report_id: Identifier
     portfolio_id: Identifier
     scenario_key: str
-    policy_version: str = "DETERMINISTIC_PORTFOLIO_STRESS_V1"
+    policy_version: str = "DETERMINISTIC_PORTFOLIO_STRESS_V2"
     outcomes: tuple[StressOutcome, ...]
     is_complete: bool
     ticket_results: tuple[StressTicketResult, ...]
@@ -105,12 +105,27 @@ class StressScenarioResult(DomainModel):
         if self.is_complete:
             if any(value is None for value in exact_values):
                 raise ValueError("complete stress scenario requires exact financial results")
+            if any(
+                result.state == StressTicketState.ALIVE for result in self.ticket_results
+            ):
+                raise ValueError("complete stress scenario cannot contain an alive ticket")
+            if self.gross_payout_fen != sum(
+                result.gross_payout_fen or 0 for result in self.ticket_results
+            ):
+                raise ValueError("complete stress payout is inconsistent")
             if self.ending_capital_fen != self.minimum_ending_capital_fen:
                 raise ValueError("complete scenario must have exact capital bounds")
             if self.minimum_ending_capital_fen != self.maximum_ending_capital_fen:
                 raise ValueError("complete scenario must have exact capital bounds")
-        elif any(value is not None for value in exact_values):
-            raise ValueError("partial stress scenario cannot claim exact financial results")
+        else:
+            if not any(
+                result.state == StressTicketState.ALIVE for result in self.ticket_results
+            ):
+                raise ValueError("partial stress scenario requires an alive ticket")
+            if any(value is not None for value in exact_values) or (
+                self.capital_recovery_ratio is not None
+            ):
+                raise ValueError("partial stress scenario cannot claim exact financial results")
         return self
 
 

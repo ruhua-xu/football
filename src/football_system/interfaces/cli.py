@@ -9,7 +9,14 @@ from decimal import Decimal, InvalidOperation
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from football_system.application.models import AnalysisArtifacts
+from football_system.application.review_bridge import (
+    ExportAnalysisPacketService,
+    ImportLLMReviewService,
+    validate_review_files,
+)
 from football_system.application.run_analysis import RunAnalysisRequest, RunAnalysisService
 from football_system.config import AppSettings
 from football_system.domain.betting import CandidateStatus, PortfolioStatus
@@ -17,6 +24,9 @@ from football_system.domain.prediction import FusionPolicyName
 from football_system.infrastructure.database.migrations import upgrade_database
 from football_system.infrastructure.database.repositories import (
     SqlAlchemyAnalysisRepository,
+)
+from football_system.infrastructure.database.review_repositories import (
+    SqlAlchemyReviewArtifactRepository,
 )
 from football_system.infrastructure.database.session import (
     create_database_engine,
@@ -27,12 +37,21 @@ from football_system.infrastructure.providers.mock.fixtures import MockFixturePr
 from football_system.infrastructure.providers.mock.manual_quant import MockManualQuantProvider
 from football_system.infrastructure.providers.mock.market_odds import MockMarketOddsProvider
 from football_system.infrastructure.providers.mock.sporttery import MockSportteryProvider
+from football_system.infrastructure.files.review_bridge import (
+    read_contract_file,
+    write_contract_file,
+)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     _configure_utf8_output()
+    arguments = list(argv) if argv is not None else sys.argv[1:]
+    if arguments[:1] == ["analysis-packet"]:
+        return _dispatch_analysis_packet(arguments[1:])
+    if arguments[:1] == ["llm-review"]:
+        return _dispatch_llm_review(arguments[1:])
     parser = _build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(arguments)
     settings = AppSettings.from_toml(args.config)
     database_url = _resolve_database_url(args.database_url or settings.database.url)
     if args.database_url:
@@ -79,6 +98,108 @@ def main(argv: Sequence[str] | None = None) -> int:
     artifacts = asyncio.run(service.run(request))
     print(format_analysis(artifacts, repository.table_counts()))
     return 0
+
+
+def _dispatch_analysis_packet(arguments: Sequence[str]) -> int:
+    if not arguments or arguments[0] in {"-h", "--help"}:
+        print("usage: football-system analysis-packet export [options]")
+        return 0
+    if arguments[0] != "export":
+        raise SystemExit(f"unknown analysis-packet command: {arguments[0]}")
+    return _export_analysis_packet(arguments[1:])
+
+
+def _dispatch_llm_review(arguments: Sequence[str]) -> int:
+    if not arguments or arguments[0] in {"-h", "--help"}:
+        print("usage: football-system llm-review {validate,import} [options]")
+        return 0
+    if arguments[0] == "validate":
+        return _validate_llm_review(arguments[1:])
+    if arguments[0] == "import":
+        return _import_llm_review(arguments[1:])
+    raise SystemExit(f"unknown llm-review command: {arguments[0]}")
+
+
+def _export_analysis_packet(arguments: Sequence[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="football-system analysis-packet export",
+        description="Export a sealed analysis as an offline review packet.",
+    )
+    _add_database_arguments(parser)
+    parser.add_argument("--analysis-run-id", required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args(arguments)
+    try:
+        repository = _review_repository(args.config, args.database_url)
+        packet, packet_json = ExportAnalysisPacketService(repository).export(
+            args.analysis_run_id
+        )
+        write_contract_file(args.output, packet_json)
+    except (KeyError, OSError, SQLAlchemyError, ValueError) as error:
+        parser.error(str(error))
+    print(f"AnalysisPacket {packet.packet_id} exported to {args.output}")
+    return 0
+
+
+def _validate_llm_review(arguments: Sequence[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="football-system llm-review validate",
+        description="Validate an offline LLM review without opening a database.",
+    )
+    parser.add_argument("--packet", type=Path, required=True)
+    parser.add_argument("--review", type=Path, required=True)
+    args = parser.parse_args(arguments)
+    try:
+        packet, submission, _ = validate_review_files(
+            read_contract_file(args.packet),
+            read_contract_file(args.review),
+        )
+    except (OSError, ValueError) as error:
+        parser.error(str(error))
+    print(
+        f"LLMReview {submission.schema_version} valid for AnalysisPacket "
+        f"{packet.packet_id}"
+    )
+    return 0
+
+
+def _import_llm_review(arguments: Sequence[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="football-system llm-review import",
+        description="Validate and append an offline LLM review artifact.",
+    )
+    _add_database_arguments(parser)
+    parser.add_argument("--packet", type=Path, required=True)
+    parser.add_argument("--review", type=Path, required=True)
+    args = parser.parse_args(arguments)
+    try:
+        repository = _review_repository(args.config, args.database_url)
+        artifact = ImportLLMReviewService(repository).import_review(
+            read_contract_file(args.packet),
+            read_contract_file(args.review),
+        )
+    except (KeyError, OSError, SQLAlchemyError, ValueError) as error:
+        parser.error(str(error))
+    print(f"LLMReviewArtifact imported: {artifact.review_artifact_id}")
+    return 0
+
+
+def _add_database_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--config", type=Path, default=_resource_root() / "config" / "mvp.toml"
+    )
+    parser.add_argument("--database-url")
+
+
+def _review_repository(
+    config_path: Path,
+    database_url: str | None,
+) -> SqlAlchemyReviewArtifactRepository:
+    settings = AppSettings.from_toml(config_path)
+    resolved_url = _resolve_database_url(database_url or settings.database.url)
+    upgrade_database(resolved_url, _resource_root() / "alembic.ini")
+    engine = create_database_engine(resolved_url)
+    return SqlAlchemyReviewArtifactRepository(create_session_factory(engine))
 
 
 def format_analysis(
@@ -181,7 +302,11 @@ def format_analysis(
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run the deterministic football analysis MVP against Mock data."
+        description="Run deterministic football analysis against Mock data.",
+        epilog=(
+            "Offline commands: analysis-packet export; "
+            "llm-review validate; llm-review import"
+        ),
     )
     parser.add_argument(
         "--config", type=Path, default=_resource_root() / "config" / "mvp.toml"
