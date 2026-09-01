@@ -2,7 +2,7 @@
 
 ## 发布结论
 
-本报告记录 `v0.4.0` release candidate 的本地源码和 wheel 验收状态，不是最终发布声明。包元数据已统一为 `0.4.0`，全量本地测试、迁移/schema parity、acceptance 重放和最终 wheel 隔离安装验收均已通过。RC/release commit 尚未生成，GitHub Actions 尚未远程观察，因此远端发布门禁仍未关闭。
+本报告记录 `v0.4.0` release candidate 的本地源码、wheel 和远端 CI 验收状态，不是公开 package publication 声明。包元数据已统一为 `0.4.0`，全量本地测试、迁移/schema parity、acceptance 重放、最终 wheel 隔离安装验收和 GitHub Actions Python 3.12 门禁均已通过。Phase 4 implementation commit `13e97a12ceed0df0d7f11fe8f8732c17845e7fe9` 已快进合并并推送到 `main`。
 
 | 项目 | 当前事实 |
 | --- | --- |
@@ -10,12 +10,12 @@
 | 当前 `pyproject.toml` 包版本 | `0.4.0` |
 | Alembic head | `f3a1c6d8e204` |
 | 数据库边界 | 仅支持 SQLite |
-| 当前分支 | `feature/0.4.0-historical-backtest` |
-| 当前已检出 HEAD | `346f8c5c3be1f07a367952ec237929359d3467f9`，但 Phase 4 实现仍在工作树中；该 ID 不是 `0.4.0` RC/release commit |
-| RC/release commit | 尚未生成，不虚构 commit ID |
+| 集成分支 | `main` |
+| Phase 4 implementation commit | `13e97a12ceed0df0d7f11fe8f8732c17845e7fe9` |
+| 远端提交状态 | 已推送到 `origin/main` |
 | 本地 wheel artifact | `football_system-0.4.0-py3-none-any.whl`，`291273` bytes |
 | wheel SHA-256 | `086781775f954c51d9a78d90e3781db3a7db243ee89b57f92c5c4326db8fc7c6` |
-| 远端 CI | workflow 已配置，但未观察到 GitHub Actions 远程运行结果 |
+| 远端 CI | GitHub Actions run [`33521490204`](https://github.com/ruhua-xu/football/actions/runs/33521490204) 成功 |
 
 ## 实现范围
 
@@ -211,13 +211,13 @@ synthetic 数据被刻意构造为覆盖 WON、LOST、NO_BET、Cash、cutoff 和
 
 最终 `football_system-0.4.0-py3-none-any.whl` 由 `scripts/wheel_e2e.py` 在源码目录外创建独立 virtual environment、从 wheel 安装并验证 import provenance。验收确认不存在 `.db`、`.env`、`yaoqiu/` 或 `scripts/` 泄漏，并实际完成历史归档 validate/import、两种 backtest、report/compare、MatchResult list、Settlement create/report 及持久化状态复核。
 
-`.github/workflows/ci.yml` 已配置 Python 3.12 下的依赖安装、Ruff、compileall、pytest、fresh migration、`alembic check`、wheel build、installed-wheel E2E 和 whitespace check。当前没有远端 GitHub Actions run 可供本报告核验，故不声明远端 CI 成功。
+`.github/workflows/ci.yml` 已配置 Python 3.12 下的依赖安装、Ruff、compileall、pytest、fresh migration、`alembic check`、wheel build、installed-wheel E2E 和 whitespace check。`main` push 对 implementation commit `13e97a12ceed0df0d7f11fe8f8732c17845e7fe9` 触发 GitHub Actions run [`33521490204`](https://github.com/ruhua-xu/football/actions/runs/33521490204)，job [`99901598745`](https://github.com/ruhua-xu/football/actions/runs/33521490204/job/99901598745) 于 `2026-09-01T14:45:54Z` 开始、`2026-09-01T14:47:17Z` 完成，结论为 `success`。依赖安装、Ruff、compileall、全量 pytest、fresh migration head、wheel build、installed-wheel E2E 和 whitespace check 各步骤均成功，远端 CI 门禁已用可核验 run 关闭。
 
 ## 已知限制与排除项
 
 - 未下载或提交真实第三方历史数据，未产生真实来源回测结果；许可、再分发权和 historical availability timestamp provenance 仍待确认。
 - 项目尚未选择软件分发许可证，也未声明 PEP 639 `license`/`license-files` 元数据；公开发布 package 必须由 owner 决定。该项目级决定与 archive manifest 的 fixture `license_note` 不同，后者只记录数据工件的 provenance/限制，不能充当项目软件许可证。
-- 未生成 Phase 4 RC/release commit，未 push，也未观察远端 CI。
+- Phase 4 implementation commit 已推送并通过远端 CI，但尚未创建 `v0.4.0` Git tag、GitHub Release 或公开 package publication。
 - 数据库仅支持 SQLite；不承诺其他后端。
 - walk-forward V1 仅支持统一 slate cutoff 的 `DAILY_FIXED_CUTOFF_V1`，不支持逐场 T-24h 或重叠 slate。
 - 历史 walk-forward 只使用 base AnalysisRun，不执行网页 GPT、真实 LLM 或 PortfolioRevision 历史比较。
@@ -228,8 +228,8 @@ synthetic 数据被刻意构造为覆盖 WON、LOST、NO_BET、Cash、cutoff 和
 
 ## 下一阶段建议
 
-1. 提交并 push 明确的 RC/release commit，触发 GitHub Actions；只有取得可核验的 run URL 和成功状态后，才更新远端 CI 结论。
-2. 由 owner 选择项目分发许可证并确定 PEP 639 元数据后，才进行公开 package publication。
+1. 由 owner 选择项目分发许可证并确定 PEP 639 元数据后，才进行公开 package publication。
+2. owner 确认发布授权和元数据后，再从通过门禁的提交创建 `v0.4.0` tag、GitHub Release 或 package publication。
 3. 在引入真实 adapter 前完成许可、原始数据保存/再分发权和历史可用时间证明审查；不满足 point-in-time 的来源不得标为 `LIVE_STRICT`。
-4. 在 Python 3.12 远端环境完成最终门禁，并评估替换 sqlite3 默认 datetime adapter 以消除 24 条 deprecation warning。
+4. 评估替换 sqlite3 默认 datetime adapter，以消除 Python 3.12+ 下的 24 条 deprecation warning。
 5. 在扩展 VOID/退款/延期、逐场 cutoff、PortfolioRevision 回测、其他数据库或真实数据前进行下一次架构与规则评审。
