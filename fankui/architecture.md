@@ -2,14 +2,14 @@
 
 ## 状态
 
-- 状态：已确认，按 `yaoqiu0831054.md` 修订
+- 状态：`0.4.0` 发布准备实现，Historical Archive/Settlement/Backtest 已落地
 - 架构形态：Python 3.12+ 模块化单体
 - 边界模式：六边形架构
-- 首期存储：SQLite
-- 首期入口：CLI
-- 历史策略：Append-only Analysis Snapshot
+- 存储边界：SQLite-only
+- 入口：CLI
+- 历史策略：Append-only Source Fact、Analysis Snapshot、Settlement 与 Backtest Artifact
 
-本次修订不改变总体架构，只补充多市场、融合策略、LLM Evidence、Ticket/AtomicBet 和实际投注单位的演进边界。
+`0.4.0` 不改变总体模块化单体和六边形边界；在既有概率、融合、投注、风险与离线 Review 图之外，新增本地只读历史归档、赛果评估、结算和严格时间序列回测图。
 
 ## 系统边界
 
@@ -21,16 +21,20 @@ PortfolioRecommendation | NO_BET
 
 系统不负责自动下注、账户登录、支付、出票确认和真实资金托管。
 
+## SQLite-only 边界
+
+`0.4.0` 只支持 SQLite。运行时 Engine、`create_schema()`、迁移 helper 和直接 Alembic 环境都会先校验 backend，非 SQLite URL 在加载对应数据库驱动前失败。SQLAlchemy 模型不是 PostgreSQL/MySQL 兼容性承诺；外键 PRAGMA、partial index、append-only/lineage trigger 和 `INSERT OR REPLACE` 防护均属于当前正确性边界。
+
 ## 模块边界
 
 | 模块 | 职责 |
 |---|---|
-| Domain | 市场、概率、竞彩计奖、Ticket、Portfolio 等业务对象和不变量 |
-| Application | 编排数据冻结、预测、融合、候选生成和组合优化 |
-| Ports | 数据 Provider、Evidence Provider、Repository、LLM Provider 等协议 |
-| Infrastructure | SQLite、Mock Provider、未来真实 API 和 LLM Adapter |
+| Domain | 市场、概率、竞彩计奖、Ticket、Portfolio、MatchResult、Settlement、Backtest 与指标不变量 |
+| Application | 编排数据冻结、预测、融合、组合优化、归档登记、结算和 walk-forward |
+| Ports | 决策数据 Provider、HistoricalDataProvider、Evidence/LLM Provider 与 Repository 协议 |
+| Infrastructure | SQLite、Mock Provider、本地只读 Historical Archive Provider；没有真实 API/LLM Adapter |
 | Interfaces | CLI 输入和结果展示 |
-| Backtest | 后续使用冻结快照回放，不修改历史 AnalysisRun |
+| Backtest | 先封存 base AnalysisRun，再按独立 evaluation cutoff 追加赛果、结算、指标和报告 |
 
 固定程序负责概率校验、融合、EV、计奖、串关、资金约束和 `NO_BET`。LLM 只负责基于冻结证据给出语义概率、比赛剧本和方向关系。
 
@@ -83,6 +87,36 @@ Append-only Source Snapshots
 ```
 
 MVP 不接真实 Evidence Provider 和 LLM。对应端口与数据模型提前定义，运行时使用 Disabled Provider，`P_llm` 明确缺席。
+
+## Historical Archive 与回测流
+
+```text
+HISTORICAL_ARCHIVE_V1 read-only files
+        |
+        +-> Manifest/checksum/provenance registration only
+        |
+        +-> cutoff-selected Fixture/Odds/Sporttery/Quant
+        |          |
+        |          v
+        |   immutable base AnalysisRun
+        |          |
+        |          v
+        |   Ticket / Portfolio / Risk
+        |
+        +-> MatchResult at evaluation_as_of_at_utc
+                   |
+                   v
+        Ticket/Portfolio Settlement
+                   |
+                   v
+        BacktestSlice / Metrics / Report
+```
+
+Archive V1 将 `FIXTURES`、`MARKET_ODDS`、`SPORTTERY_BONUS`、`MANUAL_QUANT`、`MATCH_RESULTS` 和 `PROVIDER_MAPPINGS` 拆为独立文件。`historical-archive import` 采用 `MANIFEST_PROVENANCE_ONLY`，payload 保持只读；只有进入某次决策的 cutoff 合法版本由既有 AnalysisRun 事务物化，MatchResult 只在评估阶段物化。
+
+`LIVE_STRICT` 与 `SOURCE_TIME_RESEARCH` 是互斥运行模式。后者必须保存 `retrospective=true` 和独立 `imported_at_utc`，并在输出标记 `RETROSPECTIVE_SOURCE_TIME_RESEARCH`；不能伪装为系统当时实时保存的数据，也不能与严格模式指标静默混合。
+
+walk-forward V1 使用 `DAILY_FIXED_CUTOFF_V1`，每个 slate 共享一个 decision cutoff 和一个更晚的 evaluation cutoff，只支持 base AnalysisRun、`QUANT_ONLY_V1`/`MARKET_QUANT_BLEND_V1` 及一个预算 Portfolio。策略比较要求两边具有相同归档 provenance、切片、预算、阈值、约束、指标配置和冻结输入，不进行自动排名或调参。规范合同见 [backtest_v1_contract.md](backtest_v1_contract.md)。
 
 ## Market 抽象
 
@@ -218,6 +252,8 @@ ingested_at_utc
 
 正式 AnalysisRun 封存后，其输入、预测、候选、Portfolio 和所有后代表不允许插入、更新或删除；来源聚合采用 append-only 语义。SQLite 触发器与 Repository 双重校验这些约束。重新分析必须创建新 `analysis_run_id`。
 
+历史回测额外冻结 `decision_as_of_at_utc < evaluation_as_of_at_utc`。MatchResult、Settlement 和 Backtest 指标不进入 AnalysisRun input manifest、AnalysisPacket 或 Review context；评估阶段不能改写 `P_final`、Ticket、Portfolio 或 Risk。赛果和结算更正通过 supersession 追加，BacktestRun/Slice/Metric 通过 hash、归档 provenance 和血缘表保持可回放。
+
 ## 版本化竞彩规则
 
 PayoutPolicy 与 BettingRules 从配置加载并随 AnalysisRun 冻结：
@@ -253,9 +289,9 @@ operational_complexity_penalty = "0.01"
 
 Optimizer 默认在 preferred 范围内寻找方案。超出 preferred 的 Ticket 必须在扣除操作复杂度惩罚后仍满足更严格的价值门槛，并带来新的比赛暴露；任何情况下不得超过 absolute 上限。`NO_BET`、少于 preferred 数量和保留预算始终合法。
 
-## MVP 范围
+## 当前范围
 
-MVP 实现：
+`0.4.0` 实现：
 
 - Mock Fixture、国际市场赔率和竞彩固定奖金。
 - `THREE_WAY` 市场计算。
@@ -264,12 +300,16 @@ MVP 实现：
 - 简单2串1、2元基础投注单位、正整数倍数。
 - 预算上限、配置化 Ticket 偏好和绝对上限、允许未使用预算和 `NO_BET`。
 - SQLite、CLI、完整输入 Manifest、不可变 AnalysisRun 和核心测试。
+- `HISTORICAL_ARCHIVE_V1`、本地 cutoff Provider、两种 data mode 和 manifest-only provenance 登记。
+- append-only MatchResult、`BACKTEST`/`THREE_WAY`/简单2串1 Ticket Settlement 与 Portfolio Settlement。
+- 固定 slate walk-forward、BacktestRun/Slice、概率/资金/覆盖率/回撤/风险指标、报告与并排策略比较。
 
-MVP 不实现：
+`0.4.0` 不实现：
 
 - 让球胜平负的概率和计奖计算。
 - 真实 Evidence Collector 和真实 LLM 调用。
 - AtomicBet 数据库表、3串4、4串11和复式。
-- 相关性修正、Monte Carlo、完整回测和 Web 前端。
+- 真实历史数据抓取或付费数据打包、网页 GPT 历史回测、自动调参、机器学习、相关性修正、Monte Carlo 和 Web 前端。
+- 取消、腰斩、`VOID`、退款、加时、点球或串关降级结算。
 
-详细决策见 [0006-configurable-ticket-strategy-profile.md](decisions/0006-configurable-ticket-strategy-profile.md)。
+核心模型交叉引用见 [data_model.md](data_model.md)；历史设计沿革见 [historical_data_backtest.md](historical_data_backtest.md)；Strategy Profile 见 [0006-configurable-ticket-strategy-profile.md](decisions/0006-configurable-ticket-strategy-profile.md)。

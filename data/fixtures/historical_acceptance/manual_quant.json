@@ -1,0 +1,1176 @@
+{
+  "manifest": {
+    "archive_id": "historical-acceptance-manual_quant-v1",
+    "archive_schema_version": "HISTORICAL_ARCHIVE_V1",
+    "created_at_utc": "2025-01-20T12:00:00Z",
+    "data_mode": "LIVE_STRICT",
+    "dataset_kind": "MANUAL_QUANT",
+    "license_note": "SYNTHETIC_ACCEPTANCE_DATA / NOT REAL HISTORICAL PERFORMANCE",
+    "payload_sha256": "70a70c444f493412265038dbf3767e9c56a69575d4bca7375ea463de9983b7f4",
+    "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+    "record_count": 61,
+    "source_description": "SYNTHETIC_ACCEPTANCE_DATA / NOT REAL HISTORICAL PERFORMANCE. Deterministic static acceptance fixture.",
+    "source_reference": "synthetic-acceptance://manual_quant.json"
+  },
+  "records": [
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-06T08:40:00Z",
+        "input_id": "ha-quant-ha-20250106-01-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250106-01",
+        "payload_hash": "fbab281cb404dcd4dd3beb38fdcee37e75393c3074a55a032ba194d57456e692",
+        "probabilities": {
+          "away_win": "0.16",
+          "draw": "0.24",
+          "home_win": "0.60"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-06T08:41:00Z",
+        "input_id": "ha-quant-ha-20250106-02-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250106-02",
+        "payload_hash": "9374760028583eacedc7132c729ef82b42b74e25b15911408365e5090ecf3f94",
+        "probabilities": {
+          "away_win": "0.26",
+          "draw": "0.40",
+          "home_win": "0.34"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-06T08:42:00Z",
+        "input_id": "ha-quant-ha-20250106-03-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250106-03",
+        "payload_hash": "c7db3d7d3f5e8ca39f5a916a302b88913096e4b9eb43edc3ebdd26c41c26fbb7",
+        "probabilities": {
+          "away_win": "0.51",
+          "draw": "0.25",
+          "home_win": "0.24"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-06T08:43:00Z",
+        "input_id": "ha-quant-ha-20250106-04-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250106-04",
+        "payload_hash": "23826a97ced0686789c79a2b733d44e3c951f690f5774bbbed28b8fe238f0023",
+        "probabilities": {
+          "away_win": "0.18",
+          "draw": "0.26",
+          "home_win": "0.56"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-06T08:44:00Z",
+        "input_id": "ha-quant-ha-20250106-05-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250106-05",
+        "payload_hash": "d5f9605834521b57adf46842dc482071f27e1419a2eb535fde62f4d111d3aa49",
+        "probabilities": {
+          "away_win": "0.27",
+          "draw": "0.42",
+          "home_win": "0.31"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-06T08:45:00Z",
+        "input_id": "ha-quant-ha-20250106-06-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250106-06",
+        "payload_hash": "33d36a0fdaa627335784e9ece13ba2766d8a0f667ea0dc3e17ffe6ae0af7402d",
+        "probabilities": {
+          "away_win": "0.50",
+          "draw": "0.28",
+          "home_win": "0.22"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-06T09:12:00Z",
+        "input_id": "ha-quant-ha-20250106-03-v2",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250106-03",
+        "payload_hash": "3fff64761c3b96a0d1fcdaf30e711ad9254a72d97b0e4090272c9c936ee1ff3d",
+        "probabilities": {
+          "away_win": "0.54",
+          "draw": "0.24",
+          "home_win": "0.22"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-07T08:40:00Z",
+        "input_id": "ha-quant-ha-20250107-01-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250107-01",
+        "payload_hash": "da22056a55940e0c4b5c11e46106f7558e0cab3a8e266d9997bb5434ad38d84e",
+        "probabilities": {
+          "away_win": "0.06",
+          "draw": "0.12",
+          "home_win": "0.82"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-07T08:41:00Z",
+        "input_id": "ha-quant-ha-20250107-02-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250107-02",
+        "payload_hash": "9374760028583eacedc7132c729ef82b42b74e25b15911408365e5090ecf3f94",
+        "probabilities": {
+          "away_win": "0.26",
+          "draw": "0.40",
+          "home_win": "0.34"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-07T08:42:00Z",
+        "input_id": "ha-quant-ha-20250107-03-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250107-03",
+        "payload_hash": "c7db3d7d3f5e8ca39f5a916a302b88913096e4b9eb43edc3ebdd26c41c26fbb7",
+        "probabilities": {
+          "away_win": "0.51",
+          "draw": "0.25",
+          "home_win": "0.24"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-07T08:43:00Z",
+        "input_id": "ha-quant-ha-20250107-04-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250107-04",
+        "payload_hash": "23826a97ced0686789c79a2b733d44e3c951f690f5774bbbed28b8fe238f0023",
+        "probabilities": {
+          "away_win": "0.18",
+          "draw": "0.26",
+          "home_win": "0.56"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-07T08:44:00Z",
+        "input_id": "ha-quant-ha-20250107-05-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250107-05",
+        "payload_hash": "d5f9605834521b57adf46842dc482071f27e1419a2eb535fde62f4d111d3aa49",
+        "probabilities": {
+          "away_win": "0.27",
+          "draw": "0.42",
+          "home_win": "0.31"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-07T08:45:00Z",
+        "input_id": "ha-quant-ha-20250107-06-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250107-06",
+        "payload_hash": "33d36a0fdaa627335784e9ece13ba2766d8a0f667ea0dc3e17ffe6ae0af7402d",
+        "probabilities": {
+          "away_win": "0.50",
+          "draw": "0.28",
+          "home_win": "0.22"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-08T08:40:00Z",
+        "input_id": "ha-quant-ha-20250108-01-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250108-01",
+        "payload_hash": "fbab281cb404dcd4dd3beb38fdcee37e75393c3074a55a032ba194d57456e692",
+        "probabilities": {
+          "away_win": "0.16",
+          "draw": "0.24",
+          "home_win": "0.60"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-08T08:41:00Z",
+        "input_id": "ha-quant-ha-20250108-02-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250108-02",
+        "payload_hash": "9374760028583eacedc7132c729ef82b42b74e25b15911408365e5090ecf3f94",
+        "probabilities": {
+          "away_win": "0.26",
+          "draw": "0.40",
+          "home_win": "0.34"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-08T08:42:00Z",
+        "input_id": "ha-quant-ha-20250108-03-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250108-03",
+        "payload_hash": "c7db3d7d3f5e8ca39f5a916a302b88913096e4b9eb43edc3ebdd26c41c26fbb7",
+        "probabilities": {
+          "away_win": "0.51",
+          "draw": "0.25",
+          "home_win": "0.24"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-08T08:43:00Z",
+        "input_id": "ha-quant-ha-20250108-04-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250108-04",
+        "payload_hash": "23826a97ced0686789c79a2b733d44e3c951f690f5774bbbed28b8fe238f0023",
+        "probabilities": {
+          "away_win": "0.18",
+          "draw": "0.26",
+          "home_win": "0.56"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-08T08:44:00Z",
+        "input_id": "ha-quant-ha-20250108-05-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250108-05",
+        "payload_hash": "d5f9605834521b57adf46842dc482071f27e1419a2eb535fde62f4d111d3aa49",
+        "probabilities": {
+          "away_win": "0.27",
+          "draw": "0.42",
+          "home_win": "0.31"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-08T08:45:00Z",
+        "input_id": "ha-quant-ha-20250108-06-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250108-06",
+        "payload_hash": "33d36a0fdaa627335784e9ece13ba2766d8a0f667ea0dc3e17ffe6ae0af7402d",
+        "probabilities": {
+          "away_win": "0.50",
+          "draw": "0.28",
+          "home_win": "0.22"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-09T08:40:00Z",
+        "input_id": "ha-quant-ha-20250109-01-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250109-01",
+        "payload_hash": "fbab281cb404dcd4dd3beb38fdcee37e75393c3074a55a032ba194d57456e692",
+        "probabilities": {
+          "away_win": "0.16",
+          "draw": "0.24",
+          "home_win": "0.60"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-09T08:41:00Z",
+        "input_id": "ha-quant-ha-20250109-02-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250109-02",
+        "payload_hash": "9374760028583eacedc7132c729ef82b42b74e25b15911408365e5090ecf3f94",
+        "probabilities": {
+          "away_win": "0.26",
+          "draw": "0.40",
+          "home_win": "0.34"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-09T08:42:00Z",
+        "input_id": "ha-quant-ha-20250109-03-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250109-03",
+        "payload_hash": "c7db3d7d3f5e8ca39f5a916a302b88913096e4b9eb43edc3ebdd26c41c26fbb7",
+        "probabilities": {
+          "away_win": "0.51",
+          "draw": "0.25",
+          "home_win": "0.24"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-09T08:43:00Z",
+        "input_id": "ha-quant-ha-20250109-04-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250109-04",
+        "payload_hash": "23826a97ced0686789c79a2b733d44e3c951f690f5774bbbed28b8fe238f0023",
+        "probabilities": {
+          "away_win": "0.18",
+          "draw": "0.26",
+          "home_win": "0.56"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-09T08:44:00Z",
+        "input_id": "ha-quant-ha-20250109-05-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250109-05",
+        "payload_hash": "d5f9605834521b57adf46842dc482071f27e1419a2eb535fde62f4d111d3aa49",
+        "probabilities": {
+          "away_win": "0.27",
+          "draw": "0.42",
+          "home_win": "0.31"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-09T08:45:00Z",
+        "input_id": "ha-quant-ha-20250109-06-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250109-06",
+        "payload_hash": "78c07465d10063d54bd00bae18444b5a7d245e923b154eee67679a7731e7ded7",
+        "probabilities": {
+          "away_win": "0.78",
+          "draw": "0.12",
+          "home_win": "0.10"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-10T08:40:00Z",
+        "input_id": "ha-quant-ha-20250110-01-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250110-01",
+        "payload_hash": "fbab281cb404dcd4dd3beb38fdcee37e75393c3074a55a032ba194d57456e692",
+        "probabilities": {
+          "away_win": "0.16",
+          "draw": "0.24",
+          "home_win": "0.60"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-10T08:41:00Z",
+        "input_id": "ha-quant-ha-20250110-02-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250110-02",
+        "payload_hash": "9374760028583eacedc7132c729ef82b42b74e25b15911408365e5090ecf3f94",
+        "probabilities": {
+          "away_win": "0.26",
+          "draw": "0.40",
+          "home_win": "0.34"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-10T08:42:00Z",
+        "input_id": "ha-quant-ha-20250110-03-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250110-03",
+        "payload_hash": "c7db3d7d3f5e8ca39f5a916a302b88913096e4b9eb43edc3ebdd26c41c26fbb7",
+        "probabilities": {
+          "away_win": "0.51",
+          "draw": "0.25",
+          "home_win": "0.24"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-10T08:43:00Z",
+        "input_id": "ha-quant-ha-20250110-04-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250110-04",
+        "payload_hash": "23826a97ced0686789c79a2b733d44e3c951f690f5774bbbed28b8fe238f0023",
+        "probabilities": {
+          "away_win": "0.18",
+          "draw": "0.26",
+          "home_win": "0.56"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-10T08:44:00Z",
+        "input_id": "ha-quant-ha-20250110-05-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250110-05",
+        "payload_hash": "d5f9605834521b57adf46842dc482071f27e1419a2eb535fde62f4d111d3aa49",
+        "probabilities": {
+          "away_win": "0.27",
+          "draw": "0.42",
+          "home_win": "0.31"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-10T08:45:00Z",
+        "input_id": "ha-quant-ha-20250110-06-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250110-06",
+        "payload_hash": "33d36a0fdaa627335784e9ece13ba2766d8a0f667ea0dc3e17ffe6ae0af7402d",
+        "probabilities": {
+          "away_win": "0.50",
+          "draw": "0.28",
+          "home_win": "0.22"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-11T08:40:00Z",
+        "input_id": "ha-quant-ha-20250111-01-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250111-01",
+        "payload_hash": "fbab281cb404dcd4dd3beb38fdcee37e75393c3074a55a032ba194d57456e692",
+        "probabilities": {
+          "away_win": "0.16",
+          "draw": "0.24",
+          "home_win": "0.60"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-11T08:41:00Z",
+        "input_id": "ha-quant-ha-20250111-02-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250111-02",
+        "payload_hash": "9374760028583eacedc7132c729ef82b42b74e25b15911408365e5090ecf3f94",
+        "probabilities": {
+          "away_win": "0.26",
+          "draw": "0.40",
+          "home_win": "0.34"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-11T08:42:00Z",
+        "input_id": "ha-quant-ha-20250111-03-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250111-03",
+        "payload_hash": "c7db3d7d3f5e8ca39f5a916a302b88913096e4b9eb43edc3ebdd26c41c26fbb7",
+        "probabilities": {
+          "away_win": "0.51",
+          "draw": "0.25",
+          "home_win": "0.24"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-11T08:43:00Z",
+        "input_id": "ha-quant-ha-20250111-04-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250111-04",
+        "payload_hash": "23826a97ced0686789c79a2b733d44e3c951f690f5774bbbed28b8fe238f0023",
+        "probabilities": {
+          "away_win": "0.18",
+          "draw": "0.26",
+          "home_win": "0.56"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-11T08:44:00Z",
+        "input_id": "ha-quant-ha-20250111-05-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250111-05",
+        "payload_hash": "d5f9605834521b57adf46842dc482071f27e1419a2eb535fde62f4d111d3aa49",
+        "probabilities": {
+          "away_win": "0.27",
+          "draw": "0.42",
+          "home_win": "0.31"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-11T08:45:00Z",
+        "input_id": "ha-quant-ha-20250111-06-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250111-06",
+        "payload_hash": "33d36a0fdaa627335784e9ece13ba2766d8a0f667ea0dc3e17ffe6ae0af7402d",
+        "probabilities": {
+          "away_win": "0.50",
+          "draw": "0.28",
+          "home_win": "0.22"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-12T08:40:00Z",
+        "input_id": "ha-quant-ha-20250112-01-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250112-01",
+        "payload_hash": "78411220bb89101bbb0fb6a1d84031903f44529c582bc9d54514688177fc0508",
+        "probabilities": {
+          "away_win": "0.25",
+          "draw": "0.29",
+          "home_win": "0.46"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-12T08:41:00Z",
+        "input_id": "ha-quant-ha-20250112-02-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250112-02",
+        "payload_hash": "f664e9d97cb833fd3be109397d8580a4157e0fb5c9e07645def19ebeebaa75fc",
+        "probabilities": {
+          "away_win": "0.30",
+          "draw": "0.34",
+          "home_win": "0.36"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-12T08:42:00Z",
+        "input_id": "ha-quant-ha-20250112-03-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250112-03",
+        "payload_hash": "a66560a0d04f489e7a1037d5a5d7ee23dc9fd30a2878a21dc20f97a5fc5caf21",
+        "probabilities": {
+          "away_win": "0.42",
+          "draw": "0.29",
+          "home_win": "0.29"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-12T08:43:00Z",
+        "input_id": "ha-quant-ha-20250112-04-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250112-04",
+        "payload_hash": "78411220bb89101bbb0fb6a1d84031903f44529c582bc9d54514688177fc0508",
+        "probabilities": {
+          "away_win": "0.25",
+          "draw": "0.29",
+          "home_win": "0.46"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-12T08:44:00Z",
+        "input_id": "ha-quant-ha-20250112-05-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250112-05",
+        "payload_hash": "f664e9d97cb833fd3be109397d8580a4157e0fb5c9e07645def19ebeebaa75fc",
+        "probabilities": {
+          "away_win": "0.30",
+          "draw": "0.34",
+          "home_win": "0.36"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-12T08:45:00Z",
+        "input_id": "ha-quant-ha-20250112-06-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250112-06",
+        "payload_hash": "a66560a0d04f489e7a1037d5a5d7ee23dc9fd30a2878a21dc20f97a5fc5caf21",
+        "probabilities": {
+          "away_win": "0.42",
+          "draw": "0.29",
+          "home_win": "0.29"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-13T08:40:00Z",
+        "input_id": "ha-quant-ha-20250113-01-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250113-01",
+        "payload_hash": "fbab281cb404dcd4dd3beb38fdcee37e75393c3074a55a032ba194d57456e692",
+        "probabilities": {
+          "away_win": "0.16",
+          "draw": "0.24",
+          "home_win": "0.60"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-13T08:41:00Z",
+        "input_id": "ha-quant-ha-20250113-02-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250113-02",
+        "payload_hash": "9374760028583eacedc7132c729ef82b42b74e25b15911408365e5090ecf3f94",
+        "probabilities": {
+          "away_win": "0.26",
+          "draw": "0.40",
+          "home_win": "0.34"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-13T08:42:00Z",
+        "input_id": "ha-quant-ha-20250113-03-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250113-03",
+        "payload_hash": "c7db3d7d3f5e8ca39f5a916a302b88913096e4b9eb43edc3ebdd26c41c26fbb7",
+        "probabilities": {
+          "away_win": "0.51",
+          "draw": "0.25",
+          "home_win": "0.24"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-13T08:43:00Z",
+        "input_id": "ha-quant-ha-20250113-04-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250113-04",
+        "payload_hash": "23826a97ced0686789c79a2b733d44e3c951f690f5774bbbed28b8fe238f0023",
+        "probabilities": {
+          "away_win": "0.18",
+          "draw": "0.26",
+          "home_win": "0.56"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-13T08:44:00Z",
+        "input_id": "ha-quant-ha-20250113-05-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250113-05",
+        "payload_hash": "d5f9605834521b57adf46842dc482071f27e1419a2eb535fde62f4d111d3aa49",
+        "probabilities": {
+          "away_win": "0.27",
+          "draw": "0.42",
+          "home_win": "0.31"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-13T08:45:00Z",
+        "input_id": "ha-quant-ha-20250113-06-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250113-06",
+        "payload_hash": "33d36a0fdaa627335784e9ece13ba2766d8a0f667ea0dc3e17ffe6ae0af7402d",
+        "probabilities": {
+          "away_win": "0.50",
+          "draw": "0.28",
+          "home_win": "0.22"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-14T08:40:00Z",
+        "input_id": "ha-quant-ha-20250114-01-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250114-01",
+        "payload_hash": "fbab281cb404dcd4dd3beb38fdcee37e75393c3074a55a032ba194d57456e692",
+        "probabilities": {
+          "away_win": "0.16",
+          "draw": "0.24",
+          "home_win": "0.60"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-14T08:41:00Z",
+        "input_id": "ha-quant-ha-20250114-02-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250114-02",
+        "payload_hash": "9374760028583eacedc7132c729ef82b42b74e25b15911408365e5090ecf3f94",
+        "probabilities": {
+          "away_win": "0.26",
+          "draw": "0.40",
+          "home_win": "0.34"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-14T08:42:00Z",
+        "input_id": "ha-quant-ha-20250114-03-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250114-03",
+        "payload_hash": "c7db3d7d3f5e8ca39f5a916a302b88913096e4b9eb43edc3ebdd26c41c26fbb7",
+        "probabilities": {
+          "away_win": "0.51",
+          "draw": "0.25",
+          "home_win": "0.24"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-14T08:43:00Z",
+        "input_id": "ha-quant-ha-20250114-04-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250114-04",
+        "payload_hash": "23826a97ced0686789c79a2b733d44e3c951f690f5774bbbed28b8fe238f0023",
+        "probabilities": {
+          "away_win": "0.18",
+          "draw": "0.26",
+          "home_win": "0.56"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-14T08:44:00Z",
+        "input_id": "ha-quant-ha-20250114-05-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250114-05",
+        "payload_hash": "d5f9605834521b57adf46842dc482071f27e1419a2eb535fde62f4d111d3aa49",
+        "probabilities": {
+          "away_win": "0.27",
+          "draw": "0.42",
+          "home_win": "0.31"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-14T08:45:00Z",
+        "input_id": "ha-quant-ha-20250114-06-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250114-06",
+        "payload_hash": "33d36a0fdaa627335784e9ece13ba2766d8a0f667ea0dc3e17ffe6ae0af7402d",
+        "probabilities": {
+          "away_win": "0.50",
+          "draw": "0.28",
+          "home_win": "0.22"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-15T08:40:00Z",
+        "input_id": "ha-quant-ha-20250115-01-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250115-01",
+        "payload_hash": "fbab281cb404dcd4dd3beb38fdcee37e75393c3074a55a032ba194d57456e692",
+        "probabilities": {
+          "away_win": "0.16",
+          "draw": "0.24",
+          "home_win": "0.60"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-15T08:41:00Z",
+        "input_id": "ha-quant-ha-20250115-02-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250115-02",
+        "payload_hash": "9374760028583eacedc7132c729ef82b42b74e25b15911408365e5090ecf3f94",
+        "probabilities": {
+          "away_win": "0.26",
+          "draw": "0.40",
+          "home_win": "0.34"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-15T08:42:00Z",
+        "input_id": "ha-quant-ha-20250115-03-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250115-03",
+        "payload_hash": "c7db3d7d3f5e8ca39f5a916a302b88913096e4b9eb43edc3ebdd26c41c26fbb7",
+        "probabilities": {
+          "away_win": "0.51",
+          "draw": "0.25",
+          "home_win": "0.24"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-15T08:43:00Z",
+        "input_id": "ha-quant-ha-20250115-04-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250115-04",
+        "payload_hash": "23826a97ced0686789c79a2b733d44e3c951f690f5774bbbed28b8fe238f0023",
+        "probabilities": {
+          "away_win": "0.18",
+          "draw": "0.26",
+          "home_win": "0.56"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-15T08:44:00Z",
+        "input_id": "ha-quant-ha-20250115-05-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250115-05",
+        "payload_hash": "d5f9605834521b57adf46842dc482071f27e1419a2eb535fde62f4d111d3aa49",
+        "probabilities": {
+          "away_win": "0.27",
+          "draw": "0.42",
+          "home_win": "0.31"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-15T08:45:00Z",
+        "input_id": "ha-quant-ha-20250115-06-v1",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250115-06",
+        "payload_hash": "33d36a0fdaa627335784e9ece13ba2766d8a0f667ea0dc3e17ffe6ae0af7402d",
+        "probabilities": {
+          "away_win": "0.50",
+          "draw": "0.28",
+          "home_win": "0.22"
+        }
+      },
+      "retrospective": false
+    }
+  ]
+}

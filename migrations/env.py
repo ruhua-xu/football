@@ -6,6 +6,10 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from football_system.infrastructure.database.models import Base
+from football_system.infrastructure.database.session import (
+    configure_sqlite_engine,
+    require_sqlite_database_url,
+)
 
 config = context.config
 
@@ -17,6 +21,7 @@ target_metadata = Base.metadata
 
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url")
+    require_sqlite_database_url(url)
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -30,10 +35,13 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
+    require_sqlite_database_url(config.get_main_option("sqlalchemy.url"))
+    connectable = configure_sqlite_engine(
+        engine_from_config(
+            config.get_section(config.config_ini_section, {}),
+            prefix="sqlalchemy.",
+            poolclass=pool.NullPool,
+        )
     )
 
     with connectable.connect() as connection:

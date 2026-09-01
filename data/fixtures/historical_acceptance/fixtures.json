@@ -1,0 +1,2030 @@
+{
+  "manifest": {
+    "archive_id": "historical-acceptance-fixtures-v1",
+    "archive_schema_version": "HISTORICAL_ARCHIVE_V1",
+    "created_at_utc": "2025-01-20T12:00:00Z",
+    "data_mode": "LIVE_STRICT",
+    "dataset_kind": "FIXTURES",
+    "license_note": "SYNTHETIC_ACCEPTANCE_DATA / NOT REAL HISTORICAL PERFORMANCE",
+    "payload_sha256": "ffbaa93ec8bfa966778b30f9308caa46ccff32f5a688808501adef14220334ce",
+    "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+    "record_count": 61,
+    "source_description": "SYNTHETIC_ACCEPTANCE_DATA / NOT REAL HISTORICAL PERFORMANCE. Deterministic static acceptance fixture.",
+    "source_reference": "synthetic-acceptance://fixtures.json"
+  },
+  "records": [
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:02",
+          "name": "Acceptance Team 02",
+          "team_id": "ha-team-02",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:01",
+          "name": "Acceptance Team 01",
+          "team_id": "ha-team-01",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-04T08:00:00Z",
+          "away_team_id": "ha-team-02",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-01",
+          "kickoff_at_utc": "2025-01-06T13:00:00Z",
+          "match_id": "ha-20250106-01",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:04",
+          "name": "Acceptance Team 04",
+          "team_id": "ha-team-04",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:03",
+          "name": "Acceptance Team 03",
+          "team_id": "ha-team-03",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-04T08:00:00Z",
+          "away_team_id": "ha-team-04",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-03",
+          "kickoff_at_utc": "2025-01-06T14:45:00Z",
+          "match_id": "ha-20250106-02",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:06",
+          "name": "Acceptance Team 06",
+          "team_id": "ha-team-06",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:05",
+          "name": "Acceptance Team 05",
+          "team_id": "ha-team-05",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-04T08:00:00Z",
+          "away_team_id": "ha-team-06",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-05",
+          "kickoff_at_utc": "2025-01-06T16:30:00Z",
+          "match_id": "ha-20250106-03",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:08",
+          "name": "Acceptance Team 08",
+          "team_id": "ha-team-08",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:07",
+          "name": "Acceptance Team 07",
+          "team_id": "ha-team-07",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-04T08:00:00Z",
+          "away_team_id": "ha-team-08",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-07",
+          "kickoff_at_utc": "2025-01-06T18:15:00Z",
+          "match_id": "ha-20250106-04",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:10",
+          "name": "Acceptance Team 10",
+          "team_id": "ha-team-10",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:09",
+          "name": "Acceptance Team 09",
+          "team_id": "ha-team-09",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-04T08:00:00Z",
+          "away_team_id": "ha-team-10",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-09",
+          "kickoff_at_utc": "2025-01-06T20:00:00Z",
+          "match_id": "ha-20250106-05",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:12",
+          "name": "Acceptance Team 12",
+          "team_id": "ha-team-12",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:11",
+          "name": "Acceptance Team 11",
+          "team_id": "ha-team-11",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-04T08:00:00Z",
+          "away_team_id": "ha-team-12",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-11",
+          "kickoff_at_utc": "2025-01-06T21:45:00Z",
+          "match_id": "ha-20250106-06",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:04",
+          "name": "Acceptance Team 04",
+          "team_id": "ha-team-04",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:02",
+          "name": "Acceptance Team 02",
+          "team_id": "ha-team-02",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-05T08:00:00Z",
+          "away_team_id": "ha-team-04",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-02",
+          "kickoff_at_utc": "2025-01-07T13:00:00Z",
+          "match_id": "ha-20250107-01",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:06",
+          "name": "Acceptance Team 06",
+          "team_id": "ha-team-06",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:04",
+          "name": "Acceptance Team 04",
+          "team_id": "ha-team-04",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-05T08:00:00Z",
+          "away_team_id": "ha-team-06",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-04",
+          "kickoff_at_utc": "2025-01-07T14:45:00Z",
+          "match_id": "ha-20250107-02",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:08",
+          "name": "Acceptance Team 08",
+          "team_id": "ha-team-08",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:06",
+          "name": "Acceptance Team 06",
+          "team_id": "ha-team-06",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-05T08:00:00Z",
+          "away_team_id": "ha-team-08",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-06",
+          "kickoff_at_utc": "2025-01-07T16:30:00Z",
+          "match_id": "ha-20250107-03",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:10",
+          "name": "Acceptance Team 10",
+          "team_id": "ha-team-10",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:08",
+          "name": "Acceptance Team 08",
+          "team_id": "ha-team-08",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-05T08:00:00Z",
+          "away_team_id": "ha-team-10",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-08",
+          "kickoff_at_utc": "2025-01-07T18:15:00Z",
+          "match_id": "ha-20250107-04",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:12",
+          "name": "Acceptance Team 12",
+          "team_id": "ha-team-12",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:10",
+          "name": "Acceptance Team 10",
+          "team_id": "ha-team-10",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-05T08:00:00Z",
+          "away_team_id": "ha-team-12",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-10",
+          "kickoff_at_utc": "2025-01-07T20:00:00Z",
+          "match_id": "ha-20250107-05",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:02",
+          "name": "Acceptance Team 02",
+          "team_id": "ha-team-02",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:12",
+          "name": "Acceptance Team 12",
+          "team_id": "ha-team-12",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-05T08:00:00Z",
+          "away_team_id": "ha-team-02",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-12",
+          "kickoff_at_utc": "2025-01-07T21:45:00Z",
+          "match_id": "ha-20250107-06",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:06",
+          "name": "Acceptance Team 06",
+          "team_id": "ha-team-06",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:03",
+          "name": "Acceptance Team 03",
+          "team_id": "ha-team-03",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-06T08:00:00Z",
+          "away_team_id": "ha-team-06",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-03",
+          "kickoff_at_utc": "2025-01-08T13:00:00Z",
+          "match_id": "ha-20250108-01",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:08",
+          "name": "Acceptance Team 08",
+          "team_id": "ha-team-08",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:05",
+          "name": "Acceptance Team 05",
+          "team_id": "ha-team-05",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-06T08:00:00Z",
+          "away_team_id": "ha-team-08",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-05",
+          "kickoff_at_utc": "2025-01-08T14:45:00Z",
+          "match_id": "ha-20250108-02",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:10",
+          "name": "Acceptance Team 10",
+          "team_id": "ha-team-10",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:07",
+          "name": "Acceptance Team 07",
+          "team_id": "ha-team-07",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-06T08:00:00Z",
+          "away_team_id": "ha-team-10",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-07",
+          "kickoff_at_utc": "2025-01-08T16:30:00Z",
+          "match_id": "ha-20250108-03",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:12",
+          "name": "Acceptance Team 12",
+          "team_id": "ha-team-12",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:09",
+          "name": "Acceptance Team 09",
+          "team_id": "ha-team-09",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-06T08:00:00Z",
+          "away_team_id": "ha-team-12",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-09",
+          "kickoff_at_utc": "2025-01-08T18:15:00Z",
+          "match_id": "ha-20250108-04",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:02",
+          "name": "Acceptance Team 02",
+          "team_id": "ha-team-02",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:11",
+          "name": "Acceptance Team 11",
+          "team_id": "ha-team-11",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-06T08:00:00Z",
+          "away_team_id": "ha-team-02",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-11",
+          "kickoff_at_utc": "2025-01-08T20:00:00Z",
+          "match_id": "ha-20250108-05",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:04",
+          "name": "Acceptance Team 04",
+          "team_id": "ha-team-04",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:01",
+          "name": "Acceptance Team 01",
+          "team_id": "ha-team-01",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-06T08:00:00Z",
+          "away_team_id": "ha-team-04",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-01",
+          "kickoff_at_utc": "2025-01-08T21:45:00Z",
+          "match_id": "ha-20250108-06",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:08",
+          "name": "Acceptance Team 08",
+          "team_id": "ha-team-08",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:07",
+          "name": "Acceptance Team 07",
+          "team_id": "ha-team-07",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-06T21:15:00Z",
+          "away_team_id": "ha-team-08",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-07",
+          "kickoff_at_utc": "2025-01-06T18:15:00Z",
+          "match_id": "ha-20250106-04",
+          "status": "FINISHED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:05",
+          "name": "Acceptance Team 05",
+          "team_id": "ha-team-05",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:04",
+          "name": "Acceptance Team 04",
+          "team_id": "ha-team-04",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-07T08:00:00Z",
+          "away_team_id": "ha-team-05",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-04",
+          "kickoff_at_utc": "2025-01-09T13:00:00Z",
+          "match_id": "ha-20250109-01",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:07",
+          "name": "Acceptance Team 07",
+          "team_id": "ha-team-07",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:06",
+          "name": "Acceptance Team 06",
+          "team_id": "ha-team-06",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-07T08:00:00Z",
+          "away_team_id": "ha-team-07",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-06",
+          "kickoff_at_utc": "2025-01-09T14:45:00Z",
+          "match_id": "ha-20250109-02",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:09",
+          "name": "Acceptance Team 09",
+          "team_id": "ha-team-09",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:08",
+          "name": "Acceptance Team 08",
+          "team_id": "ha-team-08",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-07T08:00:00Z",
+          "away_team_id": "ha-team-09",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-08",
+          "kickoff_at_utc": "2025-01-09T16:30:00Z",
+          "match_id": "ha-20250109-03",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:11",
+          "name": "Acceptance Team 11",
+          "team_id": "ha-team-11",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:10",
+          "name": "Acceptance Team 10",
+          "team_id": "ha-team-10",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-07T08:00:00Z",
+          "away_team_id": "ha-team-11",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-10",
+          "kickoff_at_utc": "2025-01-09T18:15:00Z",
+          "match_id": "ha-20250109-04",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:01",
+          "name": "Acceptance Team 01",
+          "team_id": "ha-team-01",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:12",
+          "name": "Acceptance Team 12",
+          "team_id": "ha-team-12",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-07T08:00:00Z",
+          "away_team_id": "ha-team-01",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-12",
+          "kickoff_at_utc": "2025-01-09T20:00:00Z",
+          "match_id": "ha-20250109-05",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:03",
+          "name": "Acceptance Team 03",
+          "team_id": "ha-team-03",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:02",
+          "name": "Acceptance Team 02",
+          "team_id": "ha-team-02",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-07T08:00:00Z",
+          "away_team_id": "ha-team-03",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-02",
+          "kickoff_at_utc": "2025-01-09T21:45:00Z",
+          "match_id": "ha-20250109-06",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:07",
+          "name": "Acceptance Team 07",
+          "team_id": "ha-team-07",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:05",
+          "name": "Acceptance Team 05",
+          "team_id": "ha-team-05",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-08T08:00:00Z",
+          "away_team_id": "ha-team-07",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-05",
+          "kickoff_at_utc": "2025-01-10T13:00:00Z",
+          "match_id": "ha-20250110-01",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:09",
+          "name": "Acceptance Team 09",
+          "team_id": "ha-team-09",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:07",
+          "name": "Acceptance Team 07",
+          "team_id": "ha-team-07",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-08T08:00:00Z",
+          "away_team_id": "ha-team-09",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-07",
+          "kickoff_at_utc": "2025-01-10T14:45:00Z",
+          "match_id": "ha-20250110-02",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:11",
+          "name": "Acceptance Team 11",
+          "team_id": "ha-team-11",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:09",
+          "name": "Acceptance Team 09",
+          "team_id": "ha-team-09",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-08T08:00:00Z",
+          "away_team_id": "ha-team-11",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-09",
+          "kickoff_at_utc": "2025-01-10T16:30:00Z",
+          "match_id": "ha-20250110-03",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:01",
+          "name": "Acceptance Team 01",
+          "team_id": "ha-team-01",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:11",
+          "name": "Acceptance Team 11",
+          "team_id": "ha-team-11",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-08T08:00:00Z",
+          "away_team_id": "ha-team-01",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-11",
+          "kickoff_at_utc": "2025-01-10T18:15:00Z",
+          "match_id": "ha-20250110-04",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:03",
+          "name": "Acceptance Team 03",
+          "team_id": "ha-team-03",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:01",
+          "name": "Acceptance Team 01",
+          "team_id": "ha-team-01",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-08T08:00:00Z",
+          "away_team_id": "ha-team-03",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-01",
+          "kickoff_at_utc": "2025-01-10T20:00:00Z",
+          "match_id": "ha-20250110-05",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:05",
+          "name": "Acceptance Team 05",
+          "team_id": "ha-team-05",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:03",
+          "name": "Acceptance Team 03",
+          "team_id": "ha-team-03",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-08T08:00:00Z",
+          "away_team_id": "ha-team-05",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-03",
+          "kickoff_at_utc": "2025-01-10T21:45:00Z",
+          "match_id": "ha-20250110-06",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:09",
+          "name": "Acceptance Team 09",
+          "team_id": "ha-team-09",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:06",
+          "name": "Acceptance Team 06",
+          "team_id": "ha-team-06",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-09T08:00:00Z",
+          "away_team_id": "ha-team-09",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-06",
+          "kickoff_at_utc": "2025-01-11T13:00:00Z",
+          "match_id": "ha-20250111-01",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:11",
+          "name": "Acceptance Team 11",
+          "team_id": "ha-team-11",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:08",
+          "name": "Acceptance Team 08",
+          "team_id": "ha-team-08",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-09T08:00:00Z",
+          "away_team_id": "ha-team-11",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-08",
+          "kickoff_at_utc": "2025-01-11T14:45:00Z",
+          "match_id": "ha-20250111-02",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:01",
+          "name": "Acceptance Team 01",
+          "team_id": "ha-team-01",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:10",
+          "name": "Acceptance Team 10",
+          "team_id": "ha-team-10",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-09T08:00:00Z",
+          "away_team_id": "ha-team-01",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-10",
+          "kickoff_at_utc": "2025-01-11T16:30:00Z",
+          "match_id": "ha-20250111-03",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:03",
+          "name": "Acceptance Team 03",
+          "team_id": "ha-team-03",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:12",
+          "name": "Acceptance Team 12",
+          "team_id": "ha-team-12",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-09T08:00:00Z",
+          "away_team_id": "ha-team-03",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-12",
+          "kickoff_at_utc": "2025-01-11T18:15:00Z",
+          "match_id": "ha-20250111-04",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:05",
+          "name": "Acceptance Team 05",
+          "team_id": "ha-team-05",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:02",
+          "name": "Acceptance Team 02",
+          "team_id": "ha-team-02",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-09T08:00:00Z",
+          "away_team_id": "ha-team-05",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-02",
+          "kickoff_at_utc": "2025-01-11T20:00:00Z",
+          "match_id": "ha-20250111-05",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:07",
+          "name": "Acceptance Team 07",
+          "team_id": "ha-team-07",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:04",
+          "name": "Acceptance Team 04",
+          "team_id": "ha-team-04",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-09T08:00:00Z",
+          "away_team_id": "ha-team-07",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-04",
+          "kickoff_at_utc": "2025-01-11T21:45:00Z",
+          "match_id": "ha-20250111-06",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:08",
+          "name": "Acceptance Team 08",
+          "team_id": "ha-team-08",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:07",
+          "name": "Acceptance Team 07",
+          "team_id": "ha-team-07",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-10T08:00:00Z",
+          "away_team_id": "ha-team-08",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-07",
+          "kickoff_at_utc": "2025-01-12T13:00:00Z",
+          "match_id": "ha-20250112-01",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:10",
+          "name": "Acceptance Team 10",
+          "team_id": "ha-team-10",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:09",
+          "name": "Acceptance Team 09",
+          "team_id": "ha-team-09",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-10T08:00:00Z",
+          "away_team_id": "ha-team-10",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-09",
+          "kickoff_at_utc": "2025-01-12T14:45:00Z",
+          "match_id": "ha-20250112-02",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:12",
+          "name": "Acceptance Team 12",
+          "team_id": "ha-team-12",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:11",
+          "name": "Acceptance Team 11",
+          "team_id": "ha-team-11",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-10T08:00:00Z",
+          "away_team_id": "ha-team-12",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-11",
+          "kickoff_at_utc": "2025-01-12T16:30:00Z",
+          "match_id": "ha-20250112-03",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:02",
+          "name": "Acceptance Team 02",
+          "team_id": "ha-team-02",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:01",
+          "name": "Acceptance Team 01",
+          "team_id": "ha-team-01",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-10T08:00:00Z",
+          "away_team_id": "ha-team-02",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-01",
+          "kickoff_at_utc": "2025-01-12T18:15:00Z",
+          "match_id": "ha-20250112-04",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:04",
+          "name": "Acceptance Team 04",
+          "team_id": "ha-team-04",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:03",
+          "name": "Acceptance Team 03",
+          "team_id": "ha-team-03",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-10T08:00:00Z",
+          "away_team_id": "ha-team-04",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-03",
+          "kickoff_at_utc": "2025-01-12T20:00:00Z",
+          "match_id": "ha-20250112-05",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:06",
+          "name": "Acceptance Team 06",
+          "team_id": "ha-team-06",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:05",
+          "name": "Acceptance Team 05",
+          "team_id": "ha-team-05",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-10T08:00:00Z",
+          "away_team_id": "ha-team-06",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-05",
+          "kickoff_at_utc": "2025-01-12T21:45:00Z",
+          "match_id": "ha-20250112-06",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:10",
+          "name": "Acceptance Team 10",
+          "team_id": "ha-team-10",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:08",
+          "name": "Acceptance Team 08",
+          "team_id": "ha-team-08",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-11T08:00:00Z",
+          "away_team_id": "ha-team-10",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-08",
+          "kickoff_at_utc": "2025-01-13T13:00:00Z",
+          "match_id": "ha-20250113-01",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:12",
+          "name": "Acceptance Team 12",
+          "team_id": "ha-team-12",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:10",
+          "name": "Acceptance Team 10",
+          "team_id": "ha-team-10",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-11T08:00:00Z",
+          "away_team_id": "ha-team-12",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-10",
+          "kickoff_at_utc": "2025-01-13T14:45:00Z",
+          "match_id": "ha-20250113-02",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:02",
+          "name": "Acceptance Team 02",
+          "team_id": "ha-team-02",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:12",
+          "name": "Acceptance Team 12",
+          "team_id": "ha-team-12",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-11T08:00:00Z",
+          "away_team_id": "ha-team-02",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-12",
+          "kickoff_at_utc": "2025-01-13T16:30:00Z",
+          "match_id": "ha-20250113-03",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:04",
+          "name": "Acceptance Team 04",
+          "team_id": "ha-team-04",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:02",
+          "name": "Acceptance Team 02",
+          "team_id": "ha-team-02",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-11T08:00:00Z",
+          "away_team_id": "ha-team-04",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-02",
+          "kickoff_at_utc": "2025-01-13T18:15:00Z",
+          "match_id": "ha-20250113-04",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:06",
+          "name": "Acceptance Team 06",
+          "team_id": "ha-team-06",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:04",
+          "name": "Acceptance Team 04",
+          "team_id": "ha-team-04",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-11T08:00:00Z",
+          "away_team_id": "ha-team-06",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-04",
+          "kickoff_at_utc": "2025-01-13T20:00:00Z",
+          "match_id": "ha-20250113-05",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:08",
+          "name": "Acceptance Team 08",
+          "team_id": "ha-team-08",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:06",
+          "name": "Acceptance Team 06",
+          "team_id": "ha-team-06",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-11T08:00:00Z",
+          "away_team_id": "ha-team-08",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-06",
+          "kickoff_at_utc": "2025-01-13T21:45:00Z",
+          "match_id": "ha-20250113-06",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:12",
+          "name": "Acceptance Team 12",
+          "team_id": "ha-team-12",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:09",
+          "name": "Acceptance Team 09",
+          "team_id": "ha-team-09",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-12T08:00:00Z",
+          "away_team_id": "ha-team-12",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-09",
+          "kickoff_at_utc": "2025-01-14T13:00:00Z",
+          "match_id": "ha-20250114-01",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:02",
+          "name": "Acceptance Team 02",
+          "team_id": "ha-team-02",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:11",
+          "name": "Acceptance Team 11",
+          "team_id": "ha-team-11",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-12T08:00:00Z",
+          "away_team_id": "ha-team-02",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-11",
+          "kickoff_at_utc": "2025-01-14T14:45:00Z",
+          "match_id": "ha-20250114-02",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:04",
+          "name": "Acceptance Team 04",
+          "team_id": "ha-team-04",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:01",
+          "name": "Acceptance Team 01",
+          "team_id": "ha-team-01",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-12T08:00:00Z",
+          "away_team_id": "ha-team-04",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-01",
+          "kickoff_at_utc": "2025-01-14T16:30:00Z",
+          "match_id": "ha-20250114-03",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:06",
+          "name": "Acceptance Team 06",
+          "team_id": "ha-team-06",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:03",
+          "name": "Acceptance Team 03",
+          "team_id": "ha-team-03",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-12T08:00:00Z",
+          "away_team_id": "ha-team-06",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-03",
+          "kickoff_at_utc": "2025-01-14T18:15:00Z",
+          "match_id": "ha-20250114-04",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:08",
+          "name": "Acceptance Team 08",
+          "team_id": "ha-team-08",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:05",
+          "name": "Acceptance Team 05",
+          "team_id": "ha-team-05",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-12T08:00:00Z",
+          "away_team_id": "ha-team-08",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-05",
+          "kickoff_at_utc": "2025-01-14T20:00:00Z",
+          "match_id": "ha-20250114-05",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:10",
+          "name": "Acceptance Team 10",
+          "team_id": "ha-team-10",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:07",
+          "name": "Acceptance Team 07",
+          "team_id": "ha-team-07",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-12T08:00:00Z",
+          "away_team_id": "ha-team-10",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-07",
+          "kickoff_at_utc": "2025-01-14T21:45:00Z",
+          "match_id": "ha-20250114-06",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:11",
+          "name": "Acceptance Team 11",
+          "team_id": "ha-team-11",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:10",
+          "name": "Acceptance Team 10",
+          "team_id": "ha-team-10",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-13T08:00:00Z",
+          "away_team_id": "ha-team-11",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-10",
+          "kickoff_at_utc": "2025-01-15T13:00:00Z",
+          "match_id": "ha-20250115-01",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:01",
+          "name": "Acceptance Team 01",
+          "team_id": "ha-team-01",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:12",
+          "name": "Acceptance Team 12",
+          "team_id": "ha-team-12",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-13T08:00:00Z",
+          "away_team_id": "ha-team-01",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-12",
+          "kickoff_at_utc": "2025-01-15T14:45:00Z",
+          "match_id": "ha-20250115-02",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:03",
+          "name": "Acceptance Team 03",
+          "team_id": "ha-team-03",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:02",
+          "name": "Acceptance Team 02",
+          "team_id": "ha-team-02",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-13T08:00:00Z",
+          "away_team_id": "ha-team-03",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-02",
+          "kickoff_at_utc": "2025-01-15T16:30:00Z",
+          "match_id": "ha-20250115-03",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:05",
+          "name": "Acceptance Team 05",
+          "team_id": "ha-team-05",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:04",
+          "name": "Acceptance Team 04",
+          "team_id": "ha-team-04",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-13T08:00:00Z",
+          "away_team_id": "ha-team-05",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-04",
+          "kickoff_at_utc": "2025-01-15T18:15:00Z",
+          "match_id": "ha-20250115-04",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:07",
+          "name": "Acceptance Team 07",
+          "team_id": "ha-team-07",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:06",
+          "name": "Acceptance Team 06",
+          "team_id": "ha-team-06",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-13T08:00:00Z",
+          "away_team_id": "ha-team-07",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-06",
+          "kickoff_at_utc": "2025-01-15T20:00:00Z",
+          "match_id": "ha-20250115-05",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "away_team": {
+          "canonical_key": "team:synthetic-acceptance:09",
+          "name": "Acceptance Team 09",
+          "team_id": "ha-team-09",
+          "team_type": "CLUB"
+        },
+        "competition": {
+          "canonical_key": "competition:synthetic-acceptance",
+          "competition_id": "ha-competition-1",
+          "country_code": "ZZ",
+          "name": "Synthetic Acceptance League"
+        },
+        "home_team": {
+          "canonical_key": "team:synthetic-acceptance:08",
+          "name": "Acceptance Team 08",
+          "team_id": "ha-team-08",
+          "team_type": "CLUB"
+        },
+        "match": {
+          "available_at_utc": "2025-01-13T08:00:00Z",
+          "away_team_id": "ha-team-09",
+          "competition_id": "ha-competition-1",
+          "home_team_id": "ha-team-08",
+          "kickoff_at_utc": "2025-01-15T21:45:00Z",
+          "match_id": "ha-20250115-06",
+          "status": "SCHEDULED"
+        }
+      },
+      "retrospective": false
+    }
+  ]
+}

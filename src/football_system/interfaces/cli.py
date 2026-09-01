@@ -3,15 +3,37 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
-from collections.abc import Sequence
-from datetime import timedelta
+from collections.abc import Callable, Sequence
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 
+from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session, sessionmaker
 
+from football_system.application.backtest import (
+    WalkForwardBacktestRequest,
+    WalkForwardBacktestService,
+)
+from football_system.application.backtest_reports import (
+    BacktestReportComparison,
+    BacktestReportData,
+    expected_match_ids_from_analysis_manifest,
+    load_backtest_fixture,
+    render_backtest_comparison,
+    render_backtest_report,
+    render_historical_archive_summary,
+    render_match_results,
+    render_settlement_report,
+    render_settlement_result,
+)
+from football_system.application.historical_archive import HistoricalArchiveService
 from football_system.application.models import AnalysisArtifacts
+from football_system.application.ports.data_providers import (
+    MatchResultQuery,
+)
 from football_system.application.post_review import (
     CreateFusionRunService,
     CreatePortfolioRevisionService,
@@ -25,9 +47,26 @@ from football_system.application.run_analysis import (
     RunAnalysisRequest,
     RunAnalysisService,
 )
+from football_system.application.settlement import SettlementService
 from football_system.config import AppSettings
+from football_system.domain.archive import (
+    HistoricalArchiveDatasetKind,
+    HistoricalArchiveManifest,
+    HistoricalDataMode,
+)
+from football_system.domain.backtest import (
+    BacktestArchiveProvenance,
+    BacktestMetricsConfig,
+    canonical_archive_provenance,
+)
 from football_system.domain.betting import CandidateStatus, PortfolioStatus
+from football_system.domain.common import new_id, utc_now
 from football_system.domain.prediction import FusionPolicyName
+from football_system.domain.settlement import Settlement, SettlementScope
+from football_system.infrastructure.database.historical_repositories import (
+    SqlAlchemyHistoricalRepository,
+    backtest_metrics_value,
+)
 from football_system.infrastructure.database.migrations import upgrade_database
 from football_system.infrastructure.database.post_review_repositories import (
     SqlAlchemyPostReviewRepository,
@@ -53,6 +92,14 @@ from football_system.infrastructure.providers.mock.market_odds import (
 from football_system.infrastructure.providers.mock.sporttery import (
     MockSportteryProvider,
 )
+from football_system.infrastructure.providers.historical_archive import (
+    HistoricalArchiveFixtureProvider,
+    HistoricalArchiveMarketOddsProvider,
+    HistoricalArchiveQuantProvider,
+    HistoricalArchiveSportteryProvider,
+    LocalArchiveHistoricalDataProvider,
+    LocalArchiveStore,
+)
 from football_system.infrastructure.files.review_bridge import (
     read_contract_file,
     write_contract_file,
@@ -62,6 +109,14 @@ from football_system.infrastructure.files.review_bridge import (
 def main(argv: Sequence[str] | None = None) -> int:
     _configure_utf8_output()
     arguments = list(argv) if argv is not None else sys.argv[1:]
+    if arguments[:1] == ["historical-archive"]:
+        return _dispatch_historical_archive(arguments[1:])
+    if arguments[:1] == ["match-results"]:
+        return _dispatch_match_results(arguments[1:])
+    if arguments[:1] == ["settlement"]:
+        return _dispatch_settlement(arguments[1:])
+    if arguments[:1] == ["backtest"]:
+        return _dispatch_backtest(arguments[1:])
     if arguments[:1] == ["analysis-packet"]:
         return _dispatch_analysis_packet(arguments[1:])
     if arguments[:1] == ["llm-review"]:
@@ -158,6 +213,573 @@ def _dispatch_portfolio_revision(arguments: Sequence[str]) -> int:
     if arguments[0] != "create":
         raise SystemExit(f"unknown portfolio-revision command: {arguments[0]}")
     return _create_portfolio_revision(arguments[1:])
+
+
+def _dispatch_historical_archive(arguments: Sequence[str]) -> int:
+    return _dispatch_command_group(
+        "historical-archive",
+        arguments,
+        {
+            "validate": _validate_historical_archive,
+            "import": _import_historical_archive,
+        },
+    )
+
+
+def _dispatch_match_results(arguments: Sequence[str]) -> int:
+    return _dispatch_command_group(
+        "match-results",
+        arguments,
+        {"list": _list_match_results},
+    )
+
+
+def _dispatch_settlement(arguments: Sequence[str]) -> int:
+    return _dispatch_command_group(
+        "settlement",
+        arguments,
+        {
+            "create": _create_settlement,
+            "report": _report_settlement,
+        },
+    )
+
+
+def _dispatch_backtest(arguments: Sequence[str]) -> int:
+    return _dispatch_command_group(
+        "backtest",
+        arguments,
+        {
+            "run": _run_backtest,
+            "report": _report_backtest,
+            "compare": _compare_backtests,
+        },
+    )
+
+
+def _dispatch_command_group(
+    group: str,
+    arguments: Sequence[str],
+    handlers: dict[str, Callable[[Sequence[str]], int]],
+) -> int:
+    parser = argparse.ArgumentParser(prog=f"football-system {group}")
+    parser.add_argument("command", choices=tuple(handlers))
+    if not arguments or arguments[0] in {"-h", "--help"}:
+        parser.print_help()
+        return 0
+    command = arguments[0]
+    handler = handlers.get(command)
+    if handler is None:
+        parser.error(f"invalid command: {command}")
+    return handler(arguments[1:])
+
+
+def _validate_historical_archive(arguments: Sequence[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="football-system historical-archive validate",
+        description="Validate immutable historical archive files without a database.",
+    )
+    parser.add_argument(
+        "--archive",
+        type=Path,
+        default=_historical_archive_path(),
+        help=(
+            "Archive directory. Defaults to bundled SYNTHETIC ACCEPTANCE DATA; "
+            "NOT REAL HISTORICAL PERFORMANCE."
+        ),
+    )
+    parser.add_argument("--config", type=Path, default=_backtest_config_path())
+    _add_data_mode_argument(parser)
+    args = parser.parse_args(arguments)
+    try:
+        settings = AppSettings.from_toml(args.config)
+        data_mode = _configured_data_mode(args.data_mode, settings)
+        summary = HistoricalArchiveService().validate(args.archive, data_mode)
+    except (OSError, RuntimeError, ValidationError, ValueError) as error:
+        parser.error(str(error))
+    print(render_historical_archive_summary(summary))
+    return 0
+
+
+def _import_historical_archive(arguments: Sequence[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="football-system historical-archive import",
+        description="Register archive manifests and provenance in the database.",
+    )
+    _add_database_arguments(parser, default_config=_backtest_config_path())
+    parser.add_argument(
+        "--archive",
+        type=Path,
+        default=_historical_archive_path(),
+        help=(
+            "Archive directory. Defaults to bundled SYNTHETIC ACCEPTANCE DATA; "
+            "NOT REAL HISTORICAL PERFORMANCE."
+        ),
+    )
+    _add_data_mode_argument(parser)
+    args = parser.parse_args(arguments)
+    try:
+        settings, _, repository = _historical_repository(
+            args.config,
+            args.database_url,
+        )
+        data_mode = _configured_data_mode(args.data_mode, settings)
+        summary = HistoricalArchiveService().register(
+            args.archive,
+            repository,
+            utc_now(),
+            data_mode,
+        )
+    except (
+        KeyError,
+        OSError,
+        RuntimeError,
+        SQLAlchemyError,
+        ValidationError,
+        ValueError,
+    ) as error:
+        parser.error(str(error))
+    print(render_historical_archive_summary(summary))
+    return 0
+
+
+def _list_match_results(arguments: Sequence[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="football-system match-results list",
+        description="List the latest visible result for each requested match.",
+    )
+    _add_database_arguments(parser, default_config=_backtest_config_path())
+    parser.add_argument(
+        "--match-id",
+        action="append",
+        nargs="+",
+        required=True,
+        metavar="MATCH_ID",
+    )
+    parser.add_argument("--as-of", type=_parse_utc_datetime, required=True)
+    parser.add_argument("--provider-code")
+    args = parser.parse_args(arguments)
+    match_ids = tuple(item for group in args.match_id for item in group)
+    if len(match_ids) != len(set(match_ids)):
+        parser.error("match IDs must be unique")
+    try:
+        _, _, repository = _historical_repository(
+            args.config,
+            args.database_url,
+        )
+        results = repository.latest_match_results(
+            match_ids,
+            args.as_of,
+            args.provider_code,
+        )
+        report = render_match_results(
+            match_ids,
+            args.as_of,
+            results,
+            args.provider_code,
+        )
+    except (
+        KeyError,
+        OSError,
+        RuntimeError,
+        SQLAlchemyError,
+        ValidationError,
+        ValueError,
+    ) as error:
+        parser.error(str(error))
+    print(report)
+    return 0
+
+
+def _create_settlement(arguments: Sequence[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="football-system settlement create",
+        description="Settle one frozen base portfolio from a point-in-time archive.",
+    )
+    _add_database_arguments(parser, default_config=_backtest_config_path())
+    parser.add_argument("--portfolio-id", required=True)
+    parser.add_argument("--analysis-run-id", required=True)
+    parser.add_argument("--archive", type=Path, required=True)
+    parser.add_argument("--provider-code", required=True)
+    parser.add_argument(
+        "--evaluation-as-of",
+        type=_parse_utc_datetime,
+        required=True,
+    )
+    _add_data_mode_argument(parser)
+    args = parser.parse_args(arguments)
+    try:
+        settings, _, repository = _historical_repository(
+            args.config,
+            args.database_url,
+        )
+        data_mode = _configured_data_mode(args.data_mode, settings)
+        portfolio = repository.load_base_portfolio(args.portfolio_id)
+        if portfolio.analysis_run_id != args.analysis_run_id:
+            raise ValueError("portfolio does not belong to the requested AnalysisRun")
+
+        store = LocalArchiveStore(args.archive, data_mode=data_mode)
+        result_provider = LocalArchiveHistoricalDataProvider(
+            store,
+            args.provider_code,
+        )
+        match_ids = tuple(
+            dict.fromkeys(
+                leg.match_id
+                for ticket in portfolio.tickets
+                for leg in ticket.candidate.legs
+            )
+        )
+        if match_ids:
+            batch = asyncio.run(
+                result_provider.fetch_match_results(
+                    MatchResultQuery(
+                        match_ids=match_ids,
+                        as_of_at_utc=args.evaluation_as_of,
+                    )
+                )
+            )
+            repository.append_match_result_batch(batch)
+            match_results = batch.results
+        else:
+            match_results = ()
+
+        previous_portfolios = repository.latest_portfolio_settlements(
+            args.analysis_run_id,
+            args.evaluation_as_of,
+            (portfolio.portfolio_id,),
+        )
+        if len(previous_portfolios) > 1:
+            raise ValueError("portfolio has multiple latest prior settlements")
+        previous_portfolio = (
+            repository.load_portfolio_settlement(
+                previous_portfolios[0].portfolio_settlement_id
+            )
+            if previous_portfolios
+            else None
+        )
+        previous_tickets = (
+            tuple(
+                _required_ticket_settlement(repository, settlement_id)
+                for settlement_id in previous_portfolio.ticket_settlement_ids
+            )
+            if previous_portfolio is not None
+            else ()
+        )
+        settlement_result = SettlementService(
+            settings.settlement.policy
+        ).settle_portfolio(
+            SettlementScope.for_analysis_run(args.analysis_run_id),
+            portfolio,
+            match_results,
+            args.evaluation_as_of,
+            result_issues=batch.issues if match_ids else (),
+            previous_ticket_settlements=previous_tickets,
+            supersedes_portfolio_settlement=previous_portfolio,
+        )
+        for ticket_result in settlement_result.ticket_results:
+            if ticket_result.settlement is not None:
+                repository.append_ticket_settlement(ticket_result.settlement)
+        if settlement_result.portfolio_settlement is not None:
+            repository.append_portfolio_settlement(
+                settlement_result.portfolio_settlement
+            )
+        report = render_settlement_result(
+            portfolio,
+            settlement_result,
+            data_mode,
+            store.manifests,
+        )
+    except (
+        KeyError,
+        OSError,
+        RuntimeError,
+        SQLAlchemyError,
+        ValidationError,
+        ValueError,
+    ) as error:
+        parser.error(str(error))
+    print(report)
+    return 0
+
+
+def _report_settlement(arguments: Sequence[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="football-system settlement report",
+        description="Render persisted settlement lineage and financials.",
+    )
+    _add_database_arguments(parser, default_config=_backtest_config_path())
+    parser.add_argument("--portfolio-settlement-id", required=True)
+    args = parser.parse_args(arguments)
+    try:
+        _, _, repository = _historical_repository(
+            args.config,
+            args.database_url,
+        )
+        portfolio = repository.load_portfolio_settlement(args.portfolio_settlement_id)
+        tickets = tuple(
+            _required_ticket_settlement(repository, settlement_id)
+            for settlement_id in portfolio.ticket_settlement_ids
+        )
+        report = render_settlement_report(portfolio, tickets)
+    except (
+        KeyError,
+        OSError,
+        RuntimeError,
+        SQLAlchemyError,
+        ValidationError,
+        ValueError,
+    ) as error:
+        parser.error(str(error))
+    print(report)
+    return 0
+
+
+def _run_backtest(arguments: Sequence[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="football-system backtest run",
+        description="Run and persist one strict walk-forward strategy.",
+    )
+    _add_database_arguments(parser, default_config=_backtest_config_path())
+    parser.add_argument(
+        "--archive",
+        type=Path,
+        default=_historical_archive_path(),
+        help=(
+            "Archive directory. Defaults to bundled SYNTHETIC ACCEPTANCE DATA; "
+            "NOT REAL HISTORICAL PERFORMANCE."
+        ),
+    )
+    parser.add_argument(
+        "--fixture-config",
+        type=Path,
+        default=_historical_archive_path() / "acceptance_config.toml",
+        help="Fixture plan. Defaults to the bundled synthetic acceptance plan.",
+    )
+    parser.add_argument(
+        "--fusion-policy",
+        choices=(
+            FusionPolicyName.QUANT_ONLY_V1.value,
+            FusionPolicyName.MARKET_QUANT_BLEND_V1.value,
+        ),
+        required=True,
+    )
+    parser.add_argument("--backtest-run-id")
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--provider-code")
+    _add_data_mode_argument(parser)
+    parser.add_argument("--budget-fen", type=_parse_nonnegative_int)
+    parser.add_argument("--min-selection-ev", type=_parse_nonnegative_decimal)
+    parser.add_argument("--min-ticket-roi", type=_parse_nonnegative_decimal)
+    parser.add_argument("--quant-weight", type=_parse_probability_decimal)
+    args = parser.parse_args(arguments)
+    try:
+        base_settings, sessions, historical = _historical_repository(
+            args.config,
+            args.database_url,
+        )
+        fixture = load_backtest_fixture(args.fixture_config)
+        fixture.validate_against_settings(base_settings)
+        if (
+            args.data_mode is not None
+            and HistoricalDataMode(args.data_mode) is not fixture.data_mode
+        ):
+            raise ValueError(
+                "--data-mode must match fixture and config backtest data mode"
+            )
+        data_mode = fixture.data_mode
+        policy = FusionPolicyName(args.fusion_policy)
+        fixture_strategy = fixture.strategy(policy)
+        quant_weight = (
+            fixture_strategy.quant_weight
+            if args.quant_weight is None
+            else args.quant_weight
+        )
+        min_selection_ev = (
+            fixture.min_selection_ev
+            if args.min_selection_ev is None
+            else args.min_selection_ev
+        )
+        min_ticket_roi = (
+            fixture.min_ticket_roi
+            if args.min_ticket_roi is None
+            else args.min_ticket_roi
+        )
+        budget_fen = fixture.budget_fen if args.budget_fen is None else args.budget_fen
+        provider_code = args.provider_code or fixture.provider_code
+        settings = fixture.analysis_settings(
+            base_settings,
+            policy,
+            quant_weight=quant_weight,
+            min_selection_ev=min_selection_ev,
+            min_ticket_roi=min_ticket_roi,
+        )
+
+        store = LocalArchiveStore(args.archive, data_mode=data_mode)
+        archive_provenance = _backtest_archive_provenance(
+            store,
+            provider_code,
+            data_mode,
+        )
+        HistoricalArchiveService().register(
+            args.archive,
+            historical,
+            utc_now(),
+            data_mode,
+        )
+        analysis = RunAnalysisService(
+            HistoricalArchiveFixtureProvider(store, provider_code),
+            HistoricalArchiveMarketOddsProvider(
+                store,
+                provider_code,
+                bookmaker_code=fixture.market_bookmaker_code,
+                require_complete=False,
+            ),
+            HistoricalArchiveSportteryProvider(store, provider_code),
+            HistoricalArchiveQuantProvider(store, provider_code),
+            SqlAlchemyAnalysisRepository(sessions),
+            settings,
+        )
+        service = WalkForwardBacktestService(
+            analysis,
+            LocalArchiveHistoricalDataProvider(store, provider_code),
+            SettlementService(settings.settlement.policy),
+        )
+        run_id = args.backtest_run_id or new_id()
+        request = WalkForwardBacktestRequest(
+            backtest_run_id=run_id,
+            data_mode=data_mode,
+            fusion_policy=policy,
+            slates=fixture.plans,
+            budget_fen=budget_fen,
+            quant_weight=quant_weight,
+            min_selection_ev=min_selection_ev,
+            min_ticket_roi=min_ticket_roi,
+            constraints=fixture.constraints,
+            backtest_version=base_settings.backtest.version,
+            metrics_config=BacktestMetricsConfig(
+                log_loss_epsilon=base_settings.backtest.log_loss_epsilon
+            ),
+            archive_provenance=archive_provenance,
+        )
+        result = asyncio.run(service.run(request))
+        fixture.validate_result_match_ids(
+            tuple(
+                tuple(match.match_id for match in slate.analysis_artifacts.matches)
+                for slate in result.slate_results
+            )
+        )
+        historical.save_walk_forward_backtest_result(result)
+        report = render_backtest_report(
+            BacktestReportData(
+                backtest_run=result.backtest_run,
+                slices=result.backtest_slices,
+                metrics=result.metrics,
+                expected_match_ids_by_slice=tuple(
+                    slate.backtest_slice.expected_match_ids
+                    for slate in result.slate_results
+                ),
+                archive_manifests=store.manifests,
+            )
+        )
+        _write_optional_report(args.output, report)
+    except (
+        KeyError,
+        OSError,
+        RuntimeError,
+        SQLAlchemyError,
+        ValidationError,
+        ValueError,
+    ) as error:
+        parser.error(str(error))
+    print(report)
+    if args.output is not None:
+        print(f"Report written: {args.output}")
+    return 0
+
+
+def _report_backtest(arguments: Sequence[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="football-system backtest report",
+        description="Render the latest persisted aggregate report for a run.",
+    )
+    _add_database_arguments(parser, default_config=_backtest_config_path())
+    parser.add_argument("--backtest-run-id", required=True)
+    parser.add_argument("--output", type=Path)
+    args = parser.parse_args(arguments)
+    try:
+        _, sessions, repository = _historical_repository(
+            args.config,
+            args.database_url,
+        )
+        report = render_backtest_report(
+            _load_backtest_report(
+                repository,
+                SqlAlchemyAnalysisRepository(sessions),
+                args.backtest_run_id,
+            )
+        )
+        _write_optional_report(args.output, report)
+    except (
+        KeyError,
+        OSError,
+        RuntimeError,
+        SQLAlchemyError,
+        ValidationError,
+        ValueError,
+    ) as error:
+        parser.error(str(error))
+    print(report)
+    if args.output is not None:
+        print(f"Report written: {args.output}")
+    return 0
+
+
+def _compare_backtests(arguments: Sequence[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="football-system backtest compare",
+        description="Render a validated side-by-side strategy comparison.",
+    )
+    _add_database_arguments(parser, default_config=_backtest_config_path())
+    parser.add_argument("--left-run-id", required=True)
+    parser.add_argument("--right-run-id", required=True)
+    parser.add_argument("--output", type=Path)
+    args = parser.parse_args(arguments)
+    if args.left_run_id == args.right_run_id:
+        parser.error("left and right backtest run IDs must differ")
+    try:
+        _, sessions, repository = _historical_repository(
+            args.config,
+            args.database_url,
+        )
+        analysis_repository = SqlAlchemyAnalysisRepository(sessions)
+        comparison = BacktestReportComparison(
+            left=_load_backtest_report(
+                repository,
+                analysis_repository,
+                args.left_run_id,
+            ),
+            right=_load_backtest_report(
+                repository,
+                analysis_repository,
+                args.right_run_id,
+            ),
+        )
+        report = render_backtest_comparison(comparison)
+        _write_optional_report(args.output, report)
+    except (
+        KeyError,
+        OSError,
+        RuntimeError,
+        SQLAlchemyError,
+        ValidationError,
+        ValueError,
+    ) as error:
+        parser.error(str(error))
+    print(report)
+    if args.output is not None:
+        print(f"Report written: {args.output}")
+    return 0
 
 
 def _export_analysis_packet(arguments: Sequence[str]) -> int:
@@ -282,11 +904,206 @@ def _create_portfolio_revision(arguments: Sequence[str]) -> int:
     return 0
 
 
-def _add_database_arguments(parser: argparse.ArgumentParser) -> None:
+def _add_database_arguments(
+    parser: argparse.ArgumentParser,
+    *,
+    default_config: Path | None = None,
+) -> None:
     parser.add_argument(
-        "--config", type=Path, default=_resource_root() / "config" / "mvp.toml"
+        "--config",
+        type=Path,
+        default=default_config or _resource_root() / "config" / "mvp.toml",
     )
     parser.add_argument("--database-url")
+
+
+def _add_data_mode_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--data-mode",
+        choices=tuple(item.value for item in HistoricalDataMode),
+        help="Defaults to backtest.data_mode in --config.",
+    )
+
+
+def _backtest_config_path() -> Path:
+    return _resource_root() / "config" / "backtest.toml"
+
+
+def _historical_archive_path() -> Path:
+    return _resource_root() / "data" / "fixtures" / "historical_acceptance"
+
+
+def _configured_data_mode(
+    value: str | None,
+    settings: AppSettings,
+) -> HistoricalDataMode:
+    return (
+        HistoricalDataMode(value) if value is not None else settings.backtest.data_mode
+    )
+
+
+def _historical_repository(
+    config_path: Path,
+    database_url: str | None,
+) -> tuple[
+    AppSettings,
+    sessionmaker[Session],
+    SqlAlchemyHistoricalRepository,
+]:
+    settings = AppSettings.from_toml(config_path)
+    resolved_url = _resolve_database_url(database_url or settings.database.url)
+    if database_url is not None:
+        settings = settings.model_copy(
+            update={
+                "database": settings.database.model_copy(update={"url": resolved_url})
+            }
+        )
+    upgrade_database(resolved_url, _resource_root() / "alembic.ini")
+    engine = create_database_engine(resolved_url)
+    sessions = create_session_factory(engine)
+    return settings, sessions, SqlAlchemyHistoricalRepository(sessions)
+
+
+def _required_ticket_settlement(
+    repository: SqlAlchemyHistoricalRepository,
+    settlement_id: str,
+) -> Settlement:
+    settlement = repository.find_ticket_settlement(settlement_id)
+    if settlement is None:
+        raise KeyError(f"unknown ticket settlement: {settlement_id}")
+    return settlement
+
+
+def _load_backtest_report(
+    repository: SqlAlchemyHistoricalRepository,
+    analysis_repository: SqlAlchemyAnalysisRepository,
+    backtest_run_id: str,
+) -> BacktestReportData:
+    run = repository.find_backtest_run_value(backtest_run_id)
+    if run is None:
+        raise KeyError(f"unknown backtest run: {backtest_run_id}")
+    slices = repository.backtest_slice_values(backtest_run_id)
+    if not slices:
+        raise ValueError("backtest run has no persisted slices")
+    final_cutoff = max(item.evaluation_as_of_at_utc for item in slices)
+    snapshots = repository.latest_backtest_metric_snapshots(
+        backtest_run_id,
+        final_cutoff,
+    )
+    aggregate = tuple(
+        item
+        for item in snapshots
+        if item.metric_scope == "RUN" and item.metric_key == "AGGREGATE"
+    )
+    if len(aggregate) != 1:
+        raise ValueError(
+            "backtest run requires exactly one latest aggregate metric snapshot"
+        )
+    expected_match_ids_by_slice: list[tuple[str, ...]] = []
+    for item in slices:
+        input_manifest = analysis_repository.load_input_manifest(item.analysis_run_id)
+        if input_manifest.manifest_hash != item.decision_input_manifest_hash:
+            raise ValueError(
+                "backtest slice decision manifest hash conflicts with AnalysisRun"
+            )
+        expected_match_ids_by_slice.append(
+            expected_match_ids_from_analysis_manifest(
+                input_manifest.manifest_json,
+                item.expected_match_ids,
+                item.missing_decision_match_ids,
+            )
+        )
+    manifests: list[HistoricalArchiveManifest] = []
+    for provenance in run.archive_provenance:
+        manifest = repository.find_historical_archive_manifest(provenance.archive_id)
+        if manifest is None:
+            raise KeyError(
+                f"unknown historical archive import: {provenance.archive_id}"
+            )
+        if BacktestArchiveProvenance.from_manifest(manifest) != provenance:
+            raise ValueError(
+                "persisted archive manifest conflicts with backtest provenance: "
+                f"{provenance.archive_id}"
+            )
+        manifests.append(manifest)
+    return BacktestReportData(
+        backtest_run=run,
+        slices=slices,
+        metrics=backtest_metrics_value(aggregate[0]),
+        expected_match_ids_by_slice=tuple(expected_match_ids_by_slice),
+        archive_manifests=tuple(manifests),
+    )
+
+
+def _backtest_archive_provenance(
+    store: LocalArchiveStore,
+    provider_code: str,
+    data_mode: HistoricalDataMode,
+) -> tuple[BacktestArchiveProvenance, ...]:
+    manifests = store.manifests
+    if store.data_mode is not data_mode or any(
+        manifest.data_mode is not data_mode for manifest in manifests
+    ):
+        raise ValueError("backtest archive manifests use another data mode")
+    if any(manifest.provider_code != provider_code for manifest in manifests):
+        raise ValueError("backtest archive manifests use another provider")
+    if {manifest.dataset_kind for manifest in manifests} != set(
+        HistoricalArchiveDatasetKind
+    ):
+        raise ValueError("backtest archive must cover every historical dataset kind")
+    return canonical_archive_provenance(
+        tuple(
+            BacktestArchiveProvenance.from_manifest(manifest) for manifest in manifests
+        )
+    )
+
+
+def _write_optional_report(output: Path | None, report: str) -> None:
+    if output is not None:
+        output.write_text(report + "\n", encoding="utf-8")
+
+
+def _parse_utc_datetime(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(f"invalid ISO datetime: {value}") from error
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise argparse.ArgumentTypeError(
+            f"datetime must be timezone-aware UTC: {value}"
+        )
+    return parsed.astimezone(timezone.utc)
+
+
+def _parse_nonnegative_decimal(value: str) -> Decimal:
+    try:
+        parsed = Decimal(value)
+    except InvalidOperation as error:
+        raise argparse.ArgumentTypeError(f"invalid decimal: {value}") from error
+    if not parsed.is_finite() or parsed < 0:
+        raise argparse.ArgumentTypeError(
+            f"decimal must be finite and non-negative: {value}"
+        )
+    return parsed
+
+
+def _parse_probability_decimal(value: str) -> Decimal:
+    parsed = _parse_nonnegative_decimal(value)
+    if parsed > 1:
+        raise argparse.ArgumentTypeError(
+            f"probability must be between zero and one: {value}"
+        )
+    return parsed
+
+
+def _parse_nonnegative_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(f"invalid integer: {value}") from error
+    if parsed < 0:
+        raise argparse.ArgumentTypeError(f"integer must be non-negative: {value}")
+    return parsed
 
 
 def _review_repository(
@@ -415,11 +1232,16 @@ def format_analysis(
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run deterministic football analysis against Mock data.",
+        description=(
+            "Run deterministic football analysis, historical archive workflows, "
+            "settlement, and walk-forward backtests."
+        ),
         epilog=(
-            "Offline commands: analysis-packet export; "
-            "llm-review validate/import; fusion-run create; "
-            "portfolio-revision create"
+            "Historical/backtest commands: historical-archive validate; "
+            "historical-archive import; match-results list; settlement create; "
+            "settlement report; backtest run; backtest report; backtest compare. "
+            "Offline review commands: analysis-packet export; "
+            "llm-review validate/import; fusion-run create; portfolio-revision create."
         ),
     )
     parser.add_argument(

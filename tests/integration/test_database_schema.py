@@ -1,9 +1,12 @@
+import re
+from io import StringIO
 from datetime import datetime, timezone
+from typing import cast
 
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import inspect, text
+from sqlalchemy import Engine, create_engine, inspect, text
 from sqlalchemy.exc import IntegrityError
 
 from football_system.infrastructure.database.models import (
@@ -11,7 +14,9 @@ from football_system.infrastructure.database.models import (
     PortfolioRecord,
     PortfolioRiskReportRecord,
 )
+from football_system.infrastructure.database.migrations import upgrade_database
 from football_system.infrastructure.database.session import (
+    configure_sqlite_engine,
     create_database_engine,
     create_schema,
     create_session_factory,
@@ -53,6 +58,140 @@ def test_schema_contains_mvp_tables_and_enables_foreign_keys() -> None:
     } <= tables
     with engine.connect() as connection:
         assert connection.scalar(text("PRAGMA foreign_keys")) == 1
+        assert connection.scalar(text("PRAGMA recursive_triggers")) == 1
+
+
+@pytest.mark.parametrize(
+    "accept_engine",
+    (configure_sqlite_engine, create_schema, create_session_factory),
+)
+def test_external_sqlite_engines_restore_pragmas_on_every_checkout(
+    accept_engine,
+) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    accept_engine(engine)
+
+    with engine.connect() as connection:
+        assert connection.scalar(text("PRAGMA foreign_keys")) == 1
+        assert connection.scalar(text("PRAGMA recursive_triggers")) == 1
+        connection.rollback()
+        connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+        connection.exec_driver_sql("PRAGMA recursive_triggers=OFF")
+        assert connection.scalar(text("PRAGMA foreign_keys")) == 0
+        assert connection.scalar(text("PRAGMA recursive_triggers")) == 0
+
+    with engine.connect() as connection:
+        assert connection.scalar(text("PRAGMA foreign_keys")) == 1
+        assert connection.scalar(text("PRAGMA recursive_triggers")) == 1
+
+    engine.dispose()
+
+
+@pytest.mark.parametrize(
+    "operation",
+    (
+        lambda: create_database_engine(
+            "postgresql+psycopg://user:secret@example.invalid/football"
+        ),
+        lambda: upgrade_database(
+            "postgresql+psycopg://user:secret@example.invalid/football"
+        ),
+    ),
+)
+def test_database_entry_points_reject_non_sqlite_before_driver_loading(
+    operation,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"Unsupported database backend 'postgresql'.*supports SQLite only",
+    ) as error:
+        operation()
+    assert "secret" not in str(error.value)
+
+
+@pytest.mark.parametrize("operation", (create_schema, create_session_factory))
+def test_external_entry_points_reject_non_sqlite_engine(operation) -> None:
+    class _PostgresDialect:
+        name = "postgresql"
+
+    class _PostgresEngine:
+        dialect = _PostgresDialect()
+
+    with pytest.raises(ValueError, match="supports SQLite only"):
+        operation(cast(Engine, _PostgresEngine()))
+
+
+def test_direct_alembic_rejects_non_sqlite_before_driver_loading() -> None:
+    config = Config("alembic.ini")
+    config.set_main_option(
+        "sqlalchemy.url",
+        "postgresql+psycopg://user:secret@example.invalid/football",
+    )
+
+    with pytest.raises(ValueError, match="supports SQLite only") as error:
+        command.upgrade(config, "head")
+    assert "secret" not in str(error.value)
+
+
+def test_direct_alembic_offline_rejects_non_sqlite_without_credentials() -> None:
+    config = Config("alembic.ini", output_buffer=StringIO())
+    config.set_main_option(
+        "sqlalchemy.url",
+        "postgresql+psycopg://user:secret@example.invalid/football",
+    )
+
+    with pytest.raises(ValueError, match="supports SQLite only") as error:
+        command.upgrade(config, "head", sql=True)
+    assert "secret" not in str(error.value)
+
+
+def test_historical_migration_generates_offline_trigger_sql(tmp_path) -> None:
+    database_url = f"sqlite:///{(tmp_path / 'offline-never-created.db').as_posix()}"
+    upgrade_output = StringIO()
+    upgrade_config = Config("alembic.ini", output_buffer=upgrade_output)
+    upgrade_config.set_main_option("sqlalchemy.url", database_url)
+
+    command.upgrade(
+        upgrade_config,
+        "c8b7e2a4f190:f3a1c6d8e204",
+        sql=True,
+    )
+
+    upgrade_sql = upgrade_output.getvalue()
+    assert "CREATE TRIGGER trg_ticket_settlements_correction_insert" in upgrade_sql
+    assert "CREATE TRIGGER trg_backtest_slices_lineage_insert" in upgrade_sql
+    assert "expected_match_ids" in upgrade_sql
+
+    downgrade_output = StringIO()
+    downgrade_config = Config("alembic.ini", output_buffer=downgrade_output)
+    downgrade_config.set_main_option("sqlalchemy.url", database_url)
+    command.downgrade(
+        downgrade_config,
+        "f3a1c6d8e204:c8b7e2a4f190",
+        sql=True,
+    )
+
+    downgrade_sql = downgrade_output.getvalue()
+    assert "DROP TRIGGER IF EXISTS trg_ticket_settlements_correction_insert" in (
+        downgrade_sql
+    )
+    assert "DROP TRIGGER IF EXISTS trg_backtest_slices_lineage_insert" in downgrade_sql
+    assert not (tmp_path / "offline-never-created.db").exists()
+
+
+def test_runtime_schema_matches_alembic_head(tmp_path) -> None:
+    runtime_url = f"sqlite:///{(tmp_path / 'runtime.db').as_posix()}"
+    migration_url = f"sqlite:///{(tmp_path / 'migration.db').as_posix()}"
+    runtime_engine = create_database_engine(runtime_url)
+    create_schema(runtime_engine)
+    upgrade_database(migration_url)
+    migration_engine = create_database_engine(migration_url)
+
+    assert _schema_signature(runtime_engine) == _schema_signature(migration_engine)
+    assert _trigger_signature(runtime_engine) == _trigger_signature(migration_engine)
+
+    runtime_engine.dispose()
+    migration_engine.dispose()
 
 
 def test_completed_analysis_run_requires_a_validated_transition() -> None:
@@ -251,7 +390,8 @@ def test_alembic_upgrades_empty_sqlite_database(tmp_path) -> None:
 
     pre_hardening_engine = create_database_engine(database_url)
     pre_hardening_columns = {
-        column["name"]: column for column in inspect(pre_hardening_engine).get_columns(
+        column["name"]: column
+        for column in inspect(pre_hardening_engine).get_columns(
             "portfolio_stress_results"
         )
     }
@@ -272,9 +412,8 @@ def test_alembic_upgrades_empty_sqlite_database(tmp_path) -> None:
     assert "fusion_run_results" in tables
     assert "portfolio_revisions" in tables
     stress_columns = {
-        column["name"]: column for column in inspect(engine).get_columns(
-            "portfolio_stress_results"
-        )
+        column["name"]: column
+        for column in inspect(engine).get_columns("portfolio_stress_results")
     }
     assert stress_columns["capital_recovery_ratio"]["type"].scale == 12
     with engine.connect() as connection:
@@ -334,7 +473,7 @@ def test_post_review_migration_upgrades_0_2_head_and_downgrades(tmp_path) -> Non
     } <= set(inspect(engine).get_table_names())
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "c8b7e2a4f190"
+            "f3a1c6d8e204"
         )
     engine.dispose()
 
@@ -438,14 +577,17 @@ def test_hardening_migration_rejects_invalid_completed_risk_graph(tmp_path) -> N
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
             "7a2c5e8f9b31"
         )
-        assert connection.scalar(
-            text(
-                """
+        assert (
+            connection.scalar(
+                text(
+                    """
                 SELECT status FROM analysis_runs
                 WHERE analysis_run_id = 'run-legacy'
                 """
+                )
             )
-        ) == "COMPLETED"
+            == "COMPLETED"
+        )
     with pytest.raises(IntegrityError):
         with engine.begin() as connection:
             connection.execute(
@@ -476,16 +618,19 @@ def test_hardening_migration_accepts_valid_completed_risk_graph(tmp_path) -> Non
     engine = create_database_engine(database_url)
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "c8b7e2a4f190"
+            "f3a1c6d8e204"
         )
-        assert connection.scalar(
-            text(
-                """
+        assert (
+            connection.scalar(
+                text(
+                    """
                 SELECT status FROM analysis_runs
                 WHERE analysis_run_id = 'run-legacy'
                 """
+                )
             )
-        ) == "COMPLETED"
+            == "COMPLETED"
+        )
     engine.dispose()
 
 
@@ -689,3 +834,111 @@ def _insert_no_bet_risk_graph(
                 """
             )
         )
+
+
+def _schema_signature(engine: Engine) -> dict[str, object]:
+    inspector = inspect(engine)
+    tables = sorted(set(inspector.get_table_names()) - {"alembic_version"})
+    return {
+        table: {
+            "columns": tuple(
+                sorted(
+                    (
+                        column["name"],
+                        str(column["type"]).upper(),
+                        column["nullable"],
+                        _normalize_sql(column.get("default")),
+                        column.get("primary_key", 0),
+                    )
+                    for column in inspector.get_columns(table)
+                )
+            ),
+            "primary_key": _constraint_signature(inspector.get_pk_constraint(table)),
+            "foreign_keys": tuple(
+                sorted(
+                    (
+                        item.get("name") or "",
+                        tuple(item.get("constrained_columns") or ()),
+                        item.get("referred_table") or "",
+                        tuple(item.get("referred_columns") or ()),
+                        tuple(
+                            sorted(
+                                (key, str(value))
+                                for key, value in (item.get("options") or {}).items()
+                            )
+                        ),
+                    )
+                    for item in inspector.get_foreign_keys(table)
+                )
+            ),
+            "unique_constraints": tuple(
+                sorted(
+                    _constraint_signature(item)
+                    for item in inspector.get_unique_constraints(table)
+                )
+            ),
+            "check_constraints": tuple(
+                sorted(
+                    (
+                        item.get("name") or "",
+                        _normalize_sql(item.get("sqltext")),
+                    )
+                    for item in inspector.get_check_constraints(table)
+                )
+            ),
+            "indexes": tuple(
+                sorted(
+                    (
+                        item.get("name") or "",
+                        tuple(item.get("column_names") or ()),
+                        bool(item.get("unique")),
+                        tuple(
+                            sorted(
+                                (key, _normalize_sql(value))
+                                for key, value in (
+                                    item.get("dialect_options") or {}
+                                ).items()
+                            )
+                        ),
+                    )
+                    for item in inspector.get_indexes(table)
+                )
+            ),
+        }
+        for table in tables
+    }
+
+
+def _trigger_signature(engine: Engine) -> tuple[tuple[str, str], ...]:
+    with engine.connect() as connection:
+        triggers = connection.execute(
+            text(
+                "SELECT name, sql FROM sqlite_master "
+                "WHERE type = 'trigger' ORDER BY name"
+            )
+        )
+        return tuple(
+            (
+                name,
+                _normalize_sql(sql).replace(
+                    "create trigger if not exists",
+                    "create trigger",
+                    1,
+                ),
+            )
+            for name, sql in triggers
+        )
+
+
+def _constraint_signature(item: dict[str, object]) -> tuple[object, ...]:
+    return (
+        item.get("name") or "",
+        tuple(item.get("constrained_columns") or ()),
+    )
+
+
+def _normalize_sql(value: object) -> str:
+    if value is None:
+        return ""
+    normalized = re.sub(r"\s+", " ", str(value).strip()).lower()
+    return re.sub(r"\s*([(),=<>])\s*", r"\1", normalized)

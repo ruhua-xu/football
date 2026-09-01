@@ -1,0 +1,857 @@
+{
+  "manifest": {
+    "archive_id": "historical-acceptance-provider_mappings-v1",
+    "archive_schema_version": "HISTORICAL_ARCHIVE_V1",
+    "created_at_utc": "2025-01-20T12:00:00Z",
+    "data_mode": "LIVE_STRICT",
+    "dataset_kind": "PROVIDER_MAPPINGS",
+    "license_note": "SYNTHETIC_ACCEPTANCE_DATA / NOT REAL HISTORICAL PERFORMANCE",
+    "payload_sha256": "8da43b07b0a44c654622d7ff6c4bfb27abc3916724d49595e897da9b384984a0",
+    "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+    "record_count": 60,
+    "source_description": "SYNTHETIC_ACCEPTANCE_DATA / NOT REAL HISTORICAL PERFORMANCE. Deterministic static acceptance fixture.",
+    "source_reference": "synthetic-acceptance://provider_mappings.json"
+  },
+  "records": [
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-03T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25010601",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250106-01",
+        "mapping_id": "ha-mapping-ha-20250106-01",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-03T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25010602",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250106-02",
+        "mapping_id": "ha-mapping-ha-20250106-02",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-03T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25010603",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250106-03",
+        "mapping_id": "ha-mapping-ha-20250106-03",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-03T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25010604",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250106-04",
+        "mapping_id": "ha-mapping-ha-20250106-04",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-03T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25010605",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250106-05",
+        "mapping_id": "ha-mapping-ha-20250106-05",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-03T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25010606",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250106-06",
+        "mapping_id": "ha-mapping-ha-20250106-06",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-04T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25010701",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250107-01",
+        "mapping_id": "ha-mapping-ha-20250107-01",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-04T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25010702",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250107-02",
+        "mapping_id": "ha-mapping-ha-20250107-02",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-04T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25010703",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250107-03",
+        "mapping_id": "ha-mapping-ha-20250107-03",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-04T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25010704",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250107-04",
+        "mapping_id": "ha-mapping-ha-20250107-04",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-04T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25010705",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250107-05",
+        "mapping_id": "ha-mapping-ha-20250107-05",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-04T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25010706",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250107-06",
+        "mapping_id": "ha-mapping-ha-20250107-06",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-05T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25010801",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250108-01",
+        "mapping_id": "ha-mapping-ha-20250108-01",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-05T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25010802",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250108-02",
+        "mapping_id": "ha-mapping-ha-20250108-02",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-05T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25010803",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250108-03",
+        "mapping_id": "ha-mapping-ha-20250108-03",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-05T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25010804",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250108-04",
+        "mapping_id": "ha-mapping-ha-20250108-04",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-05T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25010805",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250108-05",
+        "mapping_id": "ha-mapping-ha-20250108-05",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-05T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25010806",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250108-06",
+        "mapping_id": "ha-mapping-ha-20250108-06",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-06T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25010901",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250109-01",
+        "mapping_id": "ha-mapping-ha-20250109-01",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-06T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25010902",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250109-02",
+        "mapping_id": "ha-mapping-ha-20250109-02",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-06T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25010903",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250109-03",
+        "mapping_id": "ha-mapping-ha-20250109-03",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-06T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25010904",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250109-04",
+        "mapping_id": "ha-mapping-ha-20250109-04",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-06T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25010905",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250109-05",
+        "mapping_id": "ha-mapping-ha-20250109-05",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-06T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25010906",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250109-06",
+        "mapping_id": "ha-mapping-ha-20250109-06",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-07T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011001",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250110-01",
+        "mapping_id": "ha-mapping-ha-20250110-01",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-07T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011002",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250110-02",
+        "mapping_id": "ha-mapping-ha-20250110-02",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-07T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011003",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250110-03",
+        "mapping_id": "ha-mapping-ha-20250110-03",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-07T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011004",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250110-04",
+        "mapping_id": "ha-mapping-ha-20250110-04",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-07T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011005",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250110-05",
+        "mapping_id": "ha-mapping-ha-20250110-05",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-07T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011006",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250110-06",
+        "mapping_id": "ha-mapping-ha-20250110-06",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-08T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011101",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250111-01",
+        "mapping_id": "ha-mapping-ha-20250111-01",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-08T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011102",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250111-02",
+        "mapping_id": "ha-mapping-ha-20250111-02",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-08T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011103",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250111-03",
+        "mapping_id": "ha-mapping-ha-20250111-03",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-08T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011104",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250111-04",
+        "mapping_id": "ha-mapping-ha-20250111-04",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-08T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011105",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250111-05",
+        "mapping_id": "ha-mapping-ha-20250111-05",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-08T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011106",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250111-06",
+        "mapping_id": "ha-mapping-ha-20250111-06",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-09T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011201",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250112-01",
+        "mapping_id": "ha-mapping-ha-20250112-01",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-09T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011202",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250112-02",
+        "mapping_id": "ha-mapping-ha-20250112-02",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-09T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011203",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250112-03",
+        "mapping_id": "ha-mapping-ha-20250112-03",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-09T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011204",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250112-04",
+        "mapping_id": "ha-mapping-ha-20250112-04",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-09T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011205",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250112-05",
+        "mapping_id": "ha-mapping-ha-20250112-05",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-09T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011206",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250112-06",
+        "mapping_id": "ha-mapping-ha-20250112-06",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-10T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011301",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250113-01",
+        "mapping_id": "ha-mapping-ha-20250113-01",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-10T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011302",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250113-02",
+        "mapping_id": "ha-mapping-ha-20250113-02",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-10T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011303",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250113-03",
+        "mapping_id": "ha-mapping-ha-20250113-03",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-10T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011304",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250113-04",
+        "mapping_id": "ha-mapping-ha-20250113-04",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-10T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011305",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250113-05",
+        "mapping_id": "ha-mapping-ha-20250113-05",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-10T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011306",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250113-06",
+        "mapping_id": "ha-mapping-ha-20250113-06",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-11T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011401",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250114-01",
+        "mapping_id": "ha-mapping-ha-20250114-01",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-11T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011402",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250114-02",
+        "mapping_id": "ha-mapping-ha-20250114-02",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-11T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011403",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250114-03",
+        "mapping_id": "ha-mapping-ha-20250114-03",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-11T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011404",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250114-04",
+        "mapping_id": "ha-mapping-ha-20250114-04",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-11T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011405",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250114-05",
+        "mapping_id": "ha-mapping-ha-20250114-05",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-11T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011406",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250114-06",
+        "mapping_id": "ha-mapping-ha-20250114-06",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-12T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011501",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250115-01",
+        "mapping_id": "ha-mapping-ha-20250115-01",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-12T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011502",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250115-02",
+        "mapping_id": "ha-mapping-ha-20250115-02",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-12T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011503",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250115-03",
+        "mapping_id": "ha-mapping-ha-20250115-03",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-12T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011504",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250115-04",
+        "mapping_id": "ha-mapping-ha-20250115-04",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-12T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011505",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250115-05",
+        "mapping_id": "ha-mapping-ha-20250115-05",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-12T09:00:00Z",
+        "confidence": "1.000000000000",
+        "external_match_id": "A25011506",
+        "external_namespace": "synthetic-acceptance-sporttery",
+        "internal_match_id": "ha-20250115-06",
+        "mapping_id": "ha-mapping-ha-20250115-06",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "resolution_method": "SYNTHETIC_EXACT"
+      },
+      "retrospective": false
+    }
+  ]
+}

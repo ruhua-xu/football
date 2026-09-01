@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from sqlalchemy import Engine, create_engine, event
-from sqlalchemy.engine import make_url
+from sqlalchemy.engine import URL, make_url
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -14,33 +14,58 @@ from football_system.infrastructure.database.models import Base
 
 
 def create_database_engine(database_url: str, echo: bool = False) -> Engine:
-    url = make_url(database_url)
+    url = require_sqlite_database_url(database_url)
     kwargs: dict[str, object] = {"echo": echo}
-    if url.get_backend_name() == "sqlite":
-        kwargs["connect_args"] = {"check_same_thread": False}
-        if url.database in {None, "", ":memory:"}:
-            kwargs["poolclass"] = StaticPool
-        else:
-            Path(url.database).parent.mkdir(parents=True, exist_ok=True)
-    engine = create_engine(database_url, **kwargs)
+    kwargs["connect_args"] = {"check_same_thread": False}
+    if url.database in {None, "", ":memory:"}:
+        kwargs["poolclass"] = StaticPool
+    else:
+        Path(url.database).parent.mkdir(parents=True, exist_ok=True)
+    return configure_sqlite_engine(create_engine(database_url, **kwargs))
 
-    if url.get_backend_name() == "sqlite":
-        @event.listens_for(engine, "connect")
-        def _configure_sqlite_connection(dbapi_connection: object, connection_record: object) -> None:
-            del connection_record
-            cursor = dbapi_connection.cursor()  # type: ignore[attr-defined]
-            cursor.execute("PRAGMA foreign_keys=ON")
-            cursor.execute("PRAGMA recursive_triggers=ON")
-            cursor.close()
 
+def configure_sqlite_engine(engine: Engine) -> Engine:
+    _require_sqlite_backend(engine.dialect.name)
+    if not event.contains(engine.pool, "checkout", _configure_sqlite_connection):
+        event.listen(engine.pool, "checkout", _configure_sqlite_connection)
     return engine
 
 
 def create_schema(engine: Engine) -> None:
+    configure_sqlite_engine(engine)
     Base.metadata.create_all(engine)
     with engine.begin() as connection:
         install_sqlite_immutability_triggers(connection)
 
 
 def create_session_factory(engine: Engine) -> sessionmaker[Session]:
+    configure_sqlite_engine(engine)
     return sessionmaker(bind=engine, expire_on_commit=False)
+
+
+def require_sqlite_database_url(database_url: str) -> URL:
+    url = make_url(database_url)
+    _require_sqlite_backend(url.get_backend_name())
+    return url
+
+
+def _require_sqlite_backend(backend: str) -> None:
+    if backend != "sqlite":
+        raise ValueError(
+            f"Unsupported database backend '{backend}'; "
+            "football-system v0.4.0 supports SQLite only."
+        )
+
+
+def _configure_sqlite_connection(
+    dbapi_connection: object,
+    connection_record: object,
+    connection_proxy: object,
+) -> None:
+    del connection_record, connection_proxy
+    cursor = dbapi_connection.cursor()  # type: ignore[attr-defined]
+    try:
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA recursive_triggers=ON")
+    finally:
+        cursor.close()

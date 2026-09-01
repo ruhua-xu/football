@@ -32,3 +32,14 @@ max_ticket_stake_fen = 600000
 
 [mock]
 fixture_path = "data/fixtures/mvp_matches.json"
+
+[backtest]
+version = "BACKTEST_V1"
+data_mode = "LIVE_STRICT"
+log_loss_epsilon = "0.000001"
+
+[backtest.slates]
+policy = "DAILY_FIXED_CUTOFF_V1"
+
+[settlement]
+policy = "THREE_WAY_2X1_BACKTEST_V1"

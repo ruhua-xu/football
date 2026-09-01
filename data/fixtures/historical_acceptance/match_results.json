@@ -1,0 +1,1037 @@
+{
+  "manifest": {
+    "archive_id": "historical-acceptance-match_results-v1",
+    "archive_schema_version": "HISTORICAL_ARCHIVE_V1",
+    "created_at_utc": "2025-01-20T12:00:00Z",
+    "data_mode": "LIVE_STRICT",
+    "dataset_kind": "MATCH_RESULTS",
+    "license_note": "SYNTHETIC_ACCEPTANCE_DATA / NOT REAL HISTORICAL PERFORMANCE",
+    "payload_sha256": "bf02922605c7fe21ec13446549eb0b18d069bac5e3cdf0dca148e244d13a2b7e",
+    "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+    "record_count": 60,
+    "source_description": "SYNTHETIC_ACCEPTANCE_DATA / NOT REAL HISTORICAL PERFORMANCE. Deterministic static acceptance fixture.",
+    "source_reference": "synthetic-acceptance://match_results.json"
+  },
+  "records": [
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-06T15:05:00Z",
+        "away_goals": 1,
+        "home_goals": 2,
+        "ingested_at_utc": "2025-01-06T15:06:00Z",
+        "match_id": "ha-20250106-01",
+        "match_result_id": "ha-result-ha-20250106-01-v1",
+        "observed_at_utc": "2025-01-06T14:55:00Z",
+        "payload_hash": "8263e5c66ce7f77335153848f77cdc7f8eab33cbf668006ccace5b7ff3c1e933",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250106-01-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-06T16:50:00Z",
+        "away_goals": 1,
+        "home_goals": 1,
+        "ingested_at_utc": "2025-01-06T16:51:00Z",
+        "match_id": "ha-20250106-02",
+        "match_result_id": "ha-result-ha-20250106-02-v1",
+        "observed_at_utc": "2025-01-06T16:40:00Z",
+        "payload_hash": "4565c72d8c1226a0a586e1660a2b6b280eded06252c36ce0870001428c77c4c3",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250106-02-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-06T18:35:00Z",
+        "away_goals": 2,
+        "home_goals": 0,
+        "ingested_at_utc": "2025-01-06T18:36:00Z",
+        "match_id": "ha-20250106-03",
+        "match_result_id": "ha-result-ha-20250106-03-v1",
+        "observed_at_utc": "2025-01-06T18:25:00Z",
+        "payload_hash": "9c1419401a43bac33a6040d710567b9014ae1b4518a96fd06c2c9233c752ecb8",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250106-03-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-06T20:20:00Z",
+        "away_goals": 1,
+        "home_goals": 2,
+        "ingested_at_utc": "2025-01-06T20:21:00Z",
+        "match_id": "ha-20250106-04",
+        "match_result_id": "ha-result-ha-20250106-04-v1",
+        "observed_at_utc": "2025-01-06T20:10:00Z",
+        "payload_hash": "8263e5c66ce7f77335153848f77cdc7f8eab33cbf668006ccace5b7ff3c1e933",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250106-04-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-06T22:05:00Z",
+        "away_goals": 1,
+        "home_goals": 1,
+        "ingested_at_utc": "2025-01-06T22:06:00Z",
+        "match_id": "ha-20250106-05",
+        "match_result_id": "ha-result-ha-20250106-05-v1",
+        "observed_at_utc": "2025-01-06T21:55:00Z",
+        "payload_hash": "4565c72d8c1226a0a586e1660a2b6b280eded06252c36ce0870001428c77c4c3",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250106-05-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-06T23:50:00Z",
+        "away_goals": 2,
+        "home_goals": 0,
+        "ingested_at_utc": "2025-01-06T23:51:00Z",
+        "match_id": "ha-20250106-06",
+        "match_result_id": "ha-result-ha-20250106-06-v1",
+        "observed_at_utc": "2025-01-06T23:40:00Z",
+        "payload_hash": "9c1419401a43bac33a6040d710567b9014ae1b4518a96fd06c2c9233c752ecb8",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250106-06-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-07T15:05:00Z",
+        "away_goals": 1,
+        "home_goals": 2,
+        "ingested_at_utc": "2025-01-07T15:06:00Z",
+        "match_id": "ha-20250107-01",
+        "match_result_id": "ha-result-ha-20250107-01-v1",
+        "observed_at_utc": "2025-01-07T14:55:00Z",
+        "payload_hash": "8263e5c66ce7f77335153848f77cdc7f8eab33cbf668006ccace5b7ff3c1e933",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250107-01-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-07T16:50:00Z",
+        "away_goals": 1,
+        "home_goals": 1,
+        "ingested_at_utc": "2025-01-07T16:51:00Z",
+        "match_id": "ha-20250107-02",
+        "match_result_id": "ha-result-ha-20250107-02-v1",
+        "observed_at_utc": "2025-01-07T16:40:00Z",
+        "payload_hash": "4565c72d8c1226a0a586e1660a2b6b280eded06252c36ce0870001428c77c4c3",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250107-02-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-07T18:35:00Z",
+        "away_goals": 2,
+        "home_goals": 0,
+        "ingested_at_utc": "2025-01-07T18:36:00Z",
+        "match_id": "ha-20250107-03",
+        "match_result_id": "ha-result-ha-20250107-03-v1",
+        "observed_at_utc": "2025-01-07T18:25:00Z",
+        "payload_hash": "9c1419401a43bac33a6040d710567b9014ae1b4518a96fd06c2c9233c752ecb8",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250107-03-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-07T20:20:00Z",
+        "away_goals": 1,
+        "home_goals": 2,
+        "ingested_at_utc": "2025-01-07T20:21:00Z",
+        "match_id": "ha-20250107-04",
+        "match_result_id": "ha-result-ha-20250107-04-v1",
+        "observed_at_utc": "2025-01-07T20:10:00Z",
+        "payload_hash": "8263e5c66ce7f77335153848f77cdc7f8eab33cbf668006ccace5b7ff3c1e933",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250107-04-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-07T22:05:00Z",
+        "away_goals": 1,
+        "home_goals": 1,
+        "ingested_at_utc": "2025-01-07T22:06:00Z",
+        "match_id": "ha-20250107-05",
+        "match_result_id": "ha-result-ha-20250107-05-v1",
+        "observed_at_utc": "2025-01-07T21:55:00Z",
+        "payload_hash": "4565c72d8c1226a0a586e1660a2b6b280eded06252c36ce0870001428c77c4c3",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250107-05-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-07T23:50:00Z",
+        "away_goals": 2,
+        "home_goals": 0,
+        "ingested_at_utc": "2025-01-07T23:51:00Z",
+        "match_id": "ha-20250107-06",
+        "match_result_id": "ha-result-ha-20250107-06-v1",
+        "observed_at_utc": "2025-01-07T23:40:00Z",
+        "payload_hash": "9c1419401a43bac33a6040d710567b9014ae1b4518a96fd06c2c9233c752ecb8",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250107-06-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-08T15:05:00Z",
+        "away_goals": 1,
+        "home_goals": 2,
+        "ingested_at_utc": "2025-01-08T15:06:00Z",
+        "match_id": "ha-20250108-01",
+        "match_result_id": "ha-result-ha-20250108-01-v1",
+        "observed_at_utc": "2025-01-08T14:55:00Z",
+        "payload_hash": "8263e5c66ce7f77335153848f77cdc7f8eab33cbf668006ccace5b7ff3c1e933",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250108-01-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-08T16:50:00Z",
+        "away_goals": 1,
+        "home_goals": 2,
+        "ingested_at_utc": "2025-01-08T16:51:00Z",
+        "match_id": "ha-20250108-02",
+        "match_result_id": "ha-result-ha-20250108-02-v1",
+        "observed_at_utc": "2025-01-08T16:40:00Z",
+        "payload_hash": "8263e5c66ce7f77335153848f77cdc7f8eab33cbf668006ccace5b7ff3c1e933",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250108-02-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-08T18:35:00Z",
+        "away_goals": 2,
+        "home_goals": 0,
+        "ingested_at_utc": "2025-01-08T18:36:00Z",
+        "match_id": "ha-20250108-03",
+        "match_result_id": "ha-result-ha-20250108-03-v1",
+        "observed_at_utc": "2025-01-08T18:25:00Z",
+        "payload_hash": "9c1419401a43bac33a6040d710567b9014ae1b4518a96fd06c2c9233c752ecb8",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250108-03-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-08T20:20:00Z",
+        "away_goals": 1,
+        "home_goals": 2,
+        "ingested_at_utc": "2025-01-08T20:21:00Z",
+        "match_id": "ha-20250108-04",
+        "match_result_id": "ha-result-ha-20250108-04-v1",
+        "observed_at_utc": "2025-01-08T20:10:00Z",
+        "payload_hash": "8263e5c66ce7f77335153848f77cdc7f8eab33cbf668006ccace5b7ff3c1e933",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250108-04-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-08T22:05:00Z",
+        "away_goals": 1,
+        "home_goals": 1,
+        "ingested_at_utc": "2025-01-08T22:06:00Z",
+        "match_id": "ha-20250108-05",
+        "match_result_id": "ha-result-ha-20250108-05-v1",
+        "observed_at_utc": "2025-01-08T21:55:00Z",
+        "payload_hash": "4565c72d8c1226a0a586e1660a2b6b280eded06252c36ce0870001428c77c4c3",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250108-05-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-08T23:50:00Z",
+        "away_goals": 2,
+        "home_goals": 0,
+        "ingested_at_utc": "2025-01-08T23:51:00Z",
+        "match_id": "ha-20250108-06",
+        "match_result_id": "ha-result-ha-20250108-06-v1",
+        "observed_at_utc": "2025-01-08T23:40:00Z",
+        "payload_hash": "9c1419401a43bac33a6040d710567b9014ae1b4518a96fd06c2c9233c752ecb8",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250108-06-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-09T09:00:00Z",
+        "away_goals": 1,
+        "home_goals": 1,
+        "ingested_at_utc": "2025-01-09T09:01:00Z",
+        "match_id": "ha-20250108-02",
+        "match_result_id": "ha-result-ha-20250108-02-v2",
+        "observed_at_utc": "2025-01-08T16:40:00Z",
+        "payload_hash": "4565c72d8c1226a0a586e1660a2b6b280eded06252c36ce0870001428c77c4c3",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250108-02-v2",
+        "supersedes_match_result_id": "ha-result-ha-20250108-02-v1"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-09T15:05:00Z",
+        "away_goals": 1,
+        "home_goals": 2,
+        "ingested_at_utc": "2025-01-09T15:06:00Z",
+        "match_id": "ha-20250109-01",
+        "match_result_id": "ha-result-ha-20250109-01-v1",
+        "observed_at_utc": "2025-01-09T14:55:00Z",
+        "payload_hash": "8263e5c66ce7f77335153848f77cdc7f8eab33cbf668006ccace5b7ff3c1e933",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250109-01-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-09T16:50:00Z",
+        "away_goals": 1,
+        "home_goals": 1,
+        "ingested_at_utc": "2025-01-09T16:51:00Z",
+        "match_id": "ha-20250109-02",
+        "match_result_id": "ha-result-ha-20250109-02-v1",
+        "observed_at_utc": "2025-01-09T16:40:00Z",
+        "payload_hash": "4565c72d8c1226a0a586e1660a2b6b280eded06252c36ce0870001428c77c4c3",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250109-02-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-09T18:35:00Z",
+        "away_goals": 2,
+        "home_goals": 0,
+        "ingested_at_utc": "2025-01-09T18:36:00Z",
+        "match_id": "ha-20250109-03",
+        "match_result_id": "ha-result-ha-20250109-03-v1",
+        "observed_at_utc": "2025-01-09T18:25:00Z",
+        "payload_hash": "9c1419401a43bac33a6040d710567b9014ae1b4518a96fd06c2c9233c752ecb8",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250109-03-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-09T20:20:00Z",
+        "away_goals": 1,
+        "home_goals": 2,
+        "ingested_at_utc": "2025-01-09T20:21:00Z",
+        "match_id": "ha-20250109-04",
+        "match_result_id": "ha-result-ha-20250109-04-v1",
+        "observed_at_utc": "2025-01-09T20:10:00Z",
+        "payload_hash": "8263e5c66ce7f77335153848f77cdc7f8eab33cbf668006ccace5b7ff3c1e933",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250109-04-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-09T22:05:00Z",
+        "away_goals": 1,
+        "home_goals": 1,
+        "ingested_at_utc": "2025-01-09T22:06:00Z",
+        "match_id": "ha-20250109-05",
+        "match_result_id": "ha-result-ha-20250109-05-v1",
+        "observed_at_utc": "2025-01-09T21:55:00Z",
+        "payload_hash": "4565c72d8c1226a0a586e1660a2b6b280eded06252c36ce0870001428c77c4c3",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250109-05-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-09T23:50:00Z",
+        "away_goals": 2,
+        "home_goals": 0,
+        "ingested_at_utc": "2025-01-09T23:51:00Z",
+        "match_id": "ha-20250109-06",
+        "match_result_id": "ha-result-ha-20250109-06-v1",
+        "observed_at_utc": "2025-01-09T23:40:00Z",
+        "payload_hash": "9c1419401a43bac33a6040d710567b9014ae1b4518a96fd06c2c9233c752ecb8",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250109-06-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-10T15:05:00Z",
+        "away_goals": 1,
+        "home_goals": 2,
+        "ingested_at_utc": "2025-01-10T15:06:00Z",
+        "match_id": "ha-20250110-01",
+        "match_result_id": "ha-result-ha-20250110-01-v1",
+        "observed_at_utc": "2025-01-10T14:55:00Z",
+        "payload_hash": "8263e5c66ce7f77335153848f77cdc7f8eab33cbf668006ccace5b7ff3c1e933",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250110-01-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-10T16:50:00Z",
+        "away_goals": 1,
+        "home_goals": 1,
+        "ingested_at_utc": "2025-01-10T16:51:00Z",
+        "match_id": "ha-20250110-02",
+        "match_result_id": "ha-result-ha-20250110-02-v1",
+        "observed_at_utc": "2025-01-10T16:40:00Z",
+        "payload_hash": "4565c72d8c1226a0a586e1660a2b6b280eded06252c36ce0870001428c77c4c3",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250110-02-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-10T18:35:00Z",
+        "away_goals": 2,
+        "home_goals": 0,
+        "ingested_at_utc": "2025-01-10T18:36:00Z",
+        "match_id": "ha-20250110-03",
+        "match_result_id": "ha-result-ha-20250110-03-v1",
+        "observed_at_utc": "2025-01-10T18:25:00Z",
+        "payload_hash": "9c1419401a43bac33a6040d710567b9014ae1b4518a96fd06c2c9233c752ecb8",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250110-03-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-10T20:20:00Z",
+        "away_goals": 1,
+        "home_goals": 2,
+        "ingested_at_utc": "2025-01-10T20:21:00Z",
+        "match_id": "ha-20250110-04",
+        "match_result_id": "ha-result-ha-20250110-04-v1",
+        "observed_at_utc": "2025-01-10T20:10:00Z",
+        "payload_hash": "8263e5c66ce7f77335153848f77cdc7f8eab33cbf668006ccace5b7ff3c1e933",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250110-04-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-10T22:05:00Z",
+        "away_goals": 1,
+        "home_goals": 1,
+        "ingested_at_utc": "2025-01-10T22:06:00Z",
+        "match_id": "ha-20250110-05",
+        "match_result_id": "ha-result-ha-20250110-05-v1",
+        "observed_at_utc": "2025-01-10T21:55:00Z",
+        "payload_hash": "4565c72d8c1226a0a586e1660a2b6b280eded06252c36ce0870001428c77c4c3",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250110-05-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-10T23:50:00Z",
+        "away_goals": 2,
+        "home_goals": 0,
+        "ingested_at_utc": "2025-01-10T23:51:00Z",
+        "match_id": "ha-20250110-06",
+        "match_result_id": "ha-result-ha-20250110-06-v1",
+        "observed_at_utc": "2025-01-10T23:40:00Z",
+        "payload_hash": "9c1419401a43bac33a6040d710567b9014ae1b4518a96fd06c2c9233c752ecb8",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250110-06-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-11T15:05:00Z",
+        "away_goals": 1,
+        "home_goals": 2,
+        "ingested_at_utc": "2025-01-11T15:06:00Z",
+        "match_id": "ha-20250111-01",
+        "match_result_id": "ha-result-ha-20250111-01-v1",
+        "observed_at_utc": "2025-01-11T14:55:00Z",
+        "payload_hash": "8263e5c66ce7f77335153848f77cdc7f8eab33cbf668006ccace5b7ff3c1e933",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250111-01-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-11T16:50:00Z",
+        "away_goals": 1,
+        "home_goals": 1,
+        "ingested_at_utc": "2025-01-11T16:51:00Z",
+        "match_id": "ha-20250111-02",
+        "match_result_id": "ha-result-ha-20250111-02-v1",
+        "observed_at_utc": "2025-01-11T16:40:00Z",
+        "payload_hash": "4565c72d8c1226a0a586e1660a2b6b280eded06252c36ce0870001428c77c4c3",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250111-02-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-11T18:35:00Z",
+        "away_goals": 2,
+        "home_goals": 0,
+        "ingested_at_utc": "2025-01-11T18:36:00Z",
+        "match_id": "ha-20250111-03",
+        "match_result_id": "ha-result-ha-20250111-03-v1",
+        "observed_at_utc": "2025-01-11T18:25:00Z",
+        "payload_hash": "9c1419401a43bac33a6040d710567b9014ae1b4518a96fd06c2c9233c752ecb8",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250111-03-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-11T20:20:00Z",
+        "away_goals": 1,
+        "home_goals": 2,
+        "ingested_at_utc": "2025-01-11T20:21:00Z",
+        "match_id": "ha-20250111-04",
+        "match_result_id": "ha-result-ha-20250111-04-v1",
+        "observed_at_utc": "2025-01-11T20:10:00Z",
+        "payload_hash": "8263e5c66ce7f77335153848f77cdc7f8eab33cbf668006ccace5b7ff3c1e933",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250111-04-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-11T22:05:00Z",
+        "away_goals": 1,
+        "home_goals": 1,
+        "ingested_at_utc": "2025-01-11T22:06:00Z",
+        "match_id": "ha-20250111-05",
+        "match_result_id": "ha-result-ha-20250111-05-v1",
+        "observed_at_utc": "2025-01-11T21:55:00Z",
+        "payload_hash": "4565c72d8c1226a0a586e1660a2b6b280eded06252c36ce0870001428c77c4c3",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250111-05-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-11T23:50:00Z",
+        "away_goals": 2,
+        "home_goals": 0,
+        "ingested_at_utc": "2025-01-11T23:51:00Z",
+        "match_id": "ha-20250111-06",
+        "match_result_id": "ha-result-ha-20250111-06-v1",
+        "observed_at_utc": "2025-01-11T23:40:00Z",
+        "payload_hash": "9c1419401a43bac33a6040d710567b9014ae1b4518a96fd06c2c9233c752ecb8",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250111-06-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-12T15:05:00Z",
+        "away_goals": 1,
+        "home_goals": 2,
+        "ingested_at_utc": "2025-01-12T15:06:00Z",
+        "match_id": "ha-20250112-01",
+        "match_result_id": "ha-result-ha-20250112-01-v1",
+        "observed_at_utc": "2025-01-12T14:55:00Z",
+        "payload_hash": "8263e5c66ce7f77335153848f77cdc7f8eab33cbf668006ccace5b7ff3c1e933",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250112-01-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-12T16:50:00Z",
+        "away_goals": 1,
+        "home_goals": 1,
+        "ingested_at_utc": "2025-01-12T16:51:00Z",
+        "match_id": "ha-20250112-02",
+        "match_result_id": "ha-result-ha-20250112-02-v1",
+        "observed_at_utc": "2025-01-12T16:40:00Z",
+        "payload_hash": "4565c72d8c1226a0a586e1660a2b6b280eded06252c36ce0870001428c77c4c3",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250112-02-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-12T18:35:00Z",
+        "away_goals": 2,
+        "home_goals": 0,
+        "ingested_at_utc": "2025-01-12T18:36:00Z",
+        "match_id": "ha-20250112-03",
+        "match_result_id": "ha-result-ha-20250112-03-v1",
+        "observed_at_utc": "2025-01-12T18:25:00Z",
+        "payload_hash": "9c1419401a43bac33a6040d710567b9014ae1b4518a96fd06c2c9233c752ecb8",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250112-03-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-12T20:20:00Z",
+        "away_goals": 1,
+        "home_goals": 2,
+        "ingested_at_utc": "2025-01-12T20:21:00Z",
+        "match_id": "ha-20250112-04",
+        "match_result_id": "ha-result-ha-20250112-04-v1",
+        "observed_at_utc": "2025-01-12T20:10:00Z",
+        "payload_hash": "8263e5c66ce7f77335153848f77cdc7f8eab33cbf668006ccace5b7ff3c1e933",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250112-04-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-12T22:05:00Z",
+        "away_goals": 1,
+        "home_goals": 1,
+        "ingested_at_utc": "2025-01-12T22:06:00Z",
+        "match_id": "ha-20250112-05",
+        "match_result_id": "ha-result-ha-20250112-05-v1",
+        "observed_at_utc": "2025-01-12T21:55:00Z",
+        "payload_hash": "4565c72d8c1226a0a586e1660a2b6b280eded06252c36ce0870001428c77c4c3",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250112-05-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-12T23:50:00Z",
+        "away_goals": 2,
+        "home_goals": 0,
+        "ingested_at_utc": "2025-01-12T23:51:00Z",
+        "match_id": "ha-20250112-06",
+        "match_result_id": "ha-result-ha-20250112-06-v1",
+        "observed_at_utc": "2025-01-12T23:40:00Z",
+        "payload_hash": "9c1419401a43bac33a6040d710567b9014ae1b4518a96fd06c2c9233c752ecb8",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250112-06-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-13T15:05:00Z",
+        "away_goals": 1,
+        "home_goals": 2,
+        "ingested_at_utc": "2025-01-13T15:06:00Z",
+        "match_id": "ha-20250113-01",
+        "match_result_id": "ha-result-ha-20250113-01-v1",
+        "observed_at_utc": "2025-01-13T14:55:00Z",
+        "payload_hash": "8263e5c66ce7f77335153848f77cdc7f8eab33cbf668006ccace5b7ff3c1e933",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250113-01-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-13T16:50:00Z",
+        "away_goals": 1,
+        "home_goals": 1,
+        "ingested_at_utc": "2025-01-13T16:51:00Z",
+        "match_id": "ha-20250113-02",
+        "match_result_id": "ha-result-ha-20250113-02-v1",
+        "observed_at_utc": "2025-01-13T16:40:00Z",
+        "payload_hash": "4565c72d8c1226a0a586e1660a2b6b280eded06252c36ce0870001428c77c4c3",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250113-02-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-13T18:35:00Z",
+        "away_goals": 2,
+        "home_goals": 0,
+        "ingested_at_utc": "2025-01-13T18:36:00Z",
+        "match_id": "ha-20250113-03",
+        "match_result_id": "ha-result-ha-20250113-03-v1",
+        "observed_at_utc": "2025-01-13T18:25:00Z",
+        "payload_hash": "9c1419401a43bac33a6040d710567b9014ae1b4518a96fd06c2c9233c752ecb8",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250113-03-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-13T20:20:00Z",
+        "away_goals": 1,
+        "home_goals": 2,
+        "ingested_at_utc": "2025-01-13T20:21:00Z",
+        "match_id": "ha-20250113-04",
+        "match_result_id": "ha-result-ha-20250113-04-v1",
+        "observed_at_utc": "2025-01-13T20:10:00Z",
+        "payload_hash": "8263e5c66ce7f77335153848f77cdc7f8eab33cbf668006ccace5b7ff3c1e933",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250113-04-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-13T22:05:00Z",
+        "away_goals": 1,
+        "home_goals": 1,
+        "ingested_at_utc": "2025-01-13T22:06:00Z",
+        "match_id": "ha-20250113-05",
+        "match_result_id": "ha-result-ha-20250113-05-v1",
+        "observed_at_utc": "2025-01-13T21:55:00Z",
+        "payload_hash": "4565c72d8c1226a0a586e1660a2b6b280eded06252c36ce0870001428c77c4c3",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250113-05-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-13T23:50:00Z",
+        "away_goals": 2,
+        "home_goals": 0,
+        "ingested_at_utc": "2025-01-13T23:51:00Z",
+        "match_id": "ha-20250113-06",
+        "match_result_id": "ha-result-ha-20250113-06-v1",
+        "observed_at_utc": "2025-01-13T23:40:00Z",
+        "payload_hash": "9c1419401a43bac33a6040d710567b9014ae1b4518a96fd06c2c9233c752ecb8",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250113-06-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-14T15:05:00Z",
+        "away_goals": 1,
+        "home_goals": 2,
+        "ingested_at_utc": "2025-01-14T15:06:00Z",
+        "match_id": "ha-20250114-01",
+        "match_result_id": "ha-result-ha-20250114-01-v1",
+        "observed_at_utc": "2025-01-14T14:55:00Z",
+        "payload_hash": "8263e5c66ce7f77335153848f77cdc7f8eab33cbf668006ccace5b7ff3c1e933",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250114-01-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-14T16:50:00Z",
+        "away_goals": 1,
+        "home_goals": 1,
+        "ingested_at_utc": "2025-01-14T16:51:00Z",
+        "match_id": "ha-20250114-02",
+        "match_result_id": "ha-result-ha-20250114-02-v1",
+        "observed_at_utc": "2025-01-14T16:40:00Z",
+        "payload_hash": "4565c72d8c1226a0a586e1660a2b6b280eded06252c36ce0870001428c77c4c3",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250114-02-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-14T18:35:00Z",
+        "away_goals": 2,
+        "home_goals": 0,
+        "ingested_at_utc": "2025-01-14T18:36:00Z",
+        "match_id": "ha-20250114-03",
+        "match_result_id": "ha-result-ha-20250114-03-v1",
+        "observed_at_utc": "2025-01-14T18:25:00Z",
+        "payload_hash": "9c1419401a43bac33a6040d710567b9014ae1b4518a96fd06c2c9233c752ecb8",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250114-03-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-14T20:20:00Z",
+        "away_goals": 1,
+        "home_goals": 2,
+        "ingested_at_utc": "2025-01-14T20:21:00Z",
+        "match_id": "ha-20250114-04",
+        "match_result_id": "ha-result-ha-20250114-04-v1",
+        "observed_at_utc": "2025-01-14T20:10:00Z",
+        "payload_hash": "8263e5c66ce7f77335153848f77cdc7f8eab33cbf668006ccace5b7ff3c1e933",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250114-04-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-14T22:05:00Z",
+        "away_goals": 1,
+        "home_goals": 1,
+        "ingested_at_utc": "2025-01-14T22:06:00Z",
+        "match_id": "ha-20250114-05",
+        "match_result_id": "ha-result-ha-20250114-05-v1",
+        "observed_at_utc": "2025-01-14T21:55:00Z",
+        "payload_hash": "4565c72d8c1226a0a586e1660a2b6b280eded06252c36ce0870001428c77c4c3",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250114-05-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-14T23:50:00Z",
+        "away_goals": 2,
+        "home_goals": 0,
+        "ingested_at_utc": "2025-01-14T23:51:00Z",
+        "match_id": "ha-20250114-06",
+        "match_result_id": "ha-result-ha-20250114-06-v1",
+        "observed_at_utc": "2025-01-14T23:40:00Z",
+        "payload_hash": "9c1419401a43bac33a6040d710567b9014ae1b4518a96fd06c2c9233c752ecb8",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250114-06-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-15T15:05:00Z",
+        "away_goals": 1,
+        "home_goals": 2,
+        "ingested_at_utc": "2025-01-15T15:06:00Z",
+        "match_id": "ha-20250115-01",
+        "match_result_id": "ha-result-ha-20250115-01-v1",
+        "observed_at_utc": "2025-01-15T14:55:00Z",
+        "payload_hash": "8263e5c66ce7f77335153848f77cdc7f8eab33cbf668006ccace5b7ff3c1e933",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250115-01-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-15T16:50:00Z",
+        "away_goals": 1,
+        "home_goals": 1,
+        "ingested_at_utc": "2025-01-15T16:51:00Z",
+        "match_id": "ha-20250115-02",
+        "match_result_id": "ha-result-ha-20250115-02-v1",
+        "observed_at_utc": "2025-01-15T16:40:00Z",
+        "payload_hash": "4565c72d8c1226a0a586e1660a2b6b280eded06252c36ce0870001428c77c4c3",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250115-02-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-15T18:35:00Z",
+        "away_goals": 2,
+        "home_goals": 0,
+        "ingested_at_utc": "2025-01-15T18:36:00Z",
+        "match_id": "ha-20250115-03",
+        "match_result_id": "ha-result-ha-20250115-03-v1",
+        "observed_at_utc": "2025-01-15T18:25:00Z",
+        "payload_hash": "9c1419401a43bac33a6040d710567b9014ae1b4518a96fd06c2c9233c752ecb8",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250115-03-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-15T20:20:00Z",
+        "away_goals": 1,
+        "home_goals": 2,
+        "ingested_at_utc": "2025-01-15T20:21:00Z",
+        "match_id": "ha-20250115-04",
+        "match_result_id": "ha-result-ha-20250115-04-v1",
+        "observed_at_utc": "2025-01-15T20:10:00Z",
+        "payload_hash": "8263e5c66ce7f77335153848f77cdc7f8eab33cbf668006ccace5b7ff3c1e933",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250115-04-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-15T22:05:00Z",
+        "away_goals": 1,
+        "home_goals": 1,
+        "ingested_at_utc": "2025-01-15T22:06:00Z",
+        "match_id": "ha-20250115-05",
+        "match_result_id": "ha-result-ha-20250115-05-v1",
+        "observed_at_utc": "2025-01-15T21:55:00Z",
+        "payload_hash": "4565c72d8c1226a0a586e1660a2b6b280eded06252c36ce0870001428c77c4c3",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "source_result_key": "source-ha-result-ha-20250115-05-v1",
+        "supersedes_match_result_id": null
+      },
+      "retrospective": false
+    }
+  ]
+}

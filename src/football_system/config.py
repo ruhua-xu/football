@@ -3,9 +3,11 @@ from __future__ import annotations
 import tomllib
 from decimal import Decimal
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from football_system.domain.archive import HistoricalDataMode
 from football_system.domain.betting import MAX_EXACT_STRESS_TICKETS
 
 
@@ -70,6 +72,26 @@ class MockSettings(SettingsModel):
     fixture_path: Path = Path("data/fixtures/mvp_matches.json")
 
 
+class BacktestSlatesSettings(SettingsModel):
+    policy: Literal["DAILY_FIXED_CUTOFF_V1"] = "DAILY_FIXED_CUTOFF_V1"
+
+
+class BacktestSettings(SettingsModel):
+    version: Literal["BACKTEST_V1"] = "BACKTEST_V1"
+    data_mode: HistoricalDataMode = HistoricalDataMode.LIVE_STRICT
+    log_loss_epsilon: Decimal = Field(
+        default=Decimal("0.000001"),
+        gt=0,
+        lt=Decimal("0.5"),
+        allow_inf_nan=False,
+    )
+    slates: BacktestSlatesSettings = BacktestSlatesSettings()
+
+
+class SettlementSettings(SettingsModel):
+    policy: Literal["THREE_WAY_2X1_BACKTEST_V1"] = "THREE_WAY_2X1_BACKTEST_V1"
+
+
 class AppSettings(SettingsModel):
     database: DatabaseSettings = DatabaseSettings()
     analysis: AnalysisSettings = AnalysisSettings()
@@ -77,6 +99,8 @@ class AppSettings(SettingsModel):
     review_fusion: ReviewFusionSettings = ReviewFusionSettings()
     sporttery: SportterySettings = SportterySettings()
     mock: MockSettings = MockSettings()
+    backtest: BacktestSettings = BacktestSettings()
+    settlement: SettlementSettings = SettlementSettings()
 
     @model_validator(mode="after")
     def validate_strategy_thresholds(self) -> AppSettings:

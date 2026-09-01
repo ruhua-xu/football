@@ -1,0 +1,2091 @@
+{
+  "manifest": {
+    "archive_id": "historical-acceptance-sporttery_bonus-v1",
+    "archive_schema_version": "HISTORICAL_ARCHIVE_V1",
+    "created_at_utc": "2025-01-20T12:00:00Z",
+    "data_mode": "LIVE_STRICT",
+    "dataset_kind": "SPORTTERY_BONUS",
+    "license_note": "SYNTHETIC_ACCEPTANCE_DATA / NOT REAL HISTORICAL PERFORMANCE",
+    "payload_sha256": "204cac6b639c66949bd0add68f59f2de306aab5a13cc64100f133c88a3865dd2",
+    "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+    "record_count": 61,
+    "source_description": "SYNTHETIC_ACCEPTANCE_DATA / NOT REAL HISTORICAL PERFORMANCE. Deterministic static acceptance fixture.",
+    "source_reference": "synthetic-acceptance://sporttery_bonus.json"
+  },
+  "records": [
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-06T08:14:00Z",
+        "captured_at_utc": "2025-01-06T08:10:00Z",
+        "ingested_at_utc": "2025-01-06T08:15:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250106-01",
+        "payload_hash": "a58711911a171d8bee4943e1c93d2d2ae6c12e2200464f6413f9deeec00605aa",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "1.90",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.30",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "4.30",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250106-01-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250106-01-v1",
+        "sporttery_match_no": "A25010601"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-06T08:16:00Z",
+        "captured_at_utc": "2025-01-06T08:12:00Z",
+        "ingested_at_utc": "2025-01-06T08:17:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250106-02",
+        "payload_hash": "04f8b60cccf8d766b3e544f20bbddd57960da38405deab4941d635c1d2cf8870",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.55",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.00",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.20",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250106-02-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250106-02-v1",
+        "sporttery_match_no": "A25010602"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-06T08:18:00Z",
+        "captured_at_utc": "2025-01-06T08:14:00Z",
+        "ingested_at_utc": "2025-01-06T08:19:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250106-03",
+        "payload_hash": "bcde590316ffa58e987a7e9bc80e154c74f16b9ff743d1061c5c732b695c55b4",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "3.10",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.20",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "2.20",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250106-03-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250106-03-v1",
+        "sporttery_match_no": "A25010603"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-06T08:20:00Z",
+        "captured_at_utc": "2025-01-06T08:16:00Z",
+        "ingested_at_utc": "2025-01-06T08:21:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250106-04",
+        "payload_hash": "fd8b33ef4509a42c3395a195c23ff66e3c2a01a3f11f6298f60aa3a791142cd8",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.05",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.15",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.55",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250106-04-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250106-04-v1",
+        "sporttery_match_no": "A25010604"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-06T08:22:00Z",
+        "captured_at_utc": "2025-01-06T08:18:00Z",
+        "ingested_at_utc": "2025-01-06T08:23:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250106-05",
+        "payload_hash": "3fb4d9208b6819213b412bb44c97f762f862cd1cc7df97731de00b6787f2b7f7",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.70",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "2.90",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.00",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250106-05-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250106-05-v1",
+        "sporttery_match_no": "A25010605"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-06T08:24:00Z",
+        "captured_at_utc": "2025-01-06T08:20:00Z",
+        "ingested_at_utc": "2025-01-06T08:25:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250106-06",
+        "payload_hash": "584363679dfdc2a476be106448b601efbf629e98f990c67d7191966b849fee14",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "3.25",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.05",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "2.20",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250106-06-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250106-06-v1",
+        "sporttery_match_no": "A25010606"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-06T09:08:00Z",
+        "captured_at_utc": "2025-01-06T09:07:00Z",
+        "ingested_at_utc": "2025-01-06T09:09:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250106-02",
+        "payload_hash": "c071d4a54853ebfdaa9468df05b1b05e49981993cdcac96a98096111df17bdad",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.60",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.05",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.15",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250106-02-v2",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250106-02-v2",
+        "sporttery_match_no": "A25010602"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-07T08:14:00Z",
+        "captured_at_utc": "2025-01-07T08:10:00Z",
+        "ingested_at_utc": "2025-01-07T08:15:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250107-01",
+        "payload_hash": "a752b7e9a87a696420df5663121b29b0a2f624c8e4082a5da9c4ba5c2705e792",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "1.34",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "5.50",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "8.80",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250107-01-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250107-01-v1",
+        "sporttery_match_no": "A25010701"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-07T08:16:00Z",
+        "captured_at_utc": "2025-01-07T08:12:00Z",
+        "ingested_at_utc": "2025-01-07T08:17:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250107-02",
+        "payload_hash": "04f8b60cccf8d766b3e544f20bbddd57960da38405deab4941d635c1d2cf8870",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.55",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.00",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.20",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250107-02-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250107-02-v1",
+        "sporttery_match_no": "A25010702"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-07T08:18:00Z",
+        "captured_at_utc": "2025-01-07T08:14:00Z",
+        "ingested_at_utc": "2025-01-07T08:19:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250107-03",
+        "payload_hash": "bcde590316ffa58e987a7e9bc80e154c74f16b9ff743d1061c5c732b695c55b4",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "3.10",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.20",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "2.20",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250107-03-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250107-03-v1",
+        "sporttery_match_no": "A25010703"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-07T08:20:00Z",
+        "captured_at_utc": "2025-01-07T08:16:00Z",
+        "ingested_at_utc": "2025-01-07T08:21:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250107-04",
+        "payload_hash": "fd8b33ef4509a42c3395a195c23ff66e3c2a01a3f11f6298f60aa3a791142cd8",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.05",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.15",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.55",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250107-04-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250107-04-v1",
+        "sporttery_match_no": "A25010704"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-07T08:22:00Z",
+        "captured_at_utc": "2025-01-07T08:18:00Z",
+        "ingested_at_utc": "2025-01-07T08:23:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250107-05",
+        "payload_hash": "3fb4d9208b6819213b412bb44c97f762f862cd1cc7df97731de00b6787f2b7f7",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.70",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "2.90",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.00",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250107-05-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250107-05-v1",
+        "sporttery_match_no": "A25010705"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-07T08:24:00Z",
+        "captured_at_utc": "2025-01-07T08:20:00Z",
+        "ingested_at_utc": "2025-01-07T08:25:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250107-06",
+        "payload_hash": "584363679dfdc2a476be106448b601efbf629e98f990c67d7191966b849fee14",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "3.25",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.05",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "2.20",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250107-06-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250107-06-v1",
+        "sporttery_match_no": "A25010706"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-08T08:14:00Z",
+        "captured_at_utc": "2025-01-08T08:10:00Z",
+        "ingested_at_utc": "2025-01-08T08:15:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250108-01",
+        "payload_hash": "a58711911a171d8bee4943e1c93d2d2ae6c12e2200464f6413f9deeec00605aa",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "1.90",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.30",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "4.30",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250108-01-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250108-01-v1",
+        "sporttery_match_no": "A25010801"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-08T08:16:00Z",
+        "captured_at_utc": "2025-01-08T08:12:00Z",
+        "ingested_at_utc": "2025-01-08T08:17:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250108-02",
+        "payload_hash": "04f8b60cccf8d766b3e544f20bbddd57960da38405deab4941d635c1d2cf8870",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.55",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.00",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.20",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250108-02-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250108-02-v1",
+        "sporttery_match_no": "A25010802"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-08T08:18:00Z",
+        "captured_at_utc": "2025-01-08T08:14:00Z",
+        "ingested_at_utc": "2025-01-08T08:19:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250108-03",
+        "payload_hash": "bcde590316ffa58e987a7e9bc80e154c74f16b9ff743d1061c5c732b695c55b4",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "3.10",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.20",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "2.20",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250108-03-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250108-03-v1",
+        "sporttery_match_no": "A25010803"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-08T08:20:00Z",
+        "captured_at_utc": "2025-01-08T08:16:00Z",
+        "ingested_at_utc": "2025-01-08T08:21:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250108-04",
+        "payload_hash": "fd8b33ef4509a42c3395a195c23ff66e3c2a01a3f11f6298f60aa3a791142cd8",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.05",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.15",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.55",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250108-04-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250108-04-v1",
+        "sporttery_match_no": "A25010804"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-08T08:22:00Z",
+        "captured_at_utc": "2025-01-08T08:18:00Z",
+        "ingested_at_utc": "2025-01-08T08:23:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250108-05",
+        "payload_hash": "3fb4d9208b6819213b412bb44c97f762f862cd1cc7df97731de00b6787f2b7f7",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.70",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "2.90",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.00",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250108-05-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250108-05-v1",
+        "sporttery_match_no": "A25010805"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-08T08:24:00Z",
+        "captured_at_utc": "2025-01-08T08:20:00Z",
+        "ingested_at_utc": "2025-01-08T08:25:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250108-06",
+        "payload_hash": "584363679dfdc2a476be106448b601efbf629e98f990c67d7191966b849fee14",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "3.25",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.05",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "2.20",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250108-06-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250108-06-v1",
+        "sporttery_match_no": "A25010806"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-09T08:14:00Z",
+        "captured_at_utc": "2025-01-09T08:10:00Z",
+        "ingested_at_utc": "2025-01-09T08:15:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250109-01",
+        "payload_hash": "a58711911a171d8bee4943e1c93d2d2ae6c12e2200464f6413f9deeec00605aa",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "1.90",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.30",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "4.30",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250109-01-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250109-01-v1",
+        "sporttery_match_no": "A25010901"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-09T08:16:00Z",
+        "captured_at_utc": "2025-01-09T08:12:00Z",
+        "ingested_at_utc": "2025-01-09T08:17:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250109-02",
+        "payload_hash": "04f8b60cccf8d766b3e544f20bbddd57960da38405deab4941d635c1d2cf8870",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.55",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.00",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.20",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250109-02-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250109-02-v1",
+        "sporttery_match_no": "A25010902"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-09T08:18:00Z",
+        "captured_at_utc": "2025-01-09T08:14:00Z",
+        "ingested_at_utc": "2025-01-09T08:19:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250109-03",
+        "payload_hash": "bcde590316ffa58e987a7e9bc80e154c74f16b9ff743d1061c5c732b695c55b4",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "3.10",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.20",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "2.20",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250109-03-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250109-03-v1",
+        "sporttery_match_no": "A25010903"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-09T08:20:00Z",
+        "captured_at_utc": "2025-01-09T08:16:00Z",
+        "ingested_at_utc": "2025-01-09T08:21:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250109-04",
+        "payload_hash": "fd8b33ef4509a42c3395a195c23ff66e3c2a01a3f11f6298f60aa3a791142cd8",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.05",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.15",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.55",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250109-04-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250109-04-v1",
+        "sporttery_match_no": "A25010904"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-09T08:22:00Z",
+        "captured_at_utc": "2025-01-09T08:18:00Z",
+        "ingested_at_utc": "2025-01-09T08:23:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250109-05",
+        "payload_hash": "3fb4d9208b6819213b412bb44c97f762f862cd1cc7df97731de00b6787f2b7f7",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.70",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "2.90",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.00",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250109-05-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250109-05-v1",
+        "sporttery_match_no": "A25010905"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-09T08:24:00Z",
+        "captured_at_utc": "2025-01-09T08:20:00Z",
+        "ingested_at_utc": "2025-01-09T08:25:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250109-06",
+        "payload_hash": "63738b6245497cc248a1ae8b2252aaa37e11a3d70bdb43cfcec359a3157e56b7",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "6.20",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "4.20",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "1.50",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250109-06-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250109-06-v1",
+        "sporttery_match_no": "A25010906"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-10T08:14:00Z",
+        "captured_at_utc": "2025-01-10T08:10:00Z",
+        "ingested_at_utc": "2025-01-10T08:15:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250110-01",
+        "payload_hash": "a58711911a171d8bee4943e1c93d2d2ae6c12e2200464f6413f9deeec00605aa",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "1.90",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.30",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "4.30",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250110-01-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250110-01-v1",
+        "sporttery_match_no": "A25011001"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-10T08:16:00Z",
+        "captured_at_utc": "2025-01-10T08:12:00Z",
+        "ingested_at_utc": "2025-01-10T08:17:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250110-02",
+        "payload_hash": "04f8b60cccf8d766b3e544f20bbddd57960da38405deab4941d635c1d2cf8870",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.55",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.00",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.20",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250110-02-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250110-02-v1",
+        "sporttery_match_no": "A25011002"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-10T08:18:00Z",
+        "captured_at_utc": "2025-01-10T08:14:00Z",
+        "ingested_at_utc": "2025-01-10T08:19:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250110-03",
+        "payload_hash": "bcde590316ffa58e987a7e9bc80e154c74f16b9ff743d1061c5c732b695c55b4",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "3.10",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.20",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "2.20",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250110-03-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250110-03-v1",
+        "sporttery_match_no": "A25011003"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-10T08:20:00Z",
+        "captured_at_utc": "2025-01-10T08:16:00Z",
+        "ingested_at_utc": "2025-01-10T08:21:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250110-04",
+        "payload_hash": "fd8b33ef4509a42c3395a195c23ff66e3c2a01a3f11f6298f60aa3a791142cd8",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.05",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.15",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.55",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250110-04-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250110-04-v1",
+        "sporttery_match_no": "A25011004"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-10T08:22:00Z",
+        "captured_at_utc": "2025-01-10T08:18:00Z",
+        "ingested_at_utc": "2025-01-10T08:23:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250110-05",
+        "payload_hash": "3fb4d9208b6819213b412bb44c97f762f862cd1cc7df97731de00b6787f2b7f7",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.70",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "2.90",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.00",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250110-05-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250110-05-v1",
+        "sporttery_match_no": "A25011005"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-10T08:24:00Z",
+        "captured_at_utc": "2025-01-10T08:20:00Z",
+        "ingested_at_utc": "2025-01-10T08:25:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250110-06",
+        "payload_hash": "584363679dfdc2a476be106448b601efbf629e98f990c67d7191966b849fee14",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "3.25",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.05",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "2.20",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250110-06-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250110-06-v1",
+        "sporttery_match_no": "A25011006"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-11T08:14:00Z",
+        "captured_at_utc": "2025-01-11T08:10:00Z",
+        "ingested_at_utc": "2025-01-11T08:15:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250111-01",
+        "payload_hash": "a58711911a171d8bee4943e1c93d2d2ae6c12e2200464f6413f9deeec00605aa",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "1.90",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.30",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "4.30",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250111-01-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250111-01-v1",
+        "sporttery_match_no": "A25011101"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-11T08:16:00Z",
+        "captured_at_utc": "2025-01-11T08:12:00Z",
+        "ingested_at_utc": "2025-01-11T08:17:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250111-02",
+        "payload_hash": "04f8b60cccf8d766b3e544f20bbddd57960da38405deab4941d635c1d2cf8870",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.55",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.00",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.20",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250111-02-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250111-02-v1",
+        "sporttery_match_no": "A25011102"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-11T08:18:00Z",
+        "captured_at_utc": "2025-01-11T08:14:00Z",
+        "ingested_at_utc": "2025-01-11T08:19:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250111-03",
+        "payload_hash": "bcde590316ffa58e987a7e9bc80e154c74f16b9ff743d1061c5c732b695c55b4",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "3.10",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.20",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "2.20",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250111-03-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250111-03-v1",
+        "sporttery_match_no": "A25011103"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-11T08:20:00Z",
+        "captured_at_utc": "2025-01-11T08:16:00Z",
+        "ingested_at_utc": "2025-01-11T08:21:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250111-04",
+        "payload_hash": "fd8b33ef4509a42c3395a195c23ff66e3c2a01a3f11f6298f60aa3a791142cd8",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.05",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.15",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.55",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250111-04-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250111-04-v1",
+        "sporttery_match_no": "A25011104"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-11T08:22:00Z",
+        "captured_at_utc": "2025-01-11T08:18:00Z",
+        "ingested_at_utc": "2025-01-11T08:23:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250111-05",
+        "payload_hash": "3fb4d9208b6819213b412bb44c97f762f862cd1cc7df97731de00b6787f2b7f7",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.70",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "2.90",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.00",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250111-05-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250111-05-v1",
+        "sporttery_match_no": "A25011105"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-11T08:24:00Z",
+        "captured_at_utc": "2025-01-11T08:20:00Z",
+        "ingested_at_utc": "2025-01-11T08:25:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250111-06",
+        "payload_hash": "584363679dfdc2a476be106448b601efbf629e98f990c67d7191966b849fee14",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "3.25",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.05",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "2.20",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250111-06-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250111-06-v1",
+        "sporttery_match_no": "A25011106"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-12T08:14:00Z",
+        "captured_at_utc": "2025-01-12T08:10:00Z",
+        "ingested_at_utc": "2025-01-12T08:15:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250112-01",
+        "payload_hash": "a6a5580a602fea35a2058d0a0ce50d2997eb9749df8d9707ac1b31794e95bff5",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.05",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.10",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.55",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250112-01-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250112-01-v1",
+        "sporttery_match_no": "A25011201"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-12T08:16:00Z",
+        "captured_at_utc": "2025-01-12T08:12:00Z",
+        "ingested_at_utc": "2025-01-12T08:17:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250112-02",
+        "payload_hash": "fdc2ee8840afa9c99e7e22e0d71649255eaac7df51f3e2fc35a57470ac6c8903",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.55",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "2.85",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.10",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250112-02-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250112-02-v1",
+        "sporttery_match_no": "A25011202"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-12T08:18:00Z",
+        "captured_at_utc": "2025-01-12T08:14:00Z",
+        "ingested_at_utc": "2025-01-12T08:19:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250112-03",
+        "payload_hash": "6d6cf5bcba12da4893ec0f8f8860b83807752a900a9b9e957943d85bae50cdc2",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "3.15",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.15",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "2.30",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250112-03-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250112-03-v1",
+        "sporttery_match_no": "A25011203"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-12T08:20:00Z",
+        "captured_at_utc": "2025-01-12T08:16:00Z",
+        "ingested_at_utc": "2025-01-12T08:21:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250112-04",
+        "payload_hash": "a6a5580a602fea35a2058d0a0ce50d2997eb9749df8d9707ac1b31794e95bff5",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.05",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.10",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.55",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250112-04-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250112-04-v1",
+        "sporttery_match_no": "A25011204"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-12T08:22:00Z",
+        "captured_at_utc": "2025-01-12T08:18:00Z",
+        "ingested_at_utc": "2025-01-12T08:23:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250112-05",
+        "payload_hash": "fdc2ee8840afa9c99e7e22e0d71649255eaac7df51f3e2fc35a57470ac6c8903",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.55",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "2.85",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.10",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250112-05-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250112-05-v1",
+        "sporttery_match_no": "A25011205"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-12T08:24:00Z",
+        "captured_at_utc": "2025-01-12T08:20:00Z",
+        "ingested_at_utc": "2025-01-12T08:25:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250112-06",
+        "payload_hash": "6d6cf5bcba12da4893ec0f8f8860b83807752a900a9b9e957943d85bae50cdc2",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "3.15",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.15",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "2.30",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250112-06-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250112-06-v1",
+        "sporttery_match_no": "A25011206"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-13T08:14:00Z",
+        "captured_at_utc": "2025-01-13T08:10:00Z",
+        "ingested_at_utc": "2025-01-13T08:15:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250113-01",
+        "payload_hash": "a58711911a171d8bee4943e1c93d2d2ae6c12e2200464f6413f9deeec00605aa",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "1.90",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.30",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "4.30",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250113-01-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250113-01-v1",
+        "sporttery_match_no": "A25011301"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-13T08:16:00Z",
+        "captured_at_utc": "2025-01-13T08:12:00Z",
+        "ingested_at_utc": "2025-01-13T08:17:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250113-02",
+        "payload_hash": "04f8b60cccf8d766b3e544f20bbddd57960da38405deab4941d635c1d2cf8870",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.55",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.00",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.20",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250113-02-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250113-02-v1",
+        "sporttery_match_no": "A25011302"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-13T08:18:00Z",
+        "captured_at_utc": "2025-01-13T08:14:00Z",
+        "ingested_at_utc": "2025-01-13T08:19:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250113-03",
+        "payload_hash": "bcde590316ffa58e987a7e9bc80e154c74f16b9ff743d1061c5c732b695c55b4",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "3.10",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.20",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "2.20",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250113-03-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250113-03-v1",
+        "sporttery_match_no": "A25011303"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-13T08:20:00Z",
+        "captured_at_utc": "2025-01-13T08:16:00Z",
+        "ingested_at_utc": "2025-01-13T08:21:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250113-04",
+        "payload_hash": "fd8b33ef4509a42c3395a195c23ff66e3c2a01a3f11f6298f60aa3a791142cd8",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.05",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.15",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.55",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250113-04-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250113-04-v1",
+        "sporttery_match_no": "A25011304"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-13T08:22:00Z",
+        "captured_at_utc": "2025-01-13T08:18:00Z",
+        "ingested_at_utc": "2025-01-13T08:23:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250113-05",
+        "payload_hash": "3fb4d9208b6819213b412bb44c97f762f862cd1cc7df97731de00b6787f2b7f7",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.70",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "2.90",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.00",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250113-05-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250113-05-v1",
+        "sporttery_match_no": "A25011305"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-13T08:24:00Z",
+        "captured_at_utc": "2025-01-13T08:20:00Z",
+        "ingested_at_utc": "2025-01-13T08:25:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250113-06",
+        "payload_hash": "584363679dfdc2a476be106448b601efbf629e98f990c67d7191966b849fee14",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "3.25",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.05",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "2.20",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250113-06-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250113-06-v1",
+        "sporttery_match_no": "A25011306"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-14T08:14:00Z",
+        "captured_at_utc": "2025-01-14T08:10:00Z",
+        "ingested_at_utc": "2025-01-14T08:15:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250114-01",
+        "payload_hash": "a58711911a171d8bee4943e1c93d2d2ae6c12e2200464f6413f9deeec00605aa",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "1.90",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.30",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "4.30",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250114-01-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250114-01-v1",
+        "sporttery_match_no": "A25011401"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-14T08:16:00Z",
+        "captured_at_utc": "2025-01-14T08:12:00Z",
+        "ingested_at_utc": "2025-01-14T08:17:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250114-02",
+        "payload_hash": "04f8b60cccf8d766b3e544f20bbddd57960da38405deab4941d635c1d2cf8870",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.55",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.00",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.20",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250114-02-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250114-02-v1",
+        "sporttery_match_no": "A25011402"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-14T08:18:00Z",
+        "captured_at_utc": "2025-01-14T08:14:00Z",
+        "ingested_at_utc": "2025-01-14T08:19:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250114-03",
+        "payload_hash": "bcde590316ffa58e987a7e9bc80e154c74f16b9ff743d1061c5c732b695c55b4",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "3.10",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.20",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "2.20",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250114-03-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250114-03-v1",
+        "sporttery_match_no": "A25011403"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-14T08:20:00Z",
+        "captured_at_utc": "2025-01-14T08:16:00Z",
+        "ingested_at_utc": "2025-01-14T08:21:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250114-04",
+        "payload_hash": "fd8b33ef4509a42c3395a195c23ff66e3c2a01a3f11f6298f60aa3a791142cd8",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.05",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.15",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.55",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250114-04-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250114-04-v1",
+        "sporttery_match_no": "A25011404"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-14T08:22:00Z",
+        "captured_at_utc": "2025-01-14T08:18:00Z",
+        "ingested_at_utc": "2025-01-14T08:23:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250114-05",
+        "payload_hash": "3fb4d9208b6819213b412bb44c97f762f862cd1cc7df97731de00b6787f2b7f7",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.70",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "2.90",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.00",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250114-05-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250114-05-v1",
+        "sporttery_match_no": "A25011405"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-14T08:24:00Z",
+        "captured_at_utc": "2025-01-14T08:20:00Z",
+        "ingested_at_utc": "2025-01-14T08:25:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250114-06",
+        "payload_hash": "584363679dfdc2a476be106448b601efbf629e98f990c67d7191966b849fee14",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "3.25",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.05",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "2.20",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250114-06-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250114-06-v1",
+        "sporttery_match_no": "A25011406"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-15T08:14:00Z",
+        "captured_at_utc": "2025-01-15T08:10:00Z",
+        "ingested_at_utc": "2025-01-15T08:15:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250115-01",
+        "payload_hash": "a58711911a171d8bee4943e1c93d2d2ae6c12e2200464f6413f9deeec00605aa",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "1.90",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.30",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "4.30",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250115-01-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250115-01-v1",
+        "sporttery_match_no": "A25011501"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-15T08:16:00Z",
+        "captured_at_utc": "2025-01-15T08:12:00Z",
+        "ingested_at_utc": "2025-01-15T08:17:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250115-02",
+        "payload_hash": "04f8b60cccf8d766b3e544f20bbddd57960da38405deab4941d635c1d2cf8870",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.55",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.00",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.20",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250115-02-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250115-02-v1",
+        "sporttery_match_no": "A25011502"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-15T08:18:00Z",
+        "captured_at_utc": "2025-01-15T08:14:00Z",
+        "ingested_at_utc": "2025-01-15T08:19:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250115-03",
+        "payload_hash": "bcde590316ffa58e987a7e9bc80e154c74f16b9ff743d1061c5c732b695c55b4",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "3.10",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.20",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "2.20",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250115-03-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250115-03-v1",
+        "sporttery_match_no": "A25011503"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-15T08:20:00Z",
+        "captured_at_utc": "2025-01-15T08:16:00Z",
+        "ingested_at_utc": "2025-01-15T08:21:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250115-04",
+        "payload_hash": "fd8b33ef4509a42c3395a195c23ff66e3c2a01a3f11f6298f60aa3a791142cd8",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.05",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.15",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.55",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250115-04-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250115-04-v1",
+        "sporttery_match_no": "A25011504"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-15T08:22:00Z",
+        "captured_at_utc": "2025-01-15T08:18:00Z",
+        "ingested_at_utc": "2025-01-15T08:23:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250115-05",
+        "payload_hash": "3fb4d9208b6819213b412bb44c97f762f862cd1cc7df97731de00b6787f2b7f7",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "2.70",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "2.90",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "3.00",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250115-05-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250115-05-v1",
+        "sporttery_match_no": "A25011505"
+      },
+      "retrospective": false
+    },
+    {
+      "imported_at_utc": null,
+      "payload": {
+        "available_at_utc": "2025-01-15T08:24:00Z",
+        "captured_at_utc": "2025-01-15T08:20:00Z",
+        "ingested_at_utc": "2025-01-15T08:25:00Z",
+        "market": {
+          "handicap_value": null,
+          "market_type": "THREE_WAY"
+        },
+        "match_id": "ha-20250115-06",
+        "payload_hash": "584363679dfdc2a476be106448b601efbf629e98f990c67d7191966b849fee14",
+        "provider_code": "SYNTHETIC_ACCEPTANCE_V1",
+        "quotes": [
+          {
+            "fixed_bonus": "3.25",
+            "selection": "HOME_WIN"
+          },
+          {
+            "fixed_bonus": "3.05",
+            "selection": "DRAW"
+          },
+          {
+            "fixed_bonus": "2.20",
+            "selection": "AWAY_WIN"
+          }
+        ],
+        "sale_status": "OPEN",
+        "snapshot_id": "ha-sporttery-ha-20250115-06-v1",
+        "source_snapshot_key": "source-ha-sporttery-ha-20250115-06-v1",
+        "sporttery_match_no": "A25011506"
+      },
+      "retrospective": false
+    }
+  ]
+}

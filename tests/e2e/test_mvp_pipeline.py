@@ -1,9 +1,10 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+import hashlib
 
 import pytest
-from sqlalchemy import event, select, text
+from sqlalchemy import event, func, select, text
 from sqlalchemy.exc import IntegrityError
 
 from football_system.application.run_analysis import (
@@ -15,6 +16,7 @@ from football_system.domain.betting import CandidateStatus, PortfolioStatus
 from football_system.domain.prediction import FusionPolicyName
 from football_system.infrastructure.database.models import (
     AnalysisRunRecord,
+    Base,
     BetCandidateRecord,
     FinalPredictionOutcomeRecord,
     MarketProbabilityOutcomeRecord,
@@ -28,11 +30,20 @@ from football_system.infrastructure.database.session import (
     create_schema,
     create_session_factory,
 )
-from football_system.infrastructure.providers.mock.dataset import MockDataset, payload_hash
+from football_system.infrastructure.providers.mock.dataset import (
+    MockDataset,
+    payload_hash,
+)
 from football_system.infrastructure.providers.mock.fixtures import MockFixtureProvider
-from football_system.infrastructure.providers.mock.manual_quant import MockManualQuantProvider
-from football_system.infrastructure.providers.mock.market_odds import MockMarketOddsProvider
-from football_system.infrastructure.providers.mock.sporttery import MockSportteryProvider
+from football_system.infrastructure.providers.mock.manual_quant import (
+    MockManualQuantProvider,
+)
+from football_system.infrastructure.providers.mock.market_odds import (
+    MockMarketOddsProvider,
+)
+from football_system.infrastructure.providers.mock.sporttery import (
+    MockSportteryProvider,
+)
 
 EXECUTION_TIME = datetime(2026, 8, 31, 12, 0, tzinfo=timezone.utc)
 
@@ -88,13 +99,22 @@ def test_full_mvp_analysis_persists_replayable_artifacts() -> None:
     assert len(artifacts.quant_predictions) == 6
     assert len(artifacts.final_predictions) == 6
     assert len(artifacts.selection_candidates) == 18
-    assert sum(
-        candidate.status == CandidateStatus.ELIGIBLE
-        for candidate in artifacts.selection_candidates
-    ) == 5
+    assert (
+        sum(
+            candidate.status == CandidateStatus.ELIGIBLE
+            for candidate in artifacts.selection_candidates
+        )
+        == 5
+    )
     assert len(artifacts.ticket_candidates) == 10
-    assert [portfolio.budget_fen for portfolio in artifacts.portfolios] == [10_000, 20_000]
-    assert all(portfolio.status == PortfolioStatus.RECOMMENDED for portfolio in artifacts.portfolios)
+    assert [portfolio.budget_fen for portfolio in artifacts.portfolios] == [
+        10_000,
+        20_000,
+    ]
+    assert all(
+        portfolio.status == PortfolioStatus.RECOMMENDED
+        for portfolio in artifacts.portfolios
+    )
     assert all(
         len(portfolio.tickets) == settings.portfolio.preferred_max_tickets
         for portfolio in artifacts.portfolios
@@ -362,7 +382,9 @@ def test_full_mvp_analysis_persists_replayable_artifacts() -> None:
 
     wrong_context = artifacts.match_contexts[0].model_copy(
         update={
-            "market_odds_snapshot_id": artifacts.match_contexts[1].market_odds_snapshot_id
+            "market_odds_snapshot_id": artifacts.match_contexts[
+                1
+            ].market_odds_snapshot_id
         }
     )
     inconsistent = artifacts.model_copy(
@@ -395,7 +417,9 @@ def test_full_mvp_analysis_persists_replayable_artifacts() -> None:
         )
 
     changed_match = artifacts.matches[0].model_copy(
-        update={"kickoff_at_utc": artifacts.matches[0].kickoff_at_utc + timedelta(hours=1)}
+        update={
+            "kickoff_at_utc": artifacts.matches[0].kickoff_at_utc + timedelta(hours=1)
+        }
     )
     conflicting_catalog = artifacts.model_copy(
         update={"matches": (changed_match, *artifacts.matches[1:])}
@@ -461,6 +485,157 @@ def test_full_mvp_analysis_persists_replayable_artifacts() -> None:
         )
 
 
+def test_analysis_save_is_exactly_idempotent_and_detects_graph_conflicts() -> None:
+    service, repository, sessions, dataset, settings = build_service()
+    artifacts = asyncio.run(service.run(request_for(dataset, "run-exact-retry")))
+    rules = _rules(settings)
+    counts = _all_table_counts(sessions)
+
+    repository.save_analysis(artifacts, rules)
+    repository.save_analysis(artifacts, rules)
+
+    assert _all_table_counts(sessions) == counts
+
+    changed_config_json = artifacts.analysis_run.config_json + " "
+    changed_run = artifacts.analysis_run.model_copy(
+        update={
+            "config_json": changed_config_json,
+            "config_hash": hashlib.sha256(
+                changed_config_json.encode("utf-8")
+            ).hexdigest(),
+        }
+    )
+    run_conflict = artifacts.model_copy(update={"analysis_run": changed_run})
+
+    manual_input = artifacts.manual_quant_inputs[0]
+    changed_input = manual_input.model_copy(
+        update={
+            "available_at_utc": manual_input.available_at_utc - timedelta(seconds=1)
+        }
+    )
+    input_conflict = artifacts.model_copy(
+        update={
+            "manual_quant_inputs": (
+                changed_input,
+                *artifacts.manual_quant_inputs[1:],
+            )
+        }
+    )
+
+    snapshot = artifacts.market_odds_snapshots[0]
+    changed_quote = snapshot.quotes[0].model_copy(
+        update={"odds": snapshot.quotes[0].odds + Decimal("0.01")}
+    )
+    changed_snapshot = snapshot.model_copy(
+        update={"quotes": (changed_quote, *snapshot.quotes[1:])}
+    )
+    source_conflict = artifacts.model_copy(
+        update={
+            "market_odds_snapshots": (
+                changed_snapshot,
+                *artifacts.market_odds_snapshots[1:],
+            )
+        }
+    )
+
+    prediction = artifacts.market_predictions[0]
+    changed_prediction = prediction.model_copy(
+        update={"devig_version": f"{prediction.devig_version}-changed"}
+    )
+    prediction_conflict = artifacts.model_copy(
+        update={
+            "market_predictions": (
+                changed_prediction,
+                *artifacts.market_predictions[1:],
+            )
+        }
+    )
+
+    ticket_candidate = artifacts.ticket_candidates[0]
+    changed_ticket_candidate = ticket_candidate.model_copy(
+        update={"expected_roi": ticket_candidate.expected_roi + Decimal("0.01")}
+    )
+    changed_ticket_portfolios = tuple(
+        portfolio.model_copy(
+            update={
+                "tickets": tuple(
+                    ticket.model_copy(update={"candidate": changed_ticket_candidate})
+                    if ticket.candidate.ticket_candidate_id
+                    == changed_ticket_candidate.ticket_candidate_id
+                    else ticket
+                    for ticket in portfolio.tickets
+                )
+            }
+        )
+        for portfolio in artifacts.portfolios
+    )
+    ticket_conflict = artifacts.model_copy(
+        update={
+            "ticket_candidates": (
+                changed_ticket_candidate,
+                *artifacts.ticket_candidates[1:],
+            ),
+            "portfolios": changed_ticket_portfolios,
+        }
+    )
+
+    portfolio = artifacts.portfolios[0]
+    changed_portfolio = portfolio.model_copy(
+        update={"strategy_version": f"{portfolio.strategy_version}-changed"}
+    )
+    portfolio_conflict = artifacts.model_copy(
+        update={"portfolios": (changed_portfolio, *artifacts.portfolios[1:])}
+    )
+
+    risk = artifacts.portfolio_risk_reports[0]
+    changed_risk = risk.model_copy(
+        update={"policy_version": f"{risk.policy_version}-changed"}
+    )
+    risk_conflict = artifacts.model_copy(
+        update={
+            "portfolio_risk_reports": (
+                changed_risk,
+                *artifacts.portfolio_risk_reports[1:],
+            )
+        }
+    )
+
+    for conflict in (
+        run_conflict,
+        input_conflict,
+        source_conflict,
+        prediction_conflict,
+        ticket_conflict,
+        portfolio_conflict,
+        risk_conflict,
+    ):
+        with pytest.raises(ValueError):
+            repository.save_analysis(conflict, rules)
+    assert _all_table_counts(sessions) == counts
+
+    selection = next(iter(artifacts.market_predictions[0].probabilities.items()))[0]
+    with sessions.begin() as session:
+        session.execute(
+            text("DROP TRIGGER trg_market_probability_outcomes_sealed_delete")
+        )
+        session.execute(
+            text(
+                "DELETE FROM market_probability_outcomes "
+                "WHERE market_probability_id = :prediction_id "
+                "AND selection_key = :selection_key"
+            ),
+            {
+                "prediction_id": artifacts.market_predictions[0].prediction_id,
+                "selection_key": selection.value,
+            },
+        )
+
+    with pytest.raises(
+        ValueError, match="market prediction outcomes conflict: missing"
+    ):
+        repository.save_analysis(artifacts, rules)
+
+
 def test_completion_rejects_stress_outcome_without_selection() -> None:
     service, _, sessions, dataset, _ = build_service()
     tampered = False
@@ -475,9 +650,10 @@ def test_completion_rejects_stress_outcome_without_selection() -> None:
             return
         tampered = True
         connection = session.connection()
-        scenario = connection.execute(
-            text(
-                """
+        scenario = (
+            connection.execute(
+                text(
+                    """
                 SELECT s.scenario_id, p.budget_fen, p.unused_budget_fen,
                        SUM(t.potential_gross_payout_fen) AS gross_payout_fen
                 FROM portfolio_stress_results s
@@ -487,8 +663,11 @@ def test_completion_rejects_stress_outcome_without_selection() -> None:
                 GROUP BY s.scenario_id, p.budget_fen, p.unused_budget_fen
                 LIMIT 1
                 """
+                )
             )
-        ).mappings().one()
+            .mappings()
+            .one()
+        )
         scenario_id = scenario["scenario_id"]
         gross_payout_fen = int(scenario["gross_payout_fen"])
         ending_capital_fen = int(scenario["unused_budget_fen"]) + gross_payout_fen
@@ -712,9 +891,7 @@ def test_use_case_rejects_source_values_beyond_database_precision() -> None:
 def test_manual_probability_change_changes_input_manifest() -> None:
     base_dataset = MockDataset.from_json("data/fixtures/mvp_matches.json")
     base_service, _, _, _, _ = build_service(base_dataset)
-    base = asyncio.run(
-        base_service.run(request_for(base_dataset, "run-manifest-base"))
-    )
+    base = asyncio.run(base_service.run(request_for(base_dataset, "run-manifest-base")))
     first_seed = base_dataset.matches[0]
     changed_probability = first_seed.manual_quant.model_copy(
         update={
@@ -722,9 +899,7 @@ def test_manual_probability_change_changes_input_manifest() -> None:
             "draw": Decimal("0.25"),
         }
     )
-    changed_seed = first_seed.model_copy(
-        update={"manual_quant": changed_probability}
-    )
+    changed_seed = first_seed.model_copy(update={"manual_quant": changed_probability})
     changed_dataset = base_dataset.model_copy(
         update={"matches": (changed_seed, *base_dataset.matches[1:])}
     )
@@ -734,8 +909,7 @@ def test_manual_probability_change_changes_input_manifest() -> None:
     )
 
     assert (
-        base.manual_quant_inputs[0].input_id
-        != changed.manual_quant_inputs[0].input_id
+        base.manual_quant_inputs[0].input_id != changed.manual_quant_inputs[0].input_id
     )
     assert (
         base.analysis_run.input_manifest_hash
@@ -768,6 +942,14 @@ def test_manual_probability_change_changes_input_manifest() -> None:
         base.analysis_run.input_manifest_hash
         != kickoff_changed.analysis_run.input_manifest_hash
     )
+
+
+def _all_table_counts(sessions) -> dict[str, int]:
+    with sessions() as session:
+        return {
+            table.name: session.scalar(select(func.count()).select_from(table)) or 0
+            for table in Base.metadata.tables.values()
+        }
 
 
 def _rules(settings: AppSettings):

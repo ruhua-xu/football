@@ -8,6 +8,32 @@
 - 国际市场赔率和竞彩固定奖金保持不同类型、不同表。
 - 所有外部事实和正式分析结果采用 append-only 语义。
 - 通用模型支持多市场，MVP 业务计算只启用 `THREE_WAY`。
+- `0.4.0` 持久化只支持 SQLite；SQLAlchemy 类型不表示其他数据库兼容承诺。
+
+## 0.4.0 历史模型交叉引用
+
+本文继续描述决策图的基础 Domain Model。Historical Archive、MatchResult、Settlement、BacktestRun/Slice/Metrics 的规范字段、时间语义、coverage 和血缘以 [backtest_v1_contract.md](backtest_v1_contract.md) 为准；设计理由与来源研究保留在 [historical_data_backtest.md](historical_data_backtest.md)，模块边界见 [architecture.md](architecture.md)。
+
+核心关系如下：
+
+```text
+HISTORICAL_ARCHIVE_V1 Manifest/provenance
+    -> cutoff-selected decision inputs
+    -> immutable base AnalysisRun
+    -> frozen Ticket / Portfolio / Risk
+
+evaluation cutoff
+    -> append-only MatchResult
+    -> Ticket Settlement / Portfolio Settlement
+    -> BacktestSlice / BacktestMetrics
+```
+
+- Archive V1 将 `FIXTURES`、`MARKET_ODDS`、`SPORTTERY_BONUS`、`MANUAL_QUANT`、`MATCH_RESULTS` 和 `PROVIDER_MAPPINGS` 分文件保存；import 只登记 `MANIFEST_PROVENANCE_ONLY`，不是全量 payload 入库。
+- `LIVE_STRICT` 与 `SOURCE_TIME_RESEARCH` 不能在同一运行或指标中混用；研究模式保留显式 retrospective/import provenance。
+- `MatchResult` 是 evaluation source fact，不属于 AnalysisRun、AnalysisPacket 或 Review context。赛果与 Settlement 更正都通过 supersession 追加。
+- Settlement V1 只计算 `BACKTEST`、`THREE_WAY`、简单2串1的 `WON`/`LOST`；不定义 `VOID` 或退款返还。
+- walk-forward V1 只使用 base AnalysisRun 和一个预算 Portfolio；Domain/Schema 预留 PortfolioRevision settlement scope，不等于公开 CLI 已支持 Revision 回测。
+- 实际历史持久化表、外键、partial index 和 SQLite trigger 由 Alembic 迁移 `f3a1c6d8e204` 定义，不在本文重复维护第二份易漂移 Schema。
 
 ## Market 模型
 
@@ -49,7 +75,7 @@ HANDICAP_THREE_WAY:-1
 HANDICAP_THREE_WAY:+1
 ```
 
-该 `market_key` 用于唯一约束，避免 nullable `handicap_value` 在 SQLite 或 PostgreSQL 中允许重复记录。`market_type` 和 `handicap_value` 继续作为可查询字段，并由 Repository 校验它们与规范化 key 一致。
+该 `market_key` 用于唯一约束，避免 nullable `handicap_value` 在 SQLite 中允许重复记录。`market_type` 和 `handicap_value` 继续作为可查询字段，并由 Repository 校验它们与规范化 key 一致。
 
 ### SelectionKey
 
@@ -296,7 +322,7 @@ NO_BET => ticket_count = 0 and total_stake_fen = 0
 
 ## 修订后的数据库 Schema
 
-以下为本次涉及变更的逻辑 Schema。UUID 由应用生成；概率和赔率使用 `NUMERIC`；金额使用整数分；枚举采用字符串和 CHECK。
+以下为既有决策图涉及变更的逻辑 Schema。UUID 由应用生成；概率和赔率使用 `NUMERIC`；金额使用整数分；枚举采用字符串和 CHECK。0.4.0 历史评估图不在此重复展开，见上方规范交叉引用和迁移 `f3a1c6d8e204`。
 
 未列出的 `providers`、`bookmakers`、`competitions`、`teams`、`matches`、`provider_match_mappings`、`analysis_runs`、`analysis_run_matches`、`market_probability_inputs` 和 `portfolios` 延续已确认的第一版设计。
 
@@ -564,3 +590,5 @@ analysis_run.as_of_at_utc <= analysis_run.started_at_utc <= analysis_run.complet
 ```
 
 运行保存实际选中的赔率、奖金和手工概率输入 ID，并持久化规范化 `input_manifest_json`、版本和 SHA-256。Repository 读取 Manifest 时重新校验 hash。重放不得重新查询最新数据。正式 AnalysisRun、全部后代、Portfolio 和 Ticket 封存后不可更改；重新分析创建新 ID。
+
+历史评估使用独立且更晚的 `evaluation_as_of_at_utc`。MatchResult、Ticket/Portfolio Settlement、BacktestSlice 和指标快照不进入决策 Manifest，也不能反向更新 `P_final`、候选、Ticket、Portfolio 或 Risk。

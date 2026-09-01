@@ -10,6 +10,7 @@ from football_system.config import (
     PortfolioSettings,
     SportterySettings,
 )
+from football_system.domain.archive import HistoricalDataMode
 from football_system.domain.betting import MAX_EXACT_STRESS_TICKETS
 
 
@@ -30,6 +31,73 @@ def test_loads_versioned_mvp_settings() -> None:
     assert settings.review_fusion.policy == "LLM_REVIEW_DELTA_V1"
     assert settings.review_fusion.max_probability_delta == Decimal("0.08")
     assert settings.review_fusion.legacy_data_quality_factor == Decimal("0.25")
+    assert settings.backtest.version == "BACKTEST_V1"
+    assert settings.backtest.data_mode is HistoricalDataMode.LIVE_STRICT
+    assert settings.backtest.log_loss_epsilon == Decimal("0.000001")
+    assert settings.backtest.slates.policy == "DAILY_FIXED_CUTOFF_V1"
+    assert settings.settlement.policy == "THREE_WAY_2X1_BACKTEST_V1"
+
+
+def test_loads_recommended_backtest_settings() -> None:
+    settings = AppSettings.from_toml("config/backtest.toml")
+
+    assert settings.backtest.version == "BACKTEST_V1"
+    assert settings.backtest.data_mode is HistoricalDataMode.LIVE_STRICT
+    assert settings.backtest.log_loss_epsilon == Decimal("0.000001")
+    assert settings.backtest.slates.policy == "DAILY_FIXED_CUTOFF_V1"
+    assert settings.settlement.policy == "THREE_WAY_2X1_BACKTEST_V1"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"backtest": {"version": "BACKTEST_V2"}},
+        {"backtest": {"data_mode": "UNSUPPORTED"}},
+        {"backtest": {"slates": {"policy": "ROLLING_V1"}}},
+        {"settlement": {"policy": ""}},
+        {"settlement": {"policy": "THREE_WAY_2X1_BACKTEST_V2"}},
+    ],
+    ids=[
+        "version",
+        "data-mode",
+        "slate-policy",
+        "empty-settlement-policy",
+        "settlement-policy",
+    ],
+)
+def test_rejects_unsupported_backtest_contract(payload: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        AppSettings.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "epsilon",
+    ["-0.000001", "0", "0.5", "1", "NaN", "Infinity", "-Infinity"],
+)
+def test_rejects_invalid_log_loss_epsilon(epsilon: str) -> None:
+    with pytest.raises(ValidationError):
+        AppSettings(backtest={"log_loss_epsilon": epsilon})
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"backtest": {"unexpected": True}},
+        {"backtest": {"slates": {"unexpected": True}}},
+        {"settlement": {"unexpected": True}},
+    ],
+    ids=["backtest", "slates", "settlement"],
+)
+def test_rejects_extra_backtest_contract_keys(payload: dict[str, object]) -> None:
+    with pytest.raises(ValidationError, match="extra_forbidden"):
+        AppSettings.model_validate(payload)
+
+
+def test_backtest_settings_are_frozen() -> None:
+    settings = AppSettings()
+
+    with pytest.raises(ValidationError, match="frozen_instance"):
+        settings.backtest.version = "BACKTEST_V1"
 
 
 def test_run_analysis_freezes_portfolio_risk_controls() -> None:

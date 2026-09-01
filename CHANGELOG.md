@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.0 - 2026-09-01
+
+- 增加 provider-neutral `HISTORICAL_ARCHIVE_V1`，按 `FIXTURES`、`MARKET_ODDS`、`SPORTTERY_BONUS`、`MANUAL_QUANT`、`MATCH_RESULTS` 和 `PROVIDER_MAPPINGS` 六类只读文件执行 schema、checksum、业务键、时间、mapping 与更正链校验。
+- 实现 `LIVE_STRICT` 与显式回溯的 `SOURCE_TIME_RESEARCH`；后者保存独立 import 时间并在报告中标记 `RETROSPECTIVE_SOURCE_TIME_RESEARCH`，不与严格模式静默混合。
+- 增加历史 Fixture/Odds/Sporttery/Quant/MatchResult 本地 Adapter；归档导入采用 `MANIFEST_PROVENANCE_ONLY`，只登记 Manifest、checksum 和来源，决策输入与赛果分别在合法 cutoff 阶段物化。
+- 增加 append-only MatchResult、Ticket Settlement 和 Portfolio Settlement，使用冻结 Ticket、stake、潜在毛返还及规则版本；当前仅结算 `BACKTEST`、`THREE_WAY`、简单2串1，不支持 `VOID`、退款或串关降级。
+- 增加固定 slate 的 `BACKTEST_V1` walk-forward、不可变 BacktestRun/Slice、归档 provenance 与 Manifest hash 绑定，以及 Brier、LogLoss、Calibration/ECE、覆盖率、资金、ROI、回撤、连败和风险实现指标。
+- 增加 `QUANT_ONLY_V1` 与 `MARKET_QUANT_BLEND_V1` 的同口径并排比较；比较会校验模式、归档、时间窗口、预算、阈值、约束和冻结输入，不自动选择“最佳策略”。
+- 增加 8 条公开历史 CLI 路径：归档 validate/import、赛果 list、结算 create/report、回测 run/report/compare。
+- 增加 Alembic 迁移 `f3a1c6d8e204`，从 `c8b7e2a4f190` 添加归档 provenance、赛果、结算、Backtest 和指标快照/血缘表及 SQLite append-only 触发器；测试覆盖 fresh schema、0.3.0 head 升降级、外键检查、Alembic check 和 runtime/migration schema 对齐。
+- 明确 `0.4.0` 仅支持 SQLite，建库、Schema 与迁移入口在加载其他数据库驱动前拒绝非 SQLite URL。
+- 增加固定的 10-slate/60-match 合成验收数据，报告强制标记 `SYNTHETIC ACCEPTANCE DATA` 和 `NOT REAL HISTORICAL PERFORMANCE`；不将其描述为真实历史表现。
+- 增加 Python 3.12 GitHub Actions 工作流配置，包含安装、ruff、compileall、pytest、fresh Alembic upgrade/check、wheel 构建与已安装 wheel E2E 步骤；本条仅记录工作流和覆盖范围，不声明远端 CI 运行结果。
+- wheel 显式打包配置、迁移、文档和合成归档；隔离安装验收脚本覆盖全部 8 条历史 CLI 路径、两种策略、持久化报告和迁移 head，并拒绝从源码目录误导入。
+
 ## 0.3.0 - 2026-08-31
 
 - 增加 `ANALYSIS_PACKET_V2` 富 MatchReviewContext、正文 Evidence、来源信息和显式 DataQuality，同时保留 V1 合同。

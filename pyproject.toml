@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "football-system"
-version = "0.3.0"
-description = "Reproducible football analysis with offline review fusion and revisions"
+version = "0.4.0"
+description = "Reproducible football analysis with historical settlement and backtesting"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -27,11 +27,44 @@ where = ["src"]
 
 [tool.setuptools.data-files]
 "football_system_resources" = ["alembic.ini"]
-"football_system_resources/config" = ["config/mvp.toml"]
+"football_system_resources/config" = [
+    "config/mvp.toml",
+    "config/backtest.toml",
+]
 "football_system_resources/data/fixtures" = ["data/fixtures/mvp_matches.json"]
+"football_system_resources/data/fixtures/historical_acceptance" = [
+    "data/fixtures/historical_acceptance/acceptance_config.toml",
+    "data/fixtures/historical_acceptance/fixtures.json",
+    "data/fixtures/historical_acceptance/manual_quant.json",
+    "data/fixtures/historical_acceptance/market_odds.json",
+    "data/fixtures/historical_acceptance/match_results.json",
+    "data/fixtures/historical_acceptance/provider_mappings.json",
+    "data/fixtures/historical_acceptance/sporttery_bonus.json",
+]
+"football_system_resources/data/fixtures/historical_acceptance/invalid_examples/mapping_conflict" = [
+    "data/fixtures/historical_acceptance/invalid_examples/mapping_conflict/provider_mappings.json",
+]
+"football_system_resources/data/fixtures/historical_acceptance/invalid_examples/mapping_missing" = [
+    "data/fixtures/historical_acceptance/invalid_examples/mapping_missing/fixtures.json",
+]
 "football_system_resources/fankui" = [
+    "fankui/architecture.md",
+    "fankui/backtest_v1_contract.md",
+    "fankui/betting_model.md",
+    "fankui/data_model.md",
+    "fankui/historical_data_backtest.md",
     "fankui/llm_review_v1_contract.md",
     "fankui/llm_review_v2_contract.md",
+    "fankui/llm_strategy.md",
+]
+"football_system_resources/fankui/decisions" = [
+    "fankui/decisions/0001-market-abstraction.md",
+    "fankui/decisions/0002-versioned-fusion-policies.md",
+    "fankui/decisions/0003-ticket-and-atomic-bet.md",
+    "fankui/decisions/0004-frozen-evidence-for-llm.md",
+    "fankui/decisions/0005-sporttery-stake-unit.md",
+    "fankui/decisions/0006-configurable-ticket-strategy-profile.md",
+    "fankui/decisions/0007-separate-live-and-source-time-research.md",
 ]
 "football_system_resources/migrations" = ["migrations/env.py", "migrations/script.py.mako"]
 "football_system_resources/migrations/versions" = [
@@ -41,8 +74,15 @@ where = ["src"]
     "migrations/versions/7a2c5e8f9b31_add_offline_review_bridge.py",
     "migrations/versions/9d4e6f1a2c70_harden_artifact_integrity.py",
     "migrations/versions/c8b7e2a4f190_add_post_review_persistence.py",
+    "migrations/versions/f3a1c6d8e204_add_historical_backtest_persistence.py",
 ]
 
 [tool.pytest.ini_options]
 addopts = "-ra"
 testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]

@@ -149,6 +149,10 @@ SOURCE_CHILD_INSERT_LOOKUPS = {
 }
 
 IMMUTABLE_INSERT_KEYS = {
+    "historical_archive_imports": (
+        ("archive_id",),
+        ("provider_code", "dataset_kind", "payload_sha256"),
+    ),
     "analysis_runs": (("analysis_run_id",),),
     "providers": (("provider_id",), ("code",)),
     "bookmakers": (("bookmaker_id",), ("code",)),
@@ -179,9 +183,7 @@ IMMUTABLE_INSERT_KEYS = {
         ("market_probability_id",),
         ("analysis_run_id", "internal_match_id", "market_key"),
     ),
-    "market_probability_outcomes": (
-        ("market_probability_id", "selection_key"),
-    ),
+    "market_probability_outcomes": (("market_probability_id", "selection_key"),),
     "market_probability_inputs": (
         ("market_probability_id", "market_odds_snapshot_id"),
     ),
@@ -231,7 +233,58 @@ IMMUTABLE_INSERT_KEYS = {
         ("risk_report_id", "scenario_key"),
     ),
     "portfolio_stress_ticket_results": (("scenario_id", "ticket_id"),),
+    "match_results": (
+        ("match_result_id",),
+        ("provider_id", "source_result_key"),
+        ("supersedes_match_result_id",),
+    ),
+    "ticket_settlements": (
+        ("settlement_id",),
+        ("settlement_hash",),
+        ("supersedes_settlement_id",),
+    ),
+    "ticket_settlement_match_results": (
+        ("settlement_id", "leg_no"),
+        ("settlement_id", "match_result_id"),
+        ("settlement_id", "internal_match_id"),
+    ),
+    "portfolio_settlements": (
+        ("portfolio_settlement_id",),
+        ("settlement_hash",),
+        ("supersedes_portfolio_settlement_id",),
+    ),
+    "portfolio_settlement_tickets": (
+        ("portfolio_settlement_id", "settlement_no"),
+        ("portfolio_settlement_id", "settlement_id"),
+    ),
+    "backtest_runs": (("backtest_run_id",), ("run_hash",)),
+    "backtest_slices": (
+        ("backtest_slice_id",),
+        ("backtest_run_id", "slice_no"),
+        ("slice_hash",),
+    ),
+    "backtest_metric_snapshots": (
+        ("metric_snapshot_id",),
+        ("backtest_run_id", "metric_scope", "metric_key", "snapshot_no"),
+        ("snapshot_hash",),
+    ),
+    "backtest_metric_settlements": (("metric_snapshot_id", "portfolio_settlement_id"),),
+    "backtest_metric_ticket_settlements": (("metric_snapshot_id", "settlement_id"),),
 }
+
+HISTORICAL_APPEND_ONLY_TABLES = (
+    "historical_archive_imports",
+    "match_results",
+    "ticket_settlements",
+    "ticket_settlement_match_results",
+    "portfolio_settlements",
+    "portfolio_settlement_tickets",
+    "backtest_runs",
+    "backtest_slices",
+    "backtest_metric_snapshots",
+    "backtest_metric_settlements",
+    "backtest_metric_ticket_settlements",
+)
 
 POST_RUN_PARENT_LOOKUPS = {
     "analysis_packets": (
@@ -858,9 +911,9 @@ def install_sqlite_immutability_triggers(connection: Connection) -> None:
     )
     for table_name, key_sets in IMMUTABLE_INSERT_KEYS.items():
         conflict_condition = " OR ".join(
-            "(" + " AND ".join(
-                f"existing.{column} = NEW.{column}" for column in key_set
-            ) + ")"
+            "("
+            + " AND ".join(f"existing.{column} = NEW.{column}" for column in key_set)
+            + ")"
             for key_set in key_sets
         )
         connection.exec_driver_sql(
@@ -960,3 +1013,830 @@ def install_sqlite_immutability_triggers(connection: Connection) -> None:
             END
             """
         )
+    _install_historical_lineage_triggers(connection)
+
+
+def _install_historical_lineage_triggers(connection: Connection) -> None:
+    for table_name in HISTORICAL_APPEND_ONLY_TABLES:
+        for action in ("UPDATE", "DELETE"):
+            connection.exec_driver_sql(
+                f"""
+                CREATE TRIGGER IF NOT EXISTS trg_{table_name}_append_only_{action.lower()}
+                BEFORE {action} ON {table_name}
+                BEGIN
+                    SELECT RAISE(ABORT, 'historical artifacts are append-only');
+                END
+                """
+            )
+
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_match_results_provider_mapping_insert
+        BEFORE INSERT ON match_results
+        WHEN NOT EXISTS (
+            SELECT 1 FROM provider_match_mappings m
+            WHERE m.mapping_id = NEW.provider_mapping_id
+            AND m.provider_id = NEW.provider_id
+            AND m.internal_match_id = NEW.internal_match_id
+            AND m.available_at_utc <= NEW.available_at_utc
+            AND m.available_at_utc <= NEW.ingested_at_utc
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'match result requires a provider match mapping');
+        END
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_match_results_supersession_insert
+        BEFORE INSERT ON match_results
+        WHEN NEW.supersedes_match_result_id IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM match_results previous
+            WHERE previous.match_result_id = NEW.supersedes_match_result_id
+            AND previous.internal_match_id = NEW.internal_match_id
+            AND previous.provider_id = NEW.provider_id
+            AND previous.available_at_utc <= NEW.available_at_utc
+            AND previous.ingested_at_utc < NEW.ingested_at_utc
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'match result supersession must reference an earlier version');
+        END
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_ticket_settlements_completed_parent_insert
+        BEFORE INSERT ON ticket_settlements
+        WHEN NOT EXISTS (
+            SELECT 1 FROM analysis_runs r
+            WHERE r.analysis_run_id = NEW.parent_analysis_run_id
+            AND r.status = 'COMPLETED'
+            AND r.completed_at_utc IS NOT NULL
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'ticket settlement requires a completed AnalysisRun');
+        END
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_ticket_settlements_base_lineage_insert
+        BEFORE INSERT ON ticket_settlements
+        WHEN NEW.scope_kind = 'ANALYSIS_RUN' AND NOT EXISTS (
+            SELECT 1 FROM tickets t
+            JOIN portfolios p ON p.portfolio_id = t.portfolio_id
+            JOIN analysis_runs r ON r.analysis_run_id = p.analysis_run_id
+            WHERE t.ticket_id = NEW.base_ticket_id
+            AND p.portfolio_id = NEW.base_portfolio_id
+            AND r.analysis_run_id = NEW.parent_analysis_run_id
+            AND NEW.decision_scope_id = r.analysis_run_id
+            AND NEW.ticket_id = t.ticket_id
+            AND NEW.portfolio_id = p.portfolio_id
+            AND NEW.stake_fen = t.stake_fen
+            AND NEW.payout_policy_version = t.payout_policy_version
+            AND (
+                NEW.status = 'LOST'
+                OR NEW.gross_payout_fen = t.potential_gross_payout_fen
+            )
+            AND r.status = 'COMPLETED'
+            AND r.completed_at_utc IS NOT NULL
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'base ticket settlement lineage is inconsistent');
+        END
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_ticket_settlements_revision_lineage_insert
+        BEFORE INSERT ON ticket_settlements
+        WHEN NEW.scope_kind = 'PORTFOLIO_REVISION' AND NOT EXISTS (
+            SELECT 1
+            FROM portfolio_revisions revision,
+                 json_each(revision.revision_json, '$.portfolios') portfolio,
+                 json_each(portfolio.value, '$.tickets') ticket
+            WHERE revision.portfolio_revision_id = NEW.portfolio_revision_id
+            AND revision.parent_analysis_run_id = NEW.parent_analysis_run_id
+            AND NEW.decision_scope_id = revision.portfolio_revision_id
+            AND json_extract(portfolio.value, '$.portfolio_id') = NEW.portfolio_id
+            AND json_extract(ticket.value, '$.ticket_id') = NEW.ticket_id
+            AND CAST(json_extract(ticket.value, '$.stake_fen') AS INTEGER) =
+                NEW.stake_fen
+            AND json_extract(ticket.value, '$.candidate.payout_policy_version') =
+                NEW.payout_policy_version
+            AND (
+                NEW.status = 'LOST'
+                OR CAST(json_extract(
+                    ticket.value, '$.potential_gross_payout_fen'
+                ) AS INTEGER) = NEW.gross_payout_fen
+            )
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'revision ticket settlement lineage is inconsistent');
+        END
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_ticket_settlements_correction_insert
+        BEFORE INSERT ON ticket_settlements
+        WHEN NEW.supersedes_settlement_id IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM ticket_settlements previous
+            WHERE previous.settlement_id = NEW.supersedes_settlement_id
+            AND previous.scope_kind = NEW.scope_kind
+            AND previous.parent_analysis_run_id = NEW.parent_analysis_run_id
+            AND previous.decision_scope_id = NEW.decision_scope_id
+            AND previous.portfolio_id = NEW.portfolio_id
+            AND previous.ticket_id = NEW.ticket_id
+            AND previous.settled_at_utc <= NEW.settled_at_utc
+            AND json_valid(NEW.settlement_json)
+            AND json_type(
+                NEW.settlement_json, '$.match_result_ids'
+            ) = 'array'
+            AND json_array_length(
+                NEW.settlement_json, '$.match_result_ids'
+            ) = (
+                SELECT COUNT(*)
+                FROM ticket_settlement_match_results previous_link
+                WHERE previous_link.settlement_id = previous.settlement_id
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM ticket_settlement_match_results previous_link
+                WHERE previous_link.settlement_id = previous.settlement_id
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM json_each(
+                        NEW.settlement_json, '$.match_result_ids'
+                    ) current_link
+                    JOIN match_results current_result
+                      ON current_result.match_result_id = current_link.value
+                    WHERE CAST(current_link.key AS INTEGER) + 1 =
+                        previous_link.leg_no
+                    AND (
+                        current_result.match_result_id =
+                            previous_link.match_result_id
+                        OR current_result.supersedes_match_result_id =
+                            previous_link.match_result_id
+                    )
+                )
+            )
+            AND EXISTS (
+                SELECT 1
+                FROM ticket_settlement_match_results previous_link
+                JOIN json_each(
+                    NEW.settlement_json, '$.match_result_ids'
+                ) current_link
+                  ON CAST(current_link.key AS INTEGER) + 1 =
+                     previous_link.leg_no
+                WHERE previous_link.settlement_id = previous.settlement_id
+                AND current_link.value <> previous_link.match_result_id
+            )
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'settlement correction must reference a not-later version');
+        END
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_ticket_settlement_results_lineage_insert
+        BEFORE INSERT ON ticket_settlement_match_results
+        WHEN NOT EXISTS (
+            SELECT 1 FROM ticket_settlements settlement
+            JOIN match_results result
+              ON result.match_result_id = NEW.match_result_id
+             AND result.internal_match_id = NEW.internal_match_id
+            WHERE settlement.settlement_id = NEW.settlement_id
+            AND result.ingested_at_utc <= settlement.settled_at_utc
+            AND json_extract(
+                settlement.settlement_json,
+                '$.match_result_ids[' || (NEW.leg_no - 1) || ']'
+            ) = NEW.match_result_id
+            AND NOT EXISTS (
+                SELECT 1 FROM match_results successor
+                WHERE successor.supersedes_match_result_id =
+                    result.match_result_id
+                AND successor.available_at_utc <= settlement.settled_at_utc
+                AND successor.ingested_at_utc <= settlement.settled_at_utc
+            )
+            AND (
+                settlement.supersedes_settlement_id IS NULL
+                OR EXISTS (
+                    SELECT 1
+                    FROM ticket_settlement_match_results previous_link
+                    WHERE previous_link.settlement_id =
+                        settlement.supersedes_settlement_id
+                    AND previous_link.leg_no = NEW.leg_no
+                    AND (
+                        result.match_result_id = previous_link.match_result_id
+                        OR result.supersedes_match_result_id =
+                            previous_link.match_result_id
+                    )
+                )
+            )
+            AND (
+                (settlement.scope_kind = 'ANALYSIS_RUN' AND EXISTS (
+                    SELECT 1 FROM ticket_legs leg
+                    WHERE leg.ticket_id = settlement.base_ticket_id
+                    AND leg.internal_match_id = NEW.internal_match_id
+                ))
+                OR
+                (settlement.scope_kind = 'PORTFOLIO_REVISION' AND EXISTS (
+                    SELECT 1
+                    FROM portfolio_revisions revision,
+                         json_each(revision.revision_json, '$.portfolios') portfolio,
+                         json_each(portfolio.value, '$.tickets') ticket,
+                         json_each(ticket.value, '$.candidate.legs') leg
+                    WHERE revision.portfolio_revision_id =
+                        settlement.portfolio_revision_id
+                    AND json_extract(portfolio.value, '$.portfolio_id') =
+                        settlement.portfolio_id
+                    AND json_extract(ticket.value, '$.ticket_id') =
+                        settlement.ticket_id
+                    AND json_extract(leg.value, '$.match_id') =
+                        NEW.internal_match_id
+                ))
+            )
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'ticket settlement result lineage is inconsistent');
+        END
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_portfolio_settlements_completed_parent_insert
+        BEFORE INSERT ON portfolio_settlements
+        WHEN NOT EXISTS (
+            SELECT 1 FROM analysis_runs r
+            WHERE r.analysis_run_id = NEW.parent_analysis_run_id
+            AND r.status = 'COMPLETED'
+            AND r.completed_at_utc IS NOT NULL
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'portfolio settlement requires a completed AnalysisRun');
+        END
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_portfolio_settlements_base_lineage_insert
+        BEFORE INSERT ON portfolio_settlements
+        WHEN NEW.scope_kind = 'ANALYSIS_RUN' AND NOT EXISTS (
+            SELECT 1 FROM portfolios p
+            JOIN analysis_runs r ON r.analysis_run_id = p.analysis_run_id
+            WHERE p.portfolio_id = NEW.base_portfolio_id
+            AND NEW.portfolio_id = p.portfolio_id
+            AND NEW.parent_analysis_run_id = r.analysis_run_id
+            AND NEW.decision_scope_id = r.analysis_run_id
+            AND NEW.budget_fen = p.budget_fen
+            AND NEW.total_stake_fen = p.total_stake_fen
+            AND NEW.cash_fen = p.unused_budget_fen
+            AND r.status = 'COMPLETED'
+            AND r.completed_at_utc IS NOT NULL
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'base portfolio settlement lineage is inconsistent');
+        END
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_portfolio_settlements_revision_lineage_insert
+        BEFORE INSERT ON portfolio_settlements
+        WHEN NEW.scope_kind = 'PORTFOLIO_REVISION' AND NOT EXISTS (
+            SELECT 1
+            FROM portfolio_revisions revision,
+                 json_each(revision.revision_json, '$.portfolios') portfolio
+            WHERE revision.portfolio_revision_id = NEW.portfolio_revision_id
+            AND revision.parent_analysis_run_id = NEW.parent_analysis_run_id
+            AND NEW.decision_scope_id = revision.portfolio_revision_id
+            AND json_extract(portfolio.value, '$.portfolio_id') = NEW.portfolio_id
+            AND CAST(json_extract(portfolio.value, '$.budget_fen') AS INTEGER) =
+                NEW.budget_fen
+            AND CAST(json_extract(
+                portfolio.value, '$.total_stake_fen'
+            ) AS INTEGER) = NEW.total_stake_fen
+            AND CAST(json_extract(
+                portfolio.value, '$.unused_budget_fen'
+            ) AS INTEGER) = NEW.cash_fen
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'revision portfolio settlement lineage is inconsistent');
+        END
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_portfolio_settlements_correction_insert
+        BEFORE INSERT ON portfolio_settlements
+        WHEN NEW.supersedes_portfolio_settlement_id IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM portfolio_settlements previous
+            WHERE previous.portfolio_settlement_id =
+                NEW.supersedes_portfolio_settlement_id
+            AND previous.scope_kind = NEW.scope_kind
+            AND previous.parent_analysis_run_id = NEW.parent_analysis_run_id
+            AND previous.decision_scope_id = NEW.decision_scope_id
+            AND previous.portfolio_id = NEW.portfolio_id
+            AND previous.settled_at_utc <= NEW.settled_at_utc
+            AND previous.ticket_count = NEW.ticket_count
+            AND NEW.ticket_count > 0
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'portfolio correction must reference a not-later version');
+        END
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_portfolio_settlement_tickets_lineage_insert
+        BEFORE INSERT ON portfolio_settlement_tickets
+        WHEN NOT EXISTS (
+            SELECT 1
+            FROM portfolio_settlements portfolio
+            JOIN ticket_settlements ticket
+              ON ticket.settlement_id = NEW.settlement_id
+            WHERE portfolio.portfolio_settlement_id =
+                NEW.portfolio_settlement_id
+            AND ticket.scope_kind = portfolio.scope_kind
+            AND ticket.parent_analysis_run_id = portfolio.parent_analysis_run_id
+            AND ticket.decision_scope_id = portfolio.decision_scope_id
+            AND ticket.portfolio_id = portfolio.portfolio_id
+            AND ticket.settlement_policy_version =
+                portfolio.settlement_policy_version
+            AND ticket.settled_at_utc <= portfolio.settled_at_utc
+            AND NOT EXISTS (
+                SELECT 1 FROM ticket_settlements successor
+                WHERE successor.supersedes_settlement_id = ticket.settlement_id
+                AND successor.settled_at_utc <= portfolio.settled_at_utc
+            )
+            AND (
+                SELECT COUNT(*) FROM portfolio_settlement_tickets current_link
+                WHERE current_link.portfolio_settlement_id =
+                    portfolio.portfolio_settlement_id
+            ) < portfolio.ticket_count
+            AND NOT EXISTS (
+                SELECT 1
+                FROM portfolio_settlement_tickets current_link
+                JOIN ticket_settlements current_ticket
+                  ON current_ticket.settlement_id = current_link.settlement_id
+                WHERE current_link.portfolio_settlement_id =
+                    portfolio.portfolio_settlement_id
+                AND current_ticket.ticket_id = ticket.ticket_id
+            )
+            AND (
+                portfolio.supersedes_portfolio_settlement_id IS NULL
+                OR EXISTS (
+                    SELECT 1
+                    FROM portfolio_settlement_tickets previous_link
+                    JOIN ticket_settlements previous_ticket
+                      ON previous_ticket.settlement_id =
+                         previous_link.settlement_id
+                    WHERE previous_link.portfolio_settlement_id =
+                        portfolio.supersedes_portfolio_settlement_id
+                    AND previous_ticket.ticket_id = ticket.ticket_id
+                    AND (
+                        ticket.settlement_id = previous_ticket.settlement_id
+                        OR ticket.supersedes_settlement_id =
+                            previous_ticket.settlement_id
+                    )
+                )
+            )
+            AND (
+                portfolio.supersedes_portfolio_settlement_id IS NULL
+                OR (
+                    SELECT COUNT(*)
+                    FROM portfolio_settlement_tickets current_link
+                    WHERE current_link.portfolio_settlement_id =
+                        portfolio.portfolio_settlement_id
+                ) + 1 < portfolio.ticket_count
+                OR ticket.settlement_id <> (
+                    SELECT previous_ticket.settlement_id
+                    FROM portfolio_settlement_tickets previous_link
+                    JOIN ticket_settlements previous_ticket
+                      ON previous_ticket.settlement_id =
+                         previous_link.settlement_id
+                    WHERE previous_link.portfolio_settlement_id =
+                        portfolio.supersedes_portfolio_settlement_id
+                    AND previous_ticket.ticket_id = ticket.ticket_id
+                )
+                OR EXISTS (
+                    SELECT 1
+                    FROM portfolio_settlement_tickets current_link
+                    JOIN ticket_settlements current_ticket
+                      ON current_ticket.settlement_id = current_link.settlement_id
+                    JOIN portfolio_settlement_tickets previous_link
+                      ON previous_link.portfolio_settlement_id =
+                         portfolio.supersedes_portfolio_settlement_id
+                    JOIN ticket_settlements previous_ticket
+                      ON previous_ticket.settlement_id =
+                         previous_link.settlement_id
+                     AND previous_ticket.ticket_id = current_ticket.ticket_id
+                    WHERE current_link.portfolio_settlement_id =
+                        portfolio.portfolio_settlement_id
+                    AND current_ticket.settlement_id <>
+                        previous_ticket.settlement_id
+                )
+            )
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'portfolio ticket settlement lineage is inconsistent');
+        END
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_backtest_runs_replay_insert
+        BEFORE INSERT ON backtest_runs
+        WHEN NEW.replay_of_backtest_run_id IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM backtest_runs previous
+            WHERE previous.backtest_run_id = NEW.replay_of_backtest_run_id
+            AND previous.status = 'COMPLETED'
+            AND previous.completed_at_utc <= NEW.started_at_utc
+            AND previous.backtest_version = NEW.backtest_version
+            AND previous.data_mode = NEW.data_mode
+            AND previous.date_from = NEW.date_from
+            AND previous.date_to = NEW.date_to
+            AND previous.strategy_version = NEW.strategy_version
+            AND previous.strategy_config_hash = NEW.strategy_config_hash
+            AND previous.code_revision = NEW.code_revision
+            AND previous.schema_version = NEW.schema_version
+            AND previous.engine_version = NEW.engine_version
+            AND previous.config_hash = NEW.config_hash
+            AND previous.input_manifest_version = NEW.input_manifest_version
+            AND previous.input_manifest_hash = NEW.input_manifest_hash
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'backtest replay must reference an earlier run');
+        END
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_backtest_slices_lineage_insert
+        BEFORE INSERT ON backtest_slices
+        WHEN NOT EXISTS (
+            SELECT 1 FROM analysis_runs analysis
+            JOIN backtest_runs run ON run.backtest_run_id = NEW.backtest_run_id
+            WHERE analysis.analysis_run_id = NEW.parent_analysis_run_id
+            AND analysis.status = 'COMPLETED'
+            AND analysis.completed_at_utc IS NOT NULL
+            AND analysis.as_of_at_utc = NEW.decision_as_of_at_utc
+            AND run.data_mode = NEW.data_mode
+            AND NEW.slice_version = 'BACKTEST_SLICE_RECORD_V2'
+            AND json_valid(NEW.slice_manifest_json)
+            AND json_extract(
+                NEW.slice_manifest_json, '$.decision_input_manifest_hash'
+            ) = analysis.input_manifest_hash
+            AND julianday(NEW.decision_as_of_at_utc) <= julianday(json_extract(
+                NEW.slice_manifest_json, '$.kickoff_from_utc'
+            ))
+            AND julianday(json_extract(
+                NEW.slice_manifest_json, '$.kickoff_from_utc'
+            )) <= julianday(json_extract(
+                NEW.slice_manifest_json, '$.kickoff_to_utc'
+            ))
+            AND julianday(json_extract(
+                NEW.slice_manifest_json, '$.kickoff_to_utc'
+            )) < julianday(NEW.evaluation_as_of_at_utc)
+            AND date(json_extract(
+                NEW.slice_manifest_json, '$.kickoff_from_utc'
+            )) >= run.date_from
+            AND date(json_extract(
+                NEW.slice_manifest_json, '$.kickoff_to_utc'
+            )) <= run.date_to
+            AND (
+                COALESCE(json_array_length(
+                    run.input_manifest_json, '$.expected_slice_ids'
+                ), 0) = 0
+                OR EXISTS (
+                    SELECT 1 FROM json_each(
+                        run.input_manifest_json, '$.expected_slice_ids'
+                    ) expected
+                    WHERE expected.value = NEW.backtest_slice_id
+                    AND CAST(expected.key AS INTEGER) + 1 = NEW.slice_no
+                )
+            )
+            AND json_type(
+                NEW.slice_manifest_json, '$.expected_match_ids'
+            ) = 'array'
+            AND json_array_length(
+                NEW.slice_manifest_json, '$.expected_match_ids'
+            ) = NEW.match_count
+            AND json_array_length(
+                NEW.slice_manifest_json, '$.expected_match_ids'
+            ) = (
+                SELECT COUNT(DISTINCT expected.value)
+                FROM json_each(
+                    NEW.slice_manifest_json, '$.expected_match_ids'
+                ) expected
+                WHERE expected.type = 'text' AND expected.value <> ''
+            )
+            AND json_type(
+                NEW.slice_manifest_json, '$.missing_decision_match_ids'
+            ) = 'array'
+            AND json_array_length(
+                NEW.slice_manifest_json, '$.missing_decision_match_ids'
+            ) = (
+                SELECT COUNT(DISTINCT missing.value)
+                FROM json_each(
+                    NEW.slice_manifest_json, '$.missing_decision_match_ids'
+                ) missing
+                WHERE missing.type = 'text' AND missing.value <> ''
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM json_each(
+                    NEW.slice_manifest_json, '$.missing_decision_match_ids'
+                ) missing
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM json_each(
+                        NEW.slice_manifest_json, '$.expected_match_ids'
+                    ) expected
+                    WHERE expected.value = missing.value
+                )
+                OR EXISTS (
+                    SELECT 1 FROM analysis_run_matches match_link
+                    WHERE match_link.analysis_run_id = analysis.analysis_run_id
+                    AND match_link.internal_match_id = missing.value
+                )
+            )
+            AND json_valid(analysis.input_manifest_json)
+            AND json_type(analysis.input_manifest_json, '$.matches') = 'array'
+            AND json_array_length(
+                analysis.input_manifest_json, '$.matches'
+            ) = NEW.match_count - json_array_length(
+                NEW.slice_manifest_json, '$.missing_decision_match_ids'
+            )
+            AND json_array_length(
+                analysis.input_manifest_json, '$.matches'
+            ) = (
+                SELECT COUNT(DISTINCT json_extract(
+                    manifest_match.value, '$.match_id'
+                ))
+                FROM json_each(
+                    analysis.input_manifest_json, '$.matches'
+                ) manifest_match
+                WHERE json_type(manifest_match.value, '$.match_id') = 'text'
+                AND json_extract(manifest_match.value, '$.match_id') <> ''
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM json_each(
+                    NEW.slice_manifest_json, '$.expected_match_ids'
+                ) expected
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM json_each(
+                        NEW.slice_manifest_json, '$.missing_decision_match_ids'
+                    ) missing
+                    WHERE missing.value = expected.value
+                )
+                AND json_extract(
+                    analysis.input_manifest_json,
+                    '$.matches[' || (
+                        SELECT COUNT(*)
+                        FROM json_each(
+                            NEW.slice_manifest_json, '$.expected_match_ids'
+                        ) prior
+                        WHERE CAST(prior.key AS INTEGER) <
+                            CAST(expected.key AS INTEGER)
+                        AND NOT EXISTS (
+                            SELECT 1 FROM json_each(
+                                NEW.slice_manifest_json,
+                                '$.missing_decision_match_ids'
+                            ) missing
+                            WHERE missing.value = prior.value
+                        )
+                    ) || '].match_id'
+                ) IS NOT expected.value
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM json_each(
+                    analysis.input_manifest_json, '$.matches'
+                ) manifest_match
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM analysis_run_matches match_link
+                    WHERE match_link.analysis_run_id = analysis.analysis_run_id
+                    AND match_link.internal_match_id = json_extract(
+                        manifest_match.value, '$.match_id'
+                    )
+                )
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM analysis_run_matches match_link
+                WHERE match_link.analysis_run_id = analysis.analysis_run_id
+                AND NOT EXISTS (
+                    SELECT 1 FROM json_each(
+                        analysis.input_manifest_json, '$.matches'
+                    ) manifest_match
+                    WHERE json_extract(
+                        manifest_match.value, '$.match_id'
+                    ) = match_link.internal_match_id
+                )
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM analysis_run_matches match_link
+                JOIN matches decision_match
+                  ON decision_match.internal_match_id = match_link.internal_match_id
+                WHERE match_link.analysis_run_id = analysis.analysis_run_id
+                AND (
+                    julianday(decision_match.kickoff_at_utc) < julianday(
+                        json_extract(
+                            NEW.slice_manifest_json, '$.kickoff_from_utc'
+                        )
+                    )
+                    OR julianday(decision_match.kickoff_at_utc) > julianday(
+                        json_extract(
+                            NEW.slice_manifest_json, '$.kickoff_to_utc'
+                        )
+                    )
+                )
+            )
+            AND json_type(
+                NEW.slice_manifest_json, '$.match_result_ids'
+            ) = 'array'
+            AND json_array_length(
+                NEW.slice_manifest_json, '$.match_result_ids'
+            ) = NEW.settled_match_count
+            AND json_array_length(
+                NEW.slice_manifest_json, '$.match_result_ids'
+            ) = (
+                SELECT COUNT(DISTINCT result.internal_match_id)
+                FROM json_each(
+                    NEW.slice_manifest_json, '$.match_result_ids'
+                ) linked
+                JOIN match_results result
+                  ON result.match_result_id = linked.value
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM json_each(
+                    NEW.slice_manifest_json, '$.match_result_ids'
+                ) linked
+                WHERE linked.type <> 'text'
+                OR NOT EXISTS (
+                    SELECT 1 FROM match_results result
+                    JOIN analysis_run_matches match_link
+                      ON match_link.analysis_run_id = analysis.analysis_run_id
+                     AND match_link.internal_match_id = result.internal_match_id
+                    WHERE result.match_result_id = linked.value
+                    AND result.available_at_utc <= NEW.evaluation_as_of_at_utc
+                    AND result.ingested_at_utc <= NEW.evaluation_as_of_at_utc
+                    AND NOT EXISTS (
+                        SELECT 1 FROM match_results successor
+                        WHERE successor.supersedes_match_result_id =
+                            result.match_result_id
+                        AND successor.available_at_utc <=
+                            NEW.evaluation_as_of_at_utc
+                        AND successor.ingested_at_utc <=
+                            NEW.evaluation_as_of_at_utc
+                    )
+                )
+            )
+            AND json_type(
+                NEW.slice_manifest_json, '$.match_result_issues'
+            ) = 'array'
+            AND json_array_length(
+                NEW.slice_manifest_json, '$.match_result_issues'
+            ) = (
+                SELECT COUNT(DISTINCT json_extract(
+                    issue.value, '$.match_id'
+                ))
+                FROM json_each(
+                    NEW.slice_manifest_json, '$.match_result_issues'
+                ) issue
+                WHERE json_type(issue.value, '$.match_id') = 'text'
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM json_each(
+                    NEW.slice_manifest_json, '$.match_result_issues'
+                ) issue
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM analysis_run_matches match_link
+                    WHERE match_link.analysis_run_id = analysis.analysis_run_id
+                    AND match_link.internal_match_id =
+                        json_extract(issue.value, '$.match_id')
+                )
+                OR NOT EXISTS (
+                    SELECT 1 FROM provider_match_mappings mapping
+                    WHERE mapping.internal_match_id =
+                        json_extract(issue.value, '$.match_id')
+                    AND mapping.available_at_utc <=
+                        NEW.evaluation_as_of_at_utc
+                )
+                OR EXISTS (
+                    SELECT 1 FROM json_each(
+                        NEW.slice_manifest_json, '$.match_result_ids'
+                    ) linked
+                    JOIN match_results result
+                      ON result.match_result_id = linked.value
+                    WHERE result.internal_match_id =
+                        json_extract(issue.value, '$.match_id')
+                )
+            )
+            AND NEW.settled_match_count + json_array_length(
+                NEW.slice_manifest_json, '$.match_result_issues'
+            ) + json_array_length(
+                NEW.slice_manifest_json, '$.missing_decision_match_ids'
+            ) <= NEW.match_count
+            AND (
+                (NEW.scope_kind = 'ANALYSIS_RUN'
+                 AND NEW.decision_scope_id = analysis.analysis_run_id
+                 AND NEW.portfolio_revision_id IS NULL)
+                OR
+                (NEW.scope_kind = 'PORTFOLIO_REVISION' AND EXISTS (
+                    SELECT 1 FROM portfolio_revisions revision
+                    WHERE revision.portfolio_revision_id =
+                        NEW.portfolio_revision_id
+                    AND revision.portfolio_revision_id = NEW.decision_scope_id
+                    AND revision.parent_analysis_run_id =
+                        analysis.analysis_run_id
+                ))
+            )
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'backtest slice lineage is inconsistent');
+        END
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_backtest_metrics_lineage_insert
+        BEFORE INSERT ON backtest_metric_snapshots
+        WHEN NOT EXISTS (
+            SELECT 1 FROM backtest_runs run
+            WHERE run.backtest_run_id = NEW.backtest_run_id
+            AND (
+                (NEW.metric_scope = 'RUN' AND NEW.backtest_slice_id IS NULL)
+                OR
+                (NEW.metric_scope = 'SLICE' AND EXISTS (
+                    SELECT 1 FROM backtest_slices slice
+                    WHERE slice.backtest_slice_id = NEW.backtest_slice_id
+                    AND slice.backtest_run_id = NEW.backtest_run_id
+                    AND slice.evaluation_as_of_at_utc = NEW.as_of_at_utc
+                ))
+            )
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'backtest metric lineage is inconsistent');
+        END
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_backtest_metric_settlements_lineage_insert
+        BEFORE INSERT ON backtest_metric_settlements
+        WHEN NOT EXISTS (
+            SELECT 1
+            FROM backtest_metric_snapshots metric
+            JOIN portfolio_settlements settlement
+              ON settlement.portfolio_settlement_id =
+                 NEW.portfolio_settlement_id
+            WHERE metric.metric_snapshot_id = NEW.metric_snapshot_id
+            AND settlement.settled_at_utc <= metric.as_of_at_utc
+            AND EXISTS (
+                SELECT 1 FROM backtest_slices slice
+                WHERE slice.backtest_run_id = metric.backtest_run_id
+                AND slice.parent_analysis_run_id =
+                    settlement.parent_analysis_run_id
+                AND slice.decision_scope_id = settlement.decision_scope_id
+                AND settlement.settled_at_utc <=
+                    slice.evaluation_as_of_at_utc
+                AND (
+                    metric.backtest_slice_id IS NULL
+                    OR metric.backtest_slice_id = slice.backtest_slice_id
+                )
+            )
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'backtest metric settlement lineage is inconsistent');
+        END
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_backtest_metric_ticket_settlements_lineage_insert
+        BEFORE INSERT ON backtest_metric_ticket_settlements
+        WHEN NOT EXISTS (
+            SELECT 1
+            FROM backtest_metric_snapshots metric
+            JOIN ticket_settlements settlement
+              ON settlement.settlement_id = NEW.settlement_id
+            WHERE metric.metric_snapshot_id = NEW.metric_snapshot_id
+            AND settlement.settled_at_utc <= metric.as_of_at_utc
+            AND EXISTS (
+                SELECT 1 FROM backtest_slices slice
+                WHERE slice.backtest_run_id = metric.backtest_run_id
+                AND slice.parent_analysis_run_id =
+                    settlement.parent_analysis_run_id
+                AND slice.decision_scope_id = settlement.decision_scope_id
+                AND settlement.settled_at_utc <= slice.evaluation_as_of_at_utc
+                AND (
+                    metric.backtest_slice_id IS NULL
+                    OR metric.backtest_slice_id = slice.backtest_slice_id
+                )
+            )
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'backtest metric ticket lineage is inconsistent');
+        END
+        """
+    )

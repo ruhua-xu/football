@@ -1,15 +1,18 @@
-# 0.4.0 Historical Data、Settlement 与时间序列回测设计
+# 0.4.0 Historical Data、Settlement 与时间序列回测设计沿革
 
-## 1. 本阶段边界
+> 文档状态：本文保留 0.4.0 的来源调研、设计理由和演进记录，不再是实现合同。原先的阶段计划与“尚未实现”表述已由新的规范合同 [backtest_v1_contract.md](backtest_v1_contract.md) 取代；发生冲突时，以该合同、当前 Domain 校验和 Alembic head 为准。
 
-本文是 `0.4.0` 的第一阶段设计冻结，只提交：
+## 1. 当前状态与边界
 
-- 历史数据源选择与验收方案。
-- `HistoricalDataProvider` 赛果接口。
-- `MatchResult` 与回测用 Ticket 级 `Settlement` 模型。
-- 严格时间序列回测的时间语义、结算规则和后续实现顺序。
+本文最初是 `0.4.0` 第一阶段设计冻结。当前发布准备实现已经覆盖：
 
-本阶段不实现真实数据 adapter、下载任务、数据库 migration、Settlement service、BacktestRun、CLI、指标引擎或调度器，也不把项目版本号从 `0.3.0` 提升为已发布的 `0.4.0`。
+- `HISTORICAL_ARCHIVE_V1`、六类只读归档和本地决策/赛果 Provider。
+- `LIVE_STRICT` 与 `SOURCE_TIME_RESEARCH` 两种隔离的数据模式。
+- append-only MatchResult、Ticket/Portfolio Settlement 和更正血缘。
+- 固定 slate 的 walk-forward、BacktestRun/Slice、指标、报告和策略比较。
+- SQLite 迁移 `f3a1c6d8e204` 与 8 条公开历史 CLI 路径。
+
+当前仍不实现真实数据 adapter、下载任务、生产抓取或调度器。`0.4.0` 处于发布准备中；本文不把合成验收描述为真实历史表现。
 
 以下边界继续冻结：
 
@@ -84,13 +87,12 @@ MatchResultQuery(match_ids, as_of_at_utc)
 
 ### 3.3 严格模式与研究模式
 
-首个实现只接受严格模式：
+V1 已实现并强制隔离两种模式：
 
-```text
-captured/observed <= available <= ingested <= as_of
-```
+- `LIVE_STRICT`：用于系统当时实际采集的数据，要求 `captured/observed <= available <= ingested <= cutoff`；记录不得携带回溯 import 时间。
+- `SOURCE_TIME_RESEARCH`：用于后来取得的历史归档，按可信 source observed/available time 执行 cutoff。记录必须显式 `retrospective=true`、单独保存晚于来源时间的 `imported_at_utc`，并在报告中标记 `RETROSPECTIVE_SOURCE_TIME_RESEARCH`。
 
-如果 2024 年的 CSV 在 2026 年才首次导入本系统，它不能被描述为“本系统在 2024 年已经知道”。这类数据未来只能进入单独命名的 `PROVIDER_TIME_RESEARCH` 模式，不能静默混入严格回放。本阶段不定义或实现该宽松模式。
+如果 2024 年的 CSV 在 2026 年才首次导入本系统，它不能被描述为“本系统在 2024 年已经知道”。两种模式不能出现在同一运行中，也不能静默合并指标；无法可靠确认 source historical availability timestamp 的数据不满足严格 point-in-time 要求，禁止伪造 timestamp。
 
 ### 3.4 来源验收门槛
 
@@ -194,44 +196,44 @@ for each chronological slate:
 - 不允许使用全样本收益反向选择当期 Ticket。
 - 缺失赛果、奖金或映射必须计入 coverage，不能静默丢弃后只报告成功样本。
 
-### 6.4 计划指标
+### 6.4 已实现指标
 
-后续指标引擎至少报告：
+V1 指标引擎报告：
 
-- 决策切片数、比赛覆盖率、可结算 Ticket 比例。
-- 总预算、总投入、保留 Cash、毛返还、实现盈亏和 ROI。
-- Ticket 命中率，但不把命中率替代收益指标。
-- 最大回撤、连续亏损区间。
-- Match/Selection Exposure 与 Stress 结果对应的实现损失。
-- `NO_BET` 比例和数据缺失原因。
-- 按 provider、联赛、赛季和固定策略版本分组的结果。
+- slate、比赛和 Ticket 数量及覆盖率。
+- 总预算、总投入、已结算投入、保留 Cash、毛返还、实现盈亏、ROI on budget 与 ROI on deployed。
+- Ticket 命中率、`NO_BET` 数量/比例、平均 Ticket 赔率/概率和平均 Selection EV。
+- 最大回撤、最大连续亏损 slate。
+- 最大 Match/Selection Exposure，以及最高暴露一场或两场失败时的实现损失。
+- `P_market`、`P_quant`、`P_final` 的 multiclass Brier、分项 Brier、epsilon-clipped LogLoss、10-bin Calibration 和 ECE。
 
-指标只能基于 append-only Settlement 聚合，不写回原 Portfolio。
+缺失决策输入、缺失赛果和 unsupported settlement 均显式进入 coverage/report，不静默丢弃。按 provider、联赛或赛季分组仍未实现。指标基于冻结决策与 append-only Settlement/指标快照聚合，不写回原 Portfolio。
 
-## 7. 后续持久化方向
+## 7. 已实现持久化
 
-本阶段不修改 schema。下一次实现评审通过后才考虑新增：
+原“后续持久化方向”已由 Alembic 迁移 `f3a1c6d8e204` 落实。当前新增表包括：
 
 ```text
-match_results                 # source fact, append-only
-settlements                   # post-decision artifact, append-only
+historical_archive_imports
+match_results
+ticket_settlements
+ticket_settlement_match_results
+portfolio_settlements
+portfolio_settlement_tickets
+backtest_runs
+backtest_slices
+backtest_metric_snapshots
+backtest_metric_settlements
+backtest_metric_ticket_settlements
 ```
 
-`match_results` 应采用 source-table 不可变触发器；`settlements` 应校验 completed decision parent、Ticket/Portfolio scope、MatchResult 覆盖和 supersession 血缘。PortfolioRevision 的 Ticket 当前保存在 canonical revision JSON 中，持久化设计必须先决定如何建立可验证引用，不能先写弱外键表。
+归档 import 只登记 `MANIFEST_PROVENANCE_ONLY`，不批量物化 payload。选中的决策输入继续由 AnalysisRun 事务冻结，MatchResult 在 evaluation 阶段物化。Repository、外键、hash 校验和 SQLite trigger 共同约束 append-only、completed parent、scope、result/settlement supersession、BacktestRun/Slice/Metric 血缘及 `INSERT OR REPLACE` 绕过。
 
-本阶段不创建 `backtest_runs` 表。必须先用小样本证明切片、结果选择和结算规则，再冻结 BacktestRun manifest。
+walk-forward V1 只创建 base AnalysisRun 的结算。Domain 与持久化为 `PORTFOLIO_REVISION` 保留可验证 scope，但当前公开 `settlement create` CLI 和 `backtest run` 不执行 Revision 历史回测。
 
-## 8. 推荐实现顺序
+## 8. 实现顺序状态
 
-1. 冻结本文和当前接口/模型。
-2. 选择一组有授权的小型历史归档并记录 checksum。
-3. 实现只读文件 `HistoricalDataProvider` adapter 与 contract test。
-4. 实现纯 Domain 的2串1 Settlement service，不接数据库。
-5. 用固定切片做内存端到端测试并核对人工结算。
-6. 再评审 migration、append-only repository 和 BacktestRun manifest。
-7. 最后才增加 CLI 与批量指标报告。
-
-任一步都不需要修改 LLM 合同或增加新的过关类型。
+只读 Archive/Provider、Domain Settlement、SQLite migration/repository、固定 slate walk-forward、指标/报告、CLI 和合成 wheel 验收均已实现。该顺序没有修改 0.3.0 LLM 合同，也没有增加新过关类型。真实来源选型、授权数据归档和 provider/联赛/赛季分组报告仍留待单独评审。
 
 ## 9. 当前不做
 

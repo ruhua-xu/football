@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -11,11 +12,15 @@ from pydantic import Field, model_validator
 
 from football_system.application.models import AnalysisArtifacts
 from football_system.application.ports.data_providers import (
+    FixtureBatch,
     FixtureProvider,
     FixtureQuery,
+    ManualQuantBatch,
     ManualQuantProvider,
+    MarketOddsBatch,
     MarketOddsProvider,
     SnapshotQuery,
+    SportteryBatch,
     SportteryProvider,
 )
 from football_system.application.ports.repositories import AnalysisRepository
@@ -39,10 +44,19 @@ from football_system.domain.prediction import (
     FusionInputs,
     FusionInputsUnavailable,
     FusionPolicyName,
+    ManualQuantInput,
     MarketPrediction,
     QuantPrediction,
 )
 from football_system.domain.market import MarketType, UnsupportedMarketError
+from football_system.domain.match import (
+    Competition,
+    MarketOddsSnapshot,
+    Match,
+    ProviderMatchMapping,
+    SportteryBonusSnapshot,
+    Team,
+)
 from football_system.domain.services.betting import (
     build_selection_candidates,
     build_two_leg_ticket_candidates,
@@ -63,6 +77,8 @@ class RunAnalysisRequest(DomainModel):
     min_ticket_roi: Decimal | None = Field(default=None, ge=0)
     analysis_run_id: Identifier | None = None
     execution_time_utc: UtcDateTime | None = None
+    allow_partial_inputs: bool = False
+    expected_match_ids: tuple[Identifier, ...] | None = None
 
     @model_validator(mode="after")
     def validate_request(self) -> RunAnalysisRequest:
@@ -72,12 +88,27 @@ class RunAnalysisRequest(DomainModel):
             raise ValueError("at least one non-negative budget is required")
         if len(self.budgets_fen) != len(set(self.budgets_fen)):
             raise ValueError("budgets must be unique")
+        if self.expected_match_ids is not None and len(self.expected_match_ids) != len(
+            set(self.expected_match_ids)
+        ):
+            raise ValueError("expected analysis match IDs must be unique")
         if (
             self.execution_time_utc is not None
             and self.execution_time_utc < self.as_of_at_utc
         ):
             raise ValueError("execution time cannot precede the knowledge cutoff")
         return self
+
+
+@dataclass(frozen=True)
+class _SelectedInputs:
+    competitions: tuple[Competition, ...]
+    teams: tuple[Team, ...]
+    matches: tuple[Match, ...]
+    mappings: tuple[ProviderMatchMapping, ...]
+    market_snapshots: tuple[MarketOddsSnapshot, ...]
+    sporttery_snapshots: tuple[SportteryBonusSnapshot, ...]
+    manual_inputs: tuple[ManualQuantInput, ...]
 
 
 class RunAnalysisService:
@@ -107,9 +138,11 @@ class RunAnalysisService:
                 as_of_at_utc=request.as_of_at_utc,
             )
         )
-        if not fixture_batch.matches:
-            raise ValueError("fixture provider returned no matches")
-        match_ids = tuple(match.match_id for match in fixture_batch.matches)
+        fixture_batch = FixtureBatch.model_validate(
+            fixture_batch.model_dump(mode="python", exclude_computed_fields=True)
+        )
+        query_matches = _validate_fixture_response(request, fixture_batch)
+        match_ids = tuple(match.match_id for match in query_matches)
         snapshot_query = SnapshotQuery(
             match_ids=match_ids,
             as_of_at_utc=request.as_of_at_utc,
@@ -119,39 +152,30 @@ class RunAnalysisService:
             self._sporttery_provider.fetch_fixed_bonus(snapshot_query),
             self._manual_quant_provider.fetch_manual_quant(snapshot_query),
         )
-        _validate_point_in_time(
-            request.as_of_at_utc,
+        odds_batch = MarketOddsBatch.model_validate(
+            odds_batch.model_dump(mode="python", exclude_computed_fields=True)
+        )
+        sporttery_batch = SportteryBatch.model_validate(
+            sporttery_batch.model_dump(mode="python", exclude_computed_fields=True)
+        )
+        manual_quant_batch = ManualQuantBatch.model_validate(
+            manual_quant_batch.model_dump(mode="python", exclude_computed_fields=True)
+        )
+        selected = _select_analysis_inputs(
+            request,
             started_at,
-            fixture_batch.matches,
-            fixture_batch.mappings + odds_batch.mappings + sporttery_batch.mappings,
-            odds_batch.snapshots,
-            sporttery_batch.snapshots,
-            manual_quant_batch.inputs,
+            fixture_batch,
+            query_matches,
+            odds_batch,
+            sporttery_batch,
+            manual_quant_batch,
         )
-        _validate_source_payloads(
-            fixture_batch.mappings + odds_batch.mappings + sporttery_batch.mappings,
-            odds_batch.snapshots,
-            sporttery_batch.snapshots,
-            manual_quant_batch.inputs,
+        odds_by_match = _unique_by_match(selected.market_snapshots, "market odds")
+        bonus_by_match = _unique_by_match(
+            selected.sporttery_snapshots,
+            "Sporttery bonus",
         )
-        _validate_match_scope(
-            match_ids,
-            odds_batch.snapshots,
-            sporttery_batch.snapshots,
-            manual_quant_batch.inputs,
-        )
-        odds_by_match = _unique_by_match(odds_batch.snapshots, "market odds")
-        bonus_by_match = _unique_by_match(sporttery_batch.snapshots, "Sporttery bonus")
-        quant_by_match = _unique_by_match(manual_quant_batch.inputs, "manual P_quant")
-        missing_inputs = [
-            match_id
-            for match_id in match_ids
-            if match_id not in odds_by_match
-            or match_id not in bonus_by_match
-            or match_id not in quant_by_match
-        ]
-        if missing_inputs:
-            raise ValueError(f"required MVP inputs missing for: {', '.join(missing_inputs)}")
+        quant_by_match = _unique_by_match(selected.manual_inputs, "manual P_quant")
 
         market_predictions: list[MarketPrediction] = []
         quant_predictions: list[QuantPrediction] = []
@@ -160,7 +184,7 @@ class RunAnalysisService:
         policy = get_fusion_policy(request.fusion_policy)
         fusion_config = FusionConfig(quant_weight=self._settings.analysis.quant_weight)
 
-        for match in fixture_batch.matches:
+        for match in selected.matches:
             odds_snapshot = odds_by_match[match.match_id]
             bonus_snapshot = bonus_by_match[match.match_id]
             quant_input = quant_by_match[match.match_id]
@@ -214,10 +238,10 @@ class RunAnalysisService:
                     started_at,
                 )
             except FusionInputsUnavailable:
-                final_prediction = get_fusion_policy(
-                    FusionPolicyName.QUANT_ONLY_V1
-                ).fuse(fusion_inputs, fusion_config, started_at).model_copy(
-                    update={"fallback_code": "FALLBACK_TO_QUANT_ONLY"}
+                final_prediction = (
+                    get_fusion_policy(FusionPolicyName.QUANT_ONLY_V1)
+                    .fuse(fusion_inputs, fusion_config, started_at)
+                    .model_copy(update={"fallback_code": "FALLBACK_TO_QUANT_ONLY"})
                 )
             context_json = _canonical_json(
                 {
@@ -283,25 +307,33 @@ class RunAnalysisService:
         portfolio_risk_reports = tuple(
             analyze_portfolio_risk(portfolio) for portfolio in portfolios
         )
+        request_config: dict[str, object] = {
+            "fusion_policy": request.fusion_policy,
+            "min_selection_ev": min_selection_ev,
+            "min_ticket_roi": min_ticket_roi,
+            "budgets_fen": request.budgets_fen,
+        }
+        if request.allow_partial_inputs:
+            request_config.update(
+                {
+                    "allow_partial_inputs": True,
+                    "expected_match_ids": request.expected_match_ids or (),
+                }
+            )
         config_json = _canonical_json(
             {
                 "settings": self._settings.model_dump(mode="json"),
-                "request": {
-                    "fusion_policy": request.fusion_policy,
-                    "min_selection_ev": min_selection_ev,
-                    "min_ticket_roi": min_ticket_roi,
-                    "budgets_fen": request.budgets_fen,
-                },
+                "request": request_config,
             }
         )
-        manifest_json = _build_manifest_json(
-            fixture_batch.competitions,
-            fixture_batch.teams,
-            fixture_batch.matches,
-            fixture_batch.mappings + odds_batch.mappings + sporttery_batch.mappings,
-            odds_batch.snapshots,
-            sporttery_batch.snapshots,
-            manual_quant_batch.inputs,
+        manifest_json = build_input_manifest_json(
+            selected.competitions,
+            selected.teams,
+            selected.matches,
+            selected.mappings,
+            selected.market_snapshots,
+            selected.sporttery_snapshots,
+            selected.manual_inputs,
         )
         completed_at = request.execution_time_utc or utc_now()
         analysis_run = AnalysisRun(
@@ -318,17 +350,13 @@ class RunAnalysisService:
             input_manifest_json=manifest_json,
         )
         artifacts = AnalysisArtifacts(
-            competitions=fixture_batch.competitions,
-            teams=fixture_batch.teams,
-            matches=fixture_batch.matches,
-            provider_mappings=(
-                fixture_batch.mappings
-                + odds_batch.mappings
-                + sporttery_batch.mappings
-            ),
-            market_odds_snapshots=odds_batch.snapshots,
-            sporttery_bonus_snapshots=sporttery_batch.snapshots,
-            manual_quant_inputs=manual_quant_batch.inputs,
+            competitions=selected.competitions,
+            teams=selected.teams,
+            matches=selected.matches,
+            provider_mappings=selected.mappings,
+            market_odds_snapshots=selected.market_snapshots,
+            sporttery_bonus_snapshots=selected.sporttery_snapshots,
+            manual_quant_inputs=selected.manual_inputs,
             analysis_run=analysis_run,
             match_contexts=tuple(contexts),
             market_predictions=tuple(market_predictions),
@@ -357,6 +385,331 @@ def default_request(
     )
 
 
+def _validate_fixture_response(
+    request: RunAnalysisRequest,
+    batch: FixtureBatch,
+) -> tuple[Match, ...]:
+    match_ids = tuple(match.match_id for match in batch.matches)
+    expected_ids = request.expected_match_ids or ()
+    if expected_ids:
+        expected = set(expected_ids)
+        unexpected = tuple(
+            match_id for match_id in match_ids if match_id not in expected
+        )
+        if unexpected:
+            raise ValueError(
+                "fixture provider returned unexpected matches: " + ", ".join(unexpected)
+            )
+        if not request.allow_partial_inputs:
+            missing = tuple(
+                match_id for match_id in expected_ids if match_id not in match_ids
+            )
+            if missing:
+                raise ValueError(
+                    "required MVP fixtures missing for: " + ", ".join(missing)
+                )
+    if any(
+        not (request.kickoff_from_utc <= match.kickoff_at_utc <= request.kickoff_to_utc)
+        for match in batch.matches
+    ):
+        raise ValueError(
+            "fixture provider returned a match outside the requested window"
+        )
+    if not request.allow_partial_inputs:
+        if not batch.matches:
+            raise ValueError("fixture provider returned no matches")
+        return batch.matches
+    return tuple(
+        match
+        for match in batch.matches
+        if match.available_at_utc <= request.as_of_at_utc
+    )
+
+
+def _select_analysis_inputs(
+    request: RunAnalysisRequest,
+    started_at: UtcDateTime,
+    fixture_batch: FixtureBatch,
+    query_matches: tuple[Match, ...],
+    odds_batch: MarketOddsBatch,
+    sporttery_batch: SportteryBatch,
+    manual_quant_batch: ManualQuantBatch,
+) -> _SelectedInputs:
+    match_ids = tuple(match.match_id for match in query_matches)
+    match_id_set = set(match_ids)
+    all_mappings = (
+        fixture_batch.mappings + odds_batch.mappings + sporttery_batch.mappings
+    )
+    if not request.allow_partial_inputs:
+        _validate_point_in_time(
+            request.as_of_at_utc,
+            started_at,
+            query_matches,
+            all_mappings,
+            odds_batch.snapshots,
+            sporttery_batch.snapshots,
+            manual_quant_batch.inputs,
+        )
+        _validate_source_payloads(
+            all_mappings,
+            odds_batch.snapshots,
+            sporttery_batch.snapshots,
+            manual_quant_batch.inputs,
+        )
+        _validate_match_scope(
+            match_ids,
+            odds_batch.snapshots,
+            sporttery_batch.snapshots,
+            manual_quant_batch.inputs,
+        )
+        missing = _missing_required_inputs(
+            query_matches,
+            odds_batch.snapshots,
+            sporttery_batch.snapshots,
+            manual_quant_batch.inputs,
+        )
+        if missing:
+            raise ValueError(f"required MVP inputs missing for: {', '.join(missing)}")
+        return _SelectedInputs(
+            competitions=fixture_batch.competitions,
+            teams=fixture_batch.teams,
+            matches=query_matches,
+            mappings=all_mappings,
+            market_snapshots=odds_batch.snapshots,
+            sporttery_snapshots=sporttery_batch.snapshots,
+            manual_inputs=manual_quant_batch.inputs,
+        )
+
+    _validate_match_scope(
+        match_ids,
+        odds_batch.snapshots,
+        sporttery_batch.snapshots,
+        manual_quant_batch.inputs,
+    )
+    _validate_mapping_scope(
+        match_ids,
+        odds_batch.mappings,
+        sporttery_batch.mappings,
+    )
+    cutoff = request.as_of_at_utc
+    fixture_mappings = tuple(
+        mapping
+        for mapping in fixture_batch.mappings
+        if mapping.internal_match_id in match_id_set
+        and mapping.available_at_utc <= cutoff
+    )
+    market_snapshots = tuple(
+        snapshot
+        for snapshot in odds_batch.snapshots
+        if _snapshot_is_visible(snapshot, cutoff)
+    )
+    sporttery_snapshots = tuple(
+        snapshot
+        for snapshot in sporttery_batch.snapshots
+        if _snapshot_is_visible(snapshot, cutoff)
+    )
+    manual_inputs = tuple(
+        item for item in manual_quant_batch.inputs if item.available_at_utc <= cutoff
+    )
+    market_mappings = tuple(
+        mapping for mapping in odds_batch.mappings if mapping.available_at_utc <= cutoff
+    )
+    sporttery_mappings = tuple(
+        mapping
+        for mapping in sporttery_batch.mappings
+        if mapping.available_at_utc <= cutoff
+    )
+    visible_mappings = fixture_mappings + market_mappings + sporttery_mappings
+    _validate_source_payloads(
+        visible_mappings,
+        market_snapshots,
+        sporttery_snapshots,
+        manual_inputs,
+    )
+
+    odds_by_match = _unique_by_match(market_snapshots, "market odds")
+    bonus_by_match = _unique_by_match(sporttery_snapshots, "Sporttery bonus")
+    quant_by_match = _unique_by_match(manual_inputs, "manual P_quant")
+    match_by_id = {match.match_id: match for match in query_matches}
+    ordered_ids = tuple(
+        match_id
+        for match_id in (request.expected_match_ids or match_ids)
+        if match_id in match_by_id
+    )
+    complete_ids = tuple(
+        match_id
+        for match_id in ordered_ids
+        if _has_complete_mvp_inputs(
+            match_id,
+            fixture_mappings,
+            odds_by_match,
+            market_mappings,
+            bonus_by_match,
+            sporttery_mappings,
+            quant_by_match,
+        )
+    )
+    complete = set(complete_ids)
+    matches = tuple(match_by_id[match_id] for match_id in complete_ids)
+    competition_ids = {match.competition_id for match in matches}
+    team_ids = {
+        team_id
+        for match in matches
+        for team_id in (match.home_team_id, match.away_team_id)
+    }
+    competitions = tuple(
+        item
+        for item in fixture_batch.competitions
+        if item.competition_id in competition_ids
+    )
+    teams = tuple(item for item in fixture_batch.teams if item.team_id in team_ids)
+    if {item.competition_id for item in competitions} != competition_ids or {
+        item.team_id for item in teams
+    } != team_ids:
+        raise ValueError("fixture provider omitted competition or team references")
+
+    selected_market = tuple(odds_by_match[match_id] for match_id in complete_ids)
+    selected_bonus = tuple(bonus_by_match[match_id] for match_id in complete_ids)
+    selected_quant = tuple(quant_by_match[match_id] for match_id in complete_ids)
+    selected_fixture_mappings = tuple(
+        mapping for mapping in fixture_mappings if mapping.internal_match_id in complete
+    )
+    selected_market_mappings = tuple(
+        mapping
+        for mapping in market_mappings
+        if mapping.internal_match_id in complete
+        and mapping.provider_code
+        == odds_by_match[mapping.internal_match_id].provider_code
+    )
+    selected_sporttery_mappings = tuple(
+        mapping
+        for mapping in sporttery_mappings
+        if mapping.internal_match_id in complete
+        and mapping.provider_code
+        == bonus_by_match[mapping.internal_match_id].provider_code
+    )
+    selected_mappings = _unique_mappings(
+        selected_fixture_mappings,
+        selected_market_mappings,
+        selected_sporttery_mappings,
+    )
+    _validate_point_in_time(
+        cutoff,
+        started_at,
+        matches,
+        selected_mappings,
+        selected_market,
+        selected_bonus,
+        selected_quant,
+    )
+    return _SelectedInputs(
+        competitions=competitions,
+        teams=teams,
+        matches=matches,
+        mappings=selected_mappings,
+        market_snapshots=selected_market,
+        sporttery_snapshots=selected_bonus,
+        manual_inputs=selected_quant,
+    )
+
+
+def _missing_required_inputs(
+    matches: tuple[Match, ...],
+    market_snapshots: tuple[MarketOddsSnapshot, ...],
+    sporttery_snapshots: tuple[SportteryBonusSnapshot, ...],
+    manual_inputs: tuple[ManualQuantInput, ...],
+) -> tuple[str, ...]:
+    odds_by_match = _unique_by_match(market_snapshots, "market odds")
+    bonus_by_match = _unique_by_match(sporttery_snapshots, "Sporttery bonus")
+    quant_by_match = _unique_by_match(manual_inputs, "manual P_quant")
+    return tuple(
+        match.match_id
+        for match in matches
+        if match.match_id not in odds_by_match
+        or match.match_id not in bonus_by_match
+        or match.match_id not in quant_by_match
+    )
+
+
+def _has_complete_mvp_inputs(
+    match_id: str,
+    fixture_mappings: tuple[ProviderMatchMapping, ...],
+    odds_by_match: dict[str, object],
+    market_mappings: tuple[ProviderMatchMapping, ...],
+    bonus_by_match: dict[str, object],
+    sporttery_mappings: tuple[ProviderMatchMapping, ...],
+    quant_by_match: dict[str, object],
+) -> bool:
+    odds = odds_by_match.get(match_id)
+    bonus = bonus_by_match.get(match_id)
+    quant = quant_by_match.get(match_id)
+    if (
+        odds is None
+        or bonus is None
+        or quant is None
+        or not any(
+            mapping.internal_match_id == match_id for mapping in fixture_mappings
+        )
+        or not _has_provider_mapping(market_mappings, match_id, odds.provider_code)
+        or not _has_provider_mapping(sporttery_mappings, match_id, bonus.provider_code)
+    ):
+        return False
+    return (
+        odds.market.market_type == MarketType.THREE_WAY
+        and odds.market == bonus.market == quant.market
+    )
+
+
+def _has_provider_mapping(
+    mappings: tuple[ProviderMatchMapping, ...],
+    match_id: str,
+    provider_code: str,
+) -> bool:
+    return any(
+        mapping.internal_match_id == match_id and mapping.provider_code == provider_code
+        for mapping in mappings
+    )
+
+
+def _snapshot_is_visible(
+    snapshot: MarketOddsSnapshot | SportteryBonusSnapshot,
+    cutoff: UtcDateTime,
+) -> bool:
+    return all(
+        timestamp <= cutoff
+        for timestamp in (
+            snapshot.captured_at_utc,
+            snapshot.available_at_utc,
+            snapshot.ingested_at_utc,
+        )
+    )
+
+
+def _validate_mapping_scope(
+    match_ids: tuple[str, ...],
+    *mapping_groups: tuple[ProviderMatchMapping, ...],
+) -> None:
+    expected = set(match_ids)
+    if any(
+        mapping.internal_match_id not in expected
+        for group in mapping_groups
+        for mapping in group
+    ):
+        raise ValueError("provider returned a mapping for an unrequested match")
+
+
+def _unique_mappings(
+    *mapping_groups: tuple[ProviderMatchMapping, ...],
+) -> tuple[ProviderMatchMapping, ...]:
+    by_id: dict[str, ProviderMatchMapping] = {}
+    for mapping in (item for group in mapping_groups for item in group):
+        previous = by_id.get(mapping.mapping_id)
+        if previous is not None and previous != mapping:
+            raise ValueError(f"conflicting provider mapping: {mapping.mapping_id}")
+        by_id[mapping.mapping_id] = mapping
+    return tuple(by_id[mapping_id] for mapping_id in sorted(by_id))
+
+
 def _sporttery_rules(settings: AppSettings) -> SportteryRules:
     return SportteryRules(
         version=settings.sporttery.rules_version,
@@ -375,9 +728,7 @@ def _portfolio_constraints(settings: AppSettings) -> PortfolioConstraints:
             settings.portfolio.operational_complexity_penalty
         ),
         max_match_exposure_ratio=settings.portfolio.max_match_exposure_ratio,
-        max_selection_exposure_ratio=(
-            settings.portfolio.max_selection_exposure_ratio
-        ),
+        max_selection_exposure_ratio=(settings.portfolio.max_selection_exposure_ratio),
         concentration_penalty=settings.portfolio.concentration_penalty,
         min_marginal_score=settings.portfolio.min_marginal_score,
     )
@@ -482,9 +833,7 @@ def _validate_source_payloads(
         payload = manual_input.probabilities
         _validate_market_handicap(manual_input.market, manual_input.input_id)
         _validate_decimal_storage(payload.items(), 18, 12, manual_input.input_id)
-        _assert_payload_hash(
-            manual_input.payload_hash, payload, manual_input.input_id
-        )
+        _assert_payload_hash(manual_input.payload_hash, payload, manual_input.input_id)
 
 
 def _validate_decimal_storage(
@@ -521,7 +870,7 @@ def _assert_payload_hash(expected: str, payload: DomainModel, source_id: str) ->
         raise ValueError(f"source {source_id} payload hash does not match its contents")
 
 
-def _build_manifest_json(
+def build_input_manifest_json(
     competitions: tuple,
     teams: tuple,
     matches: tuple,
@@ -537,9 +886,7 @@ def _build_manifest_json(
             "teams": _manifest_records(teams, "team_id"),
             "matches": _manifest_records(matches, "match_id"),
             "provider_mappings": _manifest_records(mappings, "mapping_id"),
-            "market_odds_snapshots": _manifest_records(
-                market_snapshots, "snapshot_id"
-            ),
+            "market_odds_snapshots": _manifest_records(market_snapshots, "snapshot_id"),
             "sporttery_bonus_snapshots": _manifest_records(
                 sporttery_snapshots, "snapshot_id"
             ),

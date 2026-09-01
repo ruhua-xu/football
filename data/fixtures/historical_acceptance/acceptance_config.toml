@@ -1,0 +1,308 @@
+dataset_id = "historical-acceptance-v1"
+classification = "SYNTHETIC_ACCEPTANCE_DATA"
+performance_warning = "NOT REAL HISTORICAL PERFORMANCE"
+manifest_label = "SYNTHETIC_ACCEPTANCE_DATA / NOT REAL HISTORICAL PERFORMANCE"
+archive_schema_version = "HISTORICAL_ARCHIVE_V1"
+data_mode = "LIVE_STRICT"
+provider_code = "SYNTHETIC_ACCEPTANCE_V1"
+market_bookmaker_code = "CONSENSUS"
+slate_policy = "DAILY_FIXED_CUTOFF_V1"
+slate_count = 10
+matches_per_slate = 6
+expected_match_count = 60
+budget_fen = 10000
+min_selection_ev = "0.05"
+min_ticket_roi = "0.05"
+
+[portfolio]
+preferred_max_tickets = 2
+absolute_max_tickets = 2
+extra_ticket_min_roi = "0.20"
+operational_complexity_penalty = "0.01"
+max_match_exposure_ratio = "0.40"
+max_selection_exposure_ratio = "0.40"
+concentration_penalty = "0.00"
+min_marginal_score = "0.00"
+
+[sporttery]
+rules_version = "SPORTTERY_ACCEPTANCE_V1"
+base_stake_fen = 200
+max_multiplier = 3
+max_ticket_stake_fen = 600
+
+[expected_final_outcome_counts]
+HOME_WIN = 20
+DRAW = 20
+AWAY_WIN = 19
+MISSING_RESULT = 1
+
+[invalid_examples]
+mapping_conflict_directory = "invalid_examples/mapping_conflict"
+mapping_missing_directory = "invalid_examples/mapping_missing"
+
+[[archives]]
+filename = "fixtures.json"
+dataset_kind = "FIXTURES"
+record_count = 61
+payload_sha256 = "ffbaa93ec8bfa966778b30f9308caa46ccff32f5a688808501adef14220334ce"
+file_sha256 = "aee536137ccdaae5ddfbaa3a127695bf102ae0060b98f3bd1aab6fdc36ee7532"
+
+[[archives]]
+filename = "market_odds.json"
+dataset_kind = "MARKET_ODDS"
+record_count = 62
+payload_sha256 = "0ad75a56140427b864a5c0ad5fa56f9f7e94188605999350b13ddfaf36f70ab6"
+file_sha256 = "9076be13814894db56b6869bca8a637f08677073797e1594bf99fcbb16963547"
+
+[[archives]]
+filename = "sporttery_bonus.json"
+dataset_kind = "SPORTTERY_BONUS"
+record_count = 61
+payload_sha256 = "204cac6b639c66949bd0add68f59f2de306aab5a13cc64100f133c88a3865dd2"
+file_sha256 = "ffe11b46a746e77d314cbe825e10cee98c5607a6a831180e6cdbd6f0891dff1d"
+
+[[archives]]
+filename = "manual_quant.json"
+dataset_kind = "MANUAL_QUANT"
+record_count = 61
+payload_sha256 = "70a70c444f493412265038dbf3767e9c56a69575d4bca7375ea463de9983b7f4"
+file_sha256 = "8978b27a3cbdb7138f6f67f678958ba0b10db8001b3a626823d22ed9ccf1f101"
+
+[[archives]]
+filename = "match_results.json"
+dataset_kind = "MATCH_RESULTS"
+record_count = 60
+payload_sha256 = "bf02922605c7fe21ec13446549eb0b18d069bac5e3cdf0dca148e244d13a2b7e"
+file_sha256 = "8fa4b61e1e80777f4bf0364737b0be7263fad463358b2393a92dc72383171e3d"
+
+[[archives]]
+filename = "provider_mappings.json"
+dataset_kind = "PROVIDER_MAPPINGS"
+record_count = 60
+payload_sha256 = "8da43b07b0a44c654622d7ff6c4bfb27abc3916724d49595e897da9b384984a0"
+file_sha256 = "162b6fa53f1e239256ee45a99cffc9a30b9dbf726bf1620637a5ffe5a71ee98f"
+
+[[strategies]]
+name = "QUANT_ONLY_V1"
+quant_weight = "1.00"
+expected_no_bet_slate_ids = ["ha-slate-07"]
+
+[[strategies]]
+name = "MARKET_QUANT_BLEND_V1"
+quant_weight = "0.70"
+expected_no_bet_slate_ids = ["ha-slate-07"]
+
+[special_cases.odds_exactly_at_cutoff]
+match_id = "ha-20250109-01"
+snapshot_id = "ha-market-ha-20250109-01-v1"
+legal_behavior = "included_at_decision_cutoff"
+
+[special_cases.odds_after_cutoff]
+match_id = "ha-20250110-06"
+snapshot_id = "ha-market-ha-20250110-06-late-book-v1"
+visible_at_utc = "2025-01-10T09:03:00Z"
+legal_behavior = "excluded_at_decision_included_after_ingestion"
+
+[special_cases.market_future_version]
+match_id = "ha-20250106-01"
+decision_snapshot_id = "ha-market-ha-20250106-01-v1"
+future_snapshot_id = "ha-market-ha-20250106-01-v2"
+visible_at_utc = "2025-01-06T09:06:00Z"
+
+[special_cases.sporttery_future_version]
+match_id = "ha-20250106-02"
+decision_snapshot_id = "ha-sporttery-ha-20250106-02-v1"
+future_snapshot_id = "ha-sporttery-ha-20250106-02-v2"
+visible_at_utc = "2025-01-06T09:09:00Z"
+
+[special_cases.quant_future_version]
+match_id = "ha-20250106-03"
+decision_input_id = "ha-quant-ha-20250106-03-v1"
+future_input_id = "ha-quant-ha-20250106-03-v2"
+visible_at_utc = "2025-01-06T09:12:00Z"
+
+[special_cases.fixture_future_version]
+match_id = "ha-20250106-04"
+visible_at_utc = "2025-01-06T21:15:00Z"
+
+[special_cases.result_correction]
+match_id = "ha-20250108-02"
+initial_result_id = "ha-result-ha-20250108-02-v1"
+corrected_result_id = "ha-result-ha-20250108-02-v2"
+initial_outcome = "HOME_WIN"
+corrected_outcome = "DRAW"
+visible_at_utc = "2025-01-09T09:01:00Z"
+
+[special_cases.missing_result]
+match_id = "ha-20250115-06"
+expected_behavior = "partial_coverage_not_silent_drop"
+
+[[slates]]
+slate_id = "ha-slate-01"
+date = "2025-01-06"
+decision_as_of_at_utc = "2025-01-06T09:00:00Z"
+evaluation_as_of_at_utc = "2025-01-07T03:00:00Z"
+kickoff_from_utc = "2025-01-06T12:00:00Z"
+kickoff_to_utc = "2025-01-06T23:00:00Z"
+match_ids = ["ha-20250106-01", "ha-20250106-02", "ha-20250106-03", "ha-20250106-04", "ha-20250106-05", "ha-20250106-06"]
+evaluation_outcomes = ["HOME_WIN", "DRAW", "AWAY_WIN", "HOME_WIN", "DRAW", "AWAY_WIN"]
+expected_settled_match_count = 6
+quant_only_status = "RECOMMENDED"
+quant_only_ticket_count = 2
+quant_only_cash_fen = 8800
+market_quant_blend_status = "RECOMMENDED"
+market_quant_blend_ticket_count = 2
+market_quant_blend_cash_fen = 8800
+
+[[slates]]
+slate_id = "ha-slate-02"
+date = "2025-01-07"
+decision_as_of_at_utc = "2025-01-07T09:00:00Z"
+evaluation_as_of_at_utc = "2025-01-08T03:00:00Z"
+kickoff_from_utc = "2025-01-07T12:00:00Z"
+kickoff_to_utc = "2025-01-07T23:00:00Z"
+match_ids = ["ha-20250107-01", "ha-20250107-02", "ha-20250107-03", "ha-20250107-04", "ha-20250107-05", "ha-20250107-06"]
+evaluation_outcomes = ["HOME_WIN", "DRAW", "AWAY_WIN", "HOME_WIN", "DRAW", "AWAY_WIN"]
+expected_settled_match_count = 6
+quant_only_status = "RECOMMENDED"
+quant_only_ticket_count = 2
+quant_only_cash_fen = 8800
+market_quant_blend_status = "RECOMMENDED"
+market_quant_blend_ticket_count = 2
+market_quant_blend_cash_fen = 8800
+
+[[slates]]
+slate_id = "ha-slate-03"
+date = "2025-01-08"
+decision_as_of_at_utc = "2025-01-08T09:00:00Z"
+evaluation_as_of_at_utc = "2025-01-09T03:00:00Z"
+kickoff_from_utc = "2025-01-08T12:00:00Z"
+kickoff_to_utc = "2025-01-08T23:00:00Z"
+match_ids = ["ha-20250108-01", "ha-20250108-02", "ha-20250108-03", "ha-20250108-04", "ha-20250108-05", "ha-20250108-06"]
+evaluation_outcomes = ["HOME_WIN", "HOME_WIN", "AWAY_WIN", "HOME_WIN", "DRAW", "AWAY_WIN"]
+expected_settled_match_count = 6
+quant_only_status = "RECOMMENDED"
+quant_only_ticket_count = 2
+quant_only_cash_fen = 8800
+market_quant_blend_status = "RECOMMENDED"
+market_quant_blend_ticket_count = 2
+market_quant_blend_cash_fen = 8800
+
+[[slates]]
+slate_id = "ha-slate-04"
+date = "2025-01-09"
+decision_as_of_at_utc = "2025-01-09T09:00:00Z"
+evaluation_as_of_at_utc = "2025-01-10T03:00:00Z"
+kickoff_from_utc = "2025-01-09T12:00:00Z"
+kickoff_to_utc = "2025-01-09T23:00:00Z"
+match_ids = ["ha-20250109-01", "ha-20250109-02", "ha-20250109-03", "ha-20250109-04", "ha-20250109-05", "ha-20250109-06"]
+evaluation_outcomes = ["HOME_WIN", "DRAW", "AWAY_WIN", "HOME_WIN", "DRAW", "AWAY_WIN"]
+expected_settled_match_count = 6
+quant_only_status = "RECOMMENDED"
+quant_only_ticket_count = 2
+quant_only_cash_fen = 8800
+market_quant_blend_status = "RECOMMENDED"
+market_quant_blend_ticket_count = 2
+market_quant_blend_cash_fen = 8800
+
+[[slates]]
+slate_id = "ha-slate-05"
+date = "2025-01-10"
+decision_as_of_at_utc = "2025-01-10T09:00:00Z"
+evaluation_as_of_at_utc = "2025-01-11T03:00:00Z"
+kickoff_from_utc = "2025-01-10T12:00:00Z"
+kickoff_to_utc = "2025-01-10T23:00:00Z"
+match_ids = ["ha-20250110-01", "ha-20250110-02", "ha-20250110-03", "ha-20250110-04", "ha-20250110-05", "ha-20250110-06"]
+evaluation_outcomes = ["HOME_WIN", "DRAW", "AWAY_WIN", "HOME_WIN", "DRAW", "AWAY_WIN"]
+expected_settled_match_count = 6
+quant_only_status = "RECOMMENDED"
+quant_only_ticket_count = 2
+quant_only_cash_fen = 8800
+market_quant_blend_status = "RECOMMENDED"
+market_quant_blend_ticket_count = 2
+market_quant_blend_cash_fen = 8800
+
+[[slates]]
+slate_id = "ha-slate-06"
+date = "2025-01-11"
+decision_as_of_at_utc = "2025-01-11T09:00:00Z"
+evaluation_as_of_at_utc = "2025-01-12T03:00:00Z"
+kickoff_from_utc = "2025-01-11T12:00:00Z"
+kickoff_to_utc = "2025-01-11T23:00:00Z"
+match_ids = ["ha-20250111-01", "ha-20250111-02", "ha-20250111-03", "ha-20250111-04", "ha-20250111-05", "ha-20250111-06"]
+evaluation_outcomes = ["HOME_WIN", "DRAW", "AWAY_WIN", "HOME_WIN", "DRAW", "AWAY_WIN"]
+expected_settled_match_count = 6
+quant_only_status = "RECOMMENDED"
+quant_only_ticket_count = 2
+quant_only_cash_fen = 8800
+market_quant_blend_status = "RECOMMENDED"
+market_quant_blend_ticket_count = 2
+market_quant_blend_cash_fen = 8800
+
+[[slates]]
+slate_id = "ha-slate-07"
+date = "2025-01-12"
+decision_as_of_at_utc = "2025-01-12T09:00:00Z"
+evaluation_as_of_at_utc = "2025-01-13T03:00:00Z"
+kickoff_from_utc = "2025-01-12T12:00:00Z"
+kickoff_to_utc = "2025-01-12T23:00:00Z"
+match_ids = ["ha-20250112-01", "ha-20250112-02", "ha-20250112-03", "ha-20250112-04", "ha-20250112-05", "ha-20250112-06"]
+evaluation_outcomes = ["HOME_WIN", "DRAW", "AWAY_WIN", "HOME_WIN", "DRAW", "AWAY_WIN"]
+expected_settled_match_count = 6
+quant_only_status = "NO_BET"
+quant_only_ticket_count = 0
+quant_only_cash_fen = 10000
+market_quant_blend_status = "NO_BET"
+market_quant_blend_ticket_count = 0
+market_quant_blend_cash_fen = 10000
+
+[[slates]]
+slate_id = "ha-slate-08"
+date = "2025-01-13"
+decision_as_of_at_utc = "2025-01-13T09:00:00Z"
+evaluation_as_of_at_utc = "2025-01-14T03:00:00Z"
+kickoff_from_utc = "2025-01-13T12:00:00Z"
+kickoff_to_utc = "2025-01-13T23:00:00Z"
+match_ids = ["ha-20250113-01", "ha-20250113-02", "ha-20250113-03", "ha-20250113-04", "ha-20250113-05", "ha-20250113-06"]
+evaluation_outcomes = ["HOME_WIN", "DRAW", "AWAY_WIN", "HOME_WIN", "DRAW", "AWAY_WIN"]
+expected_settled_match_count = 6
+quant_only_status = "RECOMMENDED"
+quant_only_ticket_count = 2
+quant_only_cash_fen = 8800
+market_quant_blend_status = "RECOMMENDED"
+market_quant_blend_ticket_count = 2
+market_quant_blend_cash_fen = 8800
+
+[[slates]]
+slate_id = "ha-slate-09"
+date = "2025-01-14"
+decision_as_of_at_utc = "2025-01-14T09:00:00Z"
+evaluation_as_of_at_utc = "2025-01-15T03:00:00Z"
+kickoff_from_utc = "2025-01-14T12:00:00Z"
+kickoff_to_utc = "2025-01-14T23:00:00Z"
+match_ids = ["ha-20250114-01", "ha-20250114-02", "ha-20250114-03", "ha-20250114-04", "ha-20250114-05", "ha-20250114-06"]
+evaluation_outcomes = ["HOME_WIN", "DRAW", "AWAY_WIN", "HOME_WIN", "DRAW", "AWAY_WIN"]
+expected_settled_match_count = 6
+quant_only_status = "RECOMMENDED"
+quant_only_ticket_count = 2
+quant_only_cash_fen = 8800
+market_quant_blend_status = "RECOMMENDED"
+market_quant_blend_ticket_count = 2
+market_quant_blend_cash_fen = 8800
+
+[[slates]]
+slate_id = "ha-slate-10"
+date = "2025-01-15"
+decision_as_of_at_utc = "2025-01-15T09:00:00Z"
+evaluation_as_of_at_utc = "2025-01-16T03:00:00Z"
+kickoff_from_utc = "2025-01-15T12:00:00Z"
+kickoff_to_utc = "2025-01-15T23:00:00Z"
+match_ids = ["ha-20250115-01", "ha-20250115-02", "ha-20250115-03", "ha-20250115-04", "ha-20250115-05", "ha-20250115-06"]
+evaluation_outcomes = ["HOME_WIN", "DRAW", "AWAY_WIN", "HOME_WIN", "DRAW", "MISSING_RESULT"]
+expected_settled_match_count = 5
+quant_only_status = "RECOMMENDED"
+quant_only_ticket_count = 2
+quant_only_cash_fen = 8800
+market_quant_blend_status = "RECOMMENDED"
+market_quant_blend_ticket_count = 2
+market_quant_blend_cash_fen = 8800

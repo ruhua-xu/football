@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test and build dependencies
+        run: python -m pip install -e ".[test]" ruff build
+      - name: Lint
+        run: ruff check .
+      - name: Compile
+        run: python -m compileall -q src tests migrations scripts
+      - name: Test
+        run: python -m pytest
+      - name: Verify fresh migration head
+        shell: bash
+        run: |
+          migration_db="$(mktemp --suffix=.db)"
+          export MIGRATION_DB="$migration_db"
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          from alembic import command
+          from alembic.config import Config
+
+          database_path = Path(os.environ["MIGRATION_DB"]).resolve()
+          config = Config("alembic.ini")
+          config.set_main_option("script_location", str(Path("migrations").resolve()))
+          config.set_main_option(
+              "sqlalchemy.url", f"sqlite:///{database_path.as_posix()}"
+          )
+          command.upgrade(config, "head")
+          command.check(config)
+          PY
+          rm -f "$migration_db"
+      - name: Build wheel
+        run: python -m build --wheel
+      - name: Test installed wheel
+        run: python scripts/wheel_e2e.py
+      - name: Check whitespace
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+          PUSH_AFTER_SHA: ${{ github.event.after }}
+        run: |
+          zero_sha="0000000000000000000000000000000000000000"
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            git diff --check "$PR_BASE_SHA...$PR_HEAD_SHA"
+          elif [[ "$PUSH_BEFORE_SHA" == "$zero_sha" ]]; then
+            empty_tree_sha="$(git hash-object -t tree -w /dev/null)"
+            git diff --check "$empty_tree_sha" "$PUSH_AFTER_SHA"
+          else
+            git diff --check "$PUSH_BEFORE_SHA" "$PUSH_AFTER_SHA"
+          fi
