@@ -7,6 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from football_system.application.environment import RuntimeEnvironment, RuntimeSettings
 from football_system.domain.archive import HistoricalDataMode
 from football_system.domain.betting import MAX_EXACT_STRESS_TICKETS
 
@@ -93,6 +94,7 @@ class SettlementSettings(SettingsModel):
 
 
 class AppSettings(SettingsModel):
+    runtime: RuntimeSettings = RuntimeSettings()
     database: DatabaseSettings = DatabaseSettings()
     analysis: AnalysisSettings = AnalysisSettings()
     portfolio: PortfolioSettings = PortfolioSettings()
@@ -104,6 +106,18 @@ class AppSettings(SettingsModel):
 
     @model_validator(mode="after")
     def validate_strategy_thresholds(self) -> AppSettings:
+        if (
+            self.runtime.environment is RuntimeEnvironment.LIVE
+            and self.backtest.data_mode is not HistoricalDataMode.LIVE_STRICT
+        ):
+            raise ValueError("live runtime requires LIVE_STRICT backtest data mode")
+        if (
+            self.runtime.environment is RuntimeEnvironment.RESEARCH
+            and self.backtest.data_mode is not HistoricalDataMode.SOURCE_TIME_RESEARCH
+        ):
+            raise ValueError(
+                "research runtime requires SOURCE_TIME_RESEARCH backtest data mode"
+            )
         if self.portfolio.extra_ticket_min_roi <= self.analysis.min_ticket_roi:
             raise ValueError(
                 "extra_ticket_min_roi must exceed the base ticket ROI threshold"

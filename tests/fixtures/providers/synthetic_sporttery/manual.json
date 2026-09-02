@@ -1,0 +1,34 @@
+{
+  "schema_version": "SPORTTERY_MANUAL_ARCHIVE_V1",
+  "snapshot_id": "synthetic-sporttery-snapshot-001",
+  "captured_at_utc": "2026-09-01T09:00:00Z",
+  "source_reference": "synthetic://sporttery-contract-fixture",
+  "source_artifact_path": "sporttery_source.raw",
+  "source_artifact_sha256": "ba38c53cd7d0b245c801d0246952714083b30fbdfde5191bd125449dd0476803",
+  "entered_by": "synthetic-enterer",
+  "reviewed_by": "synthetic-reviewer",
+  "reviewed_at_utc": "2026-09-01T09:05:00Z",
+  "records": [
+    {
+      "sporttery_match_no": "SYN001",
+      "match_number_date": "2026-09-01",
+      "provider_competition_id": "synthetic-coastal",
+      "provider_competition_name": "Fabricated Coastal League",
+      "competition_language": "en",
+      "season": "2026/27",
+      "competition_type": "LEAGUE",
+      "provider_home_team_id": "synthetic-harbour",
+      "provider_home_team_name": "Fabricated Harbour FC",
+      "home_team_language": "en",
+      "provider_away_team_id": "synthetic-orchard",
+      "provider_away_team_name": "Fabricated Orchard FC",
+      "away_team_language": "en",
+      "kickoff_at_utc": "2026-09-03T19:00:00Z",
+      "sale_status": "OPEN",
+      "market_type": "THREE_WAY",
+      "home_win": "2.11",
+      "draw": "3.16",
+      "away_win": "3.57"
+    }
+  ]
+}

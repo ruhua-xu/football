@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from football_system.application.run_analysis import _portfolio_constraints
+from football_system.application.environment import RuntimeEnvironment, RuntimeSettings
 from football_system.config import (
     AnalysisSettings,
     AppSettings,
@@ -17,6 +18,8 @@ from football_system.domain.betting import MAX_EXACT_STRESS_TICKETS
 def test_loads_versioned_mvp_settings() -> None:
     settings = AppSettings.from_toml("config/mvp.toml")
 
+    assert settings.runtime.environment is RuntimeEnvironment.MOCK
+    assert settings.runtime.kickoff_tolerance_seconds == 300
     assert settings.analysis.pipeline_version == "PORTFOLIO_RISK_V2"
     assert settings.analysis.quant_weight == Decimal("0.70")
     assert settings.sporttery.base_stake_fen == 200
@@ -36,6 +39,63 @@ def test_loads_versioned_mvp_settings() -> None:
     assert settings.backtest.log_loss_epsilon == Decimal("0.000001")
     assert settings.backtest.slates.policy == "DAILY_FIXED_CUTOFF_V1"
     assert settings.settlement.policy == "THREE_WAY_2X1_BACKTEST_V1"
+
+
+def test_runtime_settings_default_to_mock() -> None:
+    assert AppSettings().runtime.environment is RuntimeEnvironment.MOCK
+
+
+@pytest.mark.parametrize(
+    ("path", "environment", "database_suffix", "data_mode"),
+    [
+        (
+            "config/live.toml",
+            RuntimeEnvironment.LIVE,
+            "data/live/football.db",
+            HistoricalDataMode.LIVE_STRICT,
+        ),
+        (
+            "config/research.toml",
+            RuntimeEnvironment.RESEARCH,
+            "data/research/football.db",
+            HistoricalDataMode.SOURCE_TIME_RESEARCH,
+        ),
+    ],
+)
+def test_loads_isolated_runtime_settings(
+    path: str,
+    environment: RuntimeEnvironment,
+    database_suffix: str,
+    data_mode: HistoricalDataMode,
+) -> None:
+    settings = AppSettings.from_toml(path)
+
+    assert settings.runtime.environment is environment
+    assert settings.database.url.endswith(database_suffix)
+    assert settings.backtest.data_mode is data_mode
+
+
+def test_rejects_negative_kickoff_tolerance_setting() -> None:
+    with pytest.raises(ValidationError):
+        RuntimeSettings(kickoff_tolerance_seconds=-1)
+
+
+@pytest.mark.parametrize(
+    ("environment", "data_mode"),
+    [
+        (RuntimeEnvironment.LIVE, HistoricalDataMode.SOURCE_TIME_RESEARCH),
+        (RuntimeEnvironment.RESEARCH, HistoricalDataMode.LIVE_STRICT),
+    ],
+)
+def test_rejects_runtime_and_historical_mode_mismatch(
+    environment: RuntimeEnvironment,
+    data_mode: HistoricalDataMode,
+) -> None:
+    with pytest.raises(ValidationError, match="runtime requires"):
+        AppSettings(
+            runtime={"environment": environment},
+            backtest={"data_mode": data_mode},
+        )
 
 
 def test_loads_recommended_backtest_settings() -> None:

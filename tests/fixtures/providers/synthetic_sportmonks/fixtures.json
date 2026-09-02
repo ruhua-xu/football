@@ -1,0 +1,27 @@
+{
+  "notice": "SYNTHETIC CONTRACT FIXTURE - NOT PROVIDER DATA",
+  "data": [
+    {
+      "id": "synthetic-fixture-001",
+      "starting_at": "2026-09-03T19:00:00Z",
+      "state": {"short_name": "NS"},
+      "league": {
+        "id": "synthetic-league-001",
+        "name": "Fabricated Coastal League",
+        "country": {"iso2": "GB"}
+      },
+      "participants": [
+        {
+          "id": "synthetic-team-harbour",
+          "name": "Fabricated Harbour FC",
+          "meta": {"location": "home"}
+        },
+        {
+          "id": "synthetic-team-orchard",
+          "name": "Fabricated Orchard FC",
+          "meta": {"location": "away"}
+        }
+      ]
+    }
+  ]
+}

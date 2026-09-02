@@ -1,0 +1,17 @@
+[runtime]
+environment = "research"
+kickoff_tolerance_seconds = 300
+
+[database]
+url = "sqlite:///data/research/football.db"
+
+[backtest]
+version = "BACKTEST_V1"
+data_mode = "SOURCE_TIME_RESEARCH"
+log_loss_epsilon = "0.000001"
+
+[backtest.slates]
+policy = "DAILY_FIXED_CUTOFF_V1"
+
+[settlement]
+policy = "THREE_WAY_2X1_BACKTEST_V1"

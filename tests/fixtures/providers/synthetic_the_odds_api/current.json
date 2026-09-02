@@ -1,0 +1,53 @@
+[
+  {
+    "id": "synthetic-odds-event-001",
+    "sport_key": "soccer_synthetic_coastal",
+    "sport_title": "Fabricated Coastal League",
+    "commence_time": "2026-09-03T19:00:00Z",
+    "home_team": "Fabricated Harbour FC",
+    "away_team": "Fabricated Orchard FC",
+    "bookmakers": [
+      {
+        "key": "fabricated_alpha",
+        "last_update": "2026-09-01T11:30:00Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "outcomes": [
+              {"name": "Fabricated Harbour FC", "price": 2.12},
+              {"name": "Draw", "price": 3.18},
+              {"name": "Fabricated Orchard FC", "price": 3.56}
+            ]
+          }
+        ]
+      },
+      {
+        "key": "fabricated_beta",
+        "last_update": "2026-09-01T11:35:00Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "outcomes": [
+              {"name": "Fabricated Harbour FC", "price": 2.08},
+              {"name": "Draw", "price": 3.24},
+              {"name": "Fabricated Orchard FC", "price": 3.61}
+            ]
+          }
+        ]
+      },
+      {
+        "key": "fabricated_incomplete",
+        "last_update": "2026-09-01T11:40:00Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "outcomes": [
+              {"name": "Fabricated Harbour FC", "price": 2.05},
+              {"name": "Draw", "price": 3.10}
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]

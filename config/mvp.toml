@@ -1,3 +1,7 @@
+[runtime]
+environment = "mock"
+kickoff_tolerance_seconds = 300
+
 [database]
 url = "sqlite:///data/football_mvp.db"
 

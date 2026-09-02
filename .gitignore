@@ -10,4 +10,9 @@ build/
 dist/
 data/*.db
 data/*.db-*
+data/raw/
+data/live/
+data/research/
+!data/fixtures/
+!data/fixtures/**
 .playwright-mcp/
