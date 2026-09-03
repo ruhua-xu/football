@@ -8,6 +8,8 @@ import pytest
 from pydantic import BaseModel
 
 from football_system.application.ports.data_providers import (
+    EloTrainingHistoryProvider,
+    EloTrainingHistoryQuery,
     FixtureProvider,
     FixtureQuery,
     HistoricalDataProvider,
@@ -50,6 +52,7 @@ from football_system.domain.settlement import MatchResult
 from football_system.infrastructure.providers.historical_archive import (
     ArchiveValidationError,
     HistoricalArchiveFixtureProvider,
+    HistoricalArchiveEloTrainingProvider,
     HistoricalArchiveMarketOddsProvider,
     HistoricalArchiveQuantProvider,
     HistoricalArchiveSportteryProvider,
@@ -334,7 +337,7 @@ def _write_complete_archive_set(directory: Path) -> LocalArchiveStore:
         "sporttery-mappings.json",
         HistoricalArchiveDatasetKind.PROVIDER_MAPPINGS,
         SPORTTERY_PROVIDER,
-        (_mapping(SPORTTERY_PROVIDER, external_match_id="S001"),),
+        (_mapping(SPORTTERY_PROVIDER, external_match_id="2026-08-01:S001"),),
     )
     _write_archive(
         directory,
@@ -487,6 +490,67 @@ def test_result_provider_supports_empty_partial_and_correction_visibility(
     assert tuple(mapping.internal_match_id for mapping in corrected.mappings) == (
         "match-1",
     )
+
+
+def test_elo_training_provider_joins_explicit_season_fixture_identity(
+    tmp_path: Path,
+) -> None:
+    store = _write_complete_archive_set(tmp_path)
+    provider = HistoricalArchiveEloTrainingProvider(
+        store,
+        RESULT_PROVIDER,
+        fixture_provider_code=FIXTURE_PROVIDER,
+        season_id="season-1",
+    )
+    assert isinstance(provider, EloTrainingHistoryProvider)
+
+    first = asyncio.run(
+        provider.fetch_elo_training_history(
+            EloTrainingHistoryQuery(
+                competition_id="competition-1",
+                target_season_id="season-1",
+                as_of_at_utc=KICKOFF + timedelta(hours=2, minutes=6),
+            )
+        )
+    )
+    corrected = asyncio.run(
+        provider.fetch_elo_training_history(
+            EloTrainingHistoryQuery(
+                competition_id="competition-1",
+                target_season_id="season-1",
+                as_of_at_utc=KICKOFF + timedelta(days=1, minutes=1),
+            )
+        )
+    )
+    excluded = asyncio.run(
+        provider.fetch_elo_training_history(
+            EloTrainingHistoryQuery(
+                competition_id="competition-1",
+                target_season_id="season-1",
+                as_of_at_utc=KICKOFF + timedelta(days=1, minutes=1),
+                exclude_match_ids=("match-1",),
+            )
+        )
+    )
+
+    assert first.sources[0].result.match_result_id == "result-v1"
+    assert first.sources[0].result.season_id == "season-1"
+    assert first.sources[0].result.home_team_id == "team-home"
+    assert corrected.sources[0].result.match_result_id == "result-v2"
+    assert corrected.sources[0].result.supersedes_match_result_id == "result-v1"
+    assert corrected.sources[0].archive.archive_id == "results"
+    assert excluded.sources == ()
+
+    with pytest.raises(MissingArchiveInputError, match="configured archive season"):
+        asyncio.run(
+            provider.fetch_elo_training_history(
+                EloTrainingHistoryQuery(
+                    competition_id="competition-1",
+                    target_season_id="season-2",
+                    as_of_at_utc=KICKOFF + timedelta(days=1, minutes=1),
+                )
+            )
+        )
 
 
 def test_rejects_cross_provider_mapping_and_invalid_correction_lineage(

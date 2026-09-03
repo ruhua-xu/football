@@ -4,7 +4,17 @@ from typing import Protocol, runtime_checkable
 
 from pydantic import Field, model_validator
 
+from football_system.application.identity_catalog import (
+    FixtureIngestionCapture,
+    FixtureIngestionRequest,
+)
+from football_system.application.environment import RuntimeProvenance
+from football_system.domain.backtest import BacktestArchiveProvenance
 from football_system.domain.common import DomainModel, Identifier, UtcDateTime
+from football_system.domain.market_reconciliation import (
+    MarketOddsReconciliationIssue as MarketOddsReconciliationIssue,
+    MarketOddsReconciliationIssueReason as MarketOddsReconciliationIssueReason,
+)
 from football_system.domain.match import (
     Competition,
     MarketOddsSnapshot,
@@ -14,6 +24,7 @@ from football_system.domain.match import (
     Team,
 )
 from football_system.domain.prediction import ManualQuantInput
+from football_system.domain.services.elo_baseline import EloRegularTimeResult
 from football_system.domain.settlement import MatchResult, MatchSettlementIssue
 
 
@@ -65,11 +76,13 @@ class FixtureBatch(DomainModel):
 class MarketOddsBatch(DomainModel):
     snapshots: tuple[MarketOddsSnapshot, ...]
     mappings: tuple[ProviderMatchMapping, ...]
+    issues: tuple[MarketOddsReconciliationIssue, ...] = ()
 
     @model_validator(mode="after")
     def validate_batch(self) -> MarketOddsBatch:
         _validate_unique(self.snapshots, "snapshot_id", "market odds snapshot")
         _validate_unique(self.mappings, "mapping_id", "market odds mapping")
+        _validate_unique(self.issues, "issue_id", "market odds issue")
         return self
 
 
@@ -85,6 +98,7 @@ class SportteryBatch(DomainModel):
 
 
 class ManualQuantBatch(DomainModel):
+    provider_code: Identifier
     inputs: tuple[ManualQuantInput, ...]
 
     @model_validator(mode="after")
@@ -138,6 +152,83 @@ class MatchResultBatch(DomainModel):
         return self
 
 
+class EloTrainingHistoryQuery(DomainModel):
+    competition_id: Identifier
+    target_season_id: Identifier
+    as_of_at_utc: UtcDateTime
+    exclude_match_ids: tuple[Identifier, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_exclusions(self) -> EloTrainingHistoryQuery:
+        if len(self.exclude_match_ids) != len(set(self.exclude_match_ids)):
+            raise ValueError("Elo training exclusions must be unique")
+        return self
+
+
+class EloTrainingResultSource(DomainModel):
+    result: EloRegularTimeResult
+    archive: BacktestArchiveProvenance
+
+    @model_validator(mode="after")
+    def validate_source(self) -> EloTrainingResultSource:
+        if self.archive.dataset_kind.value != "MATCH_RESULTS":
+            raise ValueError("Elo training source must reference a match-results archive")
+        if self.result.payload_hash != self.result.payload_hash.lower():
+            raise ValueError("Elo training result payload hash must be lowercase")
+        return self
+
+
+class EloTrainingHistoryBatch(DomainModel):
+    competition_id: Identifier
+    target_season_id: Identifier
+    as_of_at_utc: UtcDateTime
+    sources: tuple[EloTrainingResultSource, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_history(self) -> EloTrainingHistoryBatch:
+        result_ids = tuple(source.result.match_result_id for source in self.sources)
+        if len(result_ids) != len(set(result_ids)):
+            raise ValueError("Elo training result IDs must be unique")
+        if any(
+            source.result.available_at_utc > self.as_of_at_utc
+            or source.result.ingested_at_utc > self.as_of_at_utc
+            for source in self.sources
+        ):
+            raise ValueError("Elo training history crosses its knowledge cutoff")
+        return self
+
+
+class ArchivedMatchResultSource(DomainModel):
+    result: MatchResult
+    archive: BacktestArchiveProvenance
+
+    @model_validator(mode="after")
+    def validate_source(self) -> ArchivedMatchResultSource:
+        if self.archive.dataset_kind.value != "MATCH_RESULTS":
+            raise ValueError("result source must reference a match-results archive")
+        return self
+
+
+class ArchivedMatchResultBatch(DomainModel):
+    as_of_at_utc: UtcDateTime
+    sources: tuple[ArchivedMatchResultSource, ...]
+    mappings: tuple[ProviderMatchMapping, ...]
+    issues: tuple[MatchSettlementIssue, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_results(self) -> ArchivedMatchResultBatch:
+        self.to_match_result_batch()
+        return self
+
+    def to_match_result_batch(self) -> MatchResultBatch:
+        return MatchResultBatch(
+            as_of_at_utc=self.as_of_at_utc,
+            results=tuple(source.result for source in self.sources),
+            mappings=self.mappings,
+            issues=self.issues,
+        )
+
+
 def _validate_unique(items: tuple, field: str, label: str) -> set[str]:
     identities = [getattr(item, field) for item in items]
     if len(identities) != len(set(identities)):
@@ -148,6 +239,16 @@ def _validate_unique(items: tuple, field: str, label: str) -> set[str]:
 @runtime_checkable
 class FixtureProvider(Protocol):
     async def fetch_fixtures(self, query: FixtureQuery) -> FixtureBatch: ...
+
+
+@runtime_checkable
+class FixtureCaptureProvider(Protocol):
+    runtime_provenance: RuntimeProvenance
+
+    async def capture_fixtures(
+        self,
+        request: FixtureIngestionRequest,
+    ) -> FixtureIngestionCapture: ...
 
 
 @runtime_checkable
@@ -170,3 +271,19 @@ class HistoricalDataProvider(Protocol):
     async def fetch_match_results(
         self, query: MatchResultQuery
     ) -> MatchResultBatch: ...
+
+
+@runtime_checkable
+class ArchivedHistoricalDataProvider(Protocol):
+    async def fetch_archived_match_results(
+        self,
+        query: MatchResultQuery,
+    ) -> ArchivedMatchResultBatch: ...
+
+
+@runtime_checkable
+class EloTrainingHistoryProvider(Protocol):
+    async def fetch_elo_training_history(
+        self,
+        query: EloTrainingHistoryQuery,
+    ) -> EloTrainingHistoryBatch: ...

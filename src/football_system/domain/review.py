@@ -8,10 +8,15 @@ from pydantic import Field, StringConstraints, model_validator
 
 from football_system.domain.common import DomainModel, Identifier, UtcDateTime
 from football_system.domain.market import (
+    MarketKey,
     SelectionKey,
     ThreeWayFixedBonus,
     ThreeWayMarketOdds,
     ThreeWayProbability,
+)
+from football_system.domain.prediction import (
+    ModelQuantPrediction,
+    QuantModelEvaluationStatus,
 )
 
 SHA256_PATTERN = r"^[0-9a-f]{64}$"
@@ -30,6 +35,16 @@ class AnalysisPacketRun(DomainModel):
     code_revision: str
     input_manifest_version: str
     input_manifest_hash: str = Field(pattern=SHA256_PATTERN)
+
+
+class AnalysisPacketRunV3(AnalysisPacketRun):
+    started_at_utc: UtcDateTime
+
+    @model_validator(mode="after")
+    def validate_timeline(self) -> AnalysisPacketRunV3:
+        if not (self.as_of_at_utc <= self.started_at_utc <= self.completed_at_utc):
+            raise ValueError("analysis packet V3 run timeline is inconsistent")
+        return self
 
 
 class PacketMarketPrediction(DomainModel):
@@ -257,6 +272,176 @@ class AnalysisPacketV2(DomainModel):
         return self
 
 
+class PacketQuantModelStateV3(DomainModel):
+    quant_model_state_id: Identifier
+    analysis_run_id: Identifier
+    model_name: Identifier
+    model_version: Identifier
+    calibration_label: Identifier
+    config_hash: str = Field(pattern=SHA256_PATTERN)
+    cutoff_at_utc: UtcDateTime
+    season_id: Identifier | None = None
+    state_hash: str = Field(pattern=SHA256_PATTERN)
+    state_payload_hash: str = Field(pattern=SHA256_PATTERN)
+    training_data_hash: str = Field(pattern=SHA256_PATTERN)
+    training_fact_count: int = Field(ge=0, strict=True)
+    training_match_ids: tuple[Identifier, ...] = ()
+    training_result_ids: tuple[Identifier, ...] = ()
+    generated_at_utc: UtcDateTime
+
+    @model_validator(mode="after")
+    def validate_training_lineage(self) -> PacketQuantModelStateV3:
+        if self.generated_at_utc < self.cutoff_at_utc:
+            raise ValueError("packet model state cannot be generated before its cutoff")
+        if not (
+            self.training_fact_count
+            == len(self.training_match_ids)
+            == len(self.training_result_ids)
+        ):
+            raise ValueError("packet model state training count is inconsistent")
+        if len(self.training_result_ids) != len(set(self.training_result_ids)):
+            raise ValueError("packet model training result IDs must be unique")
+        return self
+
+
+class PacketQuantModelEvaluationV3(DomainModel):
+    quant_model_evaluation_id: Identifier
+    analysis_run_id: Identifier
+    quant_model_state_id: Identifier
+    match_id: Identifier
+    market: MarketKey
+    status: QuantModelEvaluationStatus
+    unavailable_reason: Identifier | None = None
+    probabilities: ThreeWayProbability | None = None
+    output_hash: str = Field(pattern=SHA256_PATTERN)
+    model_prediction_hash: str = Field(pattern=SHA256_PATTERN)
+    evaluated_at_utc: UtcDateTime
+
+    @model_validator(mode="after")
+    def validate_availability(self) -> PacketQuantModelEvaluationV3:
+        if self.status is QuantModelEvaluationStatus.AVAILABLE:
+            if self.probabilities is None or self.unavailable_reason is not None:
+                raise ValueError(
+                    "available packet model evaluation requires probabilities"
+                )
+        elif self.probabilities is not None or self.unavailable_reason is None:
+            raise ValueError(
+                "unavailable packet model evaluation requires a reason only"
+            )
+        return self
+
+
+class PacketManualQuantLineageV3(DomainModel):
+    source_kind: Literal["MANUAL"] = "MANUAL"
+    status: Literal["AVAILABLE"] = "AVAILABLE"
+    prediction: PacketQuantPrediction
+
+
+class PacketModelQuantLineageV3(DomainModel):
+    source_kind: Literal["MODEL"] = "MODEL"
+    status: QuantModelEvaluationStatus
+    evaluation: PacketQuantModelEvaluationV3
+    prediction: ModelQuantPrediction | None = None
+
+    @model_validator(mode="after")
+    def validate_availability(self) -> PacketModelQuantLineageV3:
+        if self.status is not self.evaluation.status:
+            raise ValueError("packet model status must match its evaluation")
+        if self.status is QuantModelEvaluationStatus.AVAILABLE:
+            if self.prediction is None:
+                raise ValueError("available packet model lineage requires a prediction")
+            if (
+                self.prediction.quant_model_evaluation_id
+                != self.evaluation.quant_model_evaluation_id
+                or self.prediction.analysis_run_id != self.evaluation.analysis_run_id
+                or self.prediction.match_id != self.evaluation.match_id
+                or self.prediction.market != self.evaluation.market
+                or self.prediction.probabilities != self.evaluation.probabilities
+            ):
+                raise ValueError(
+                    "packet model prediction has inconsistent evaluation lineage"
+                )
+        elif self.prediction is not None:
+            raise ValueError(
+                "unavailable packet model lineage cannot contain a prediction"
+            )
+        return self
+
+
+PacketQuantLineageV3 = Annotated[
+    PacketManualQuantLineageV3 | PacketModelQuantLineageV3,
+    Field(discriminator="source_kind"),
+]
+
+
+class AnalysisPacketMatchSourceV3(AnalysisPacketMatchSourceV2):
+    p_quant: PacketQuantLineageV3
+
+    @model_validator(mode="after")
+    def validate_quant_lineage(self) -> AnalysisPacketMatchSourceV3:
+        if isinstance(self.p_quant, PacketModelQuantLineageV3):
+            evaluation = self.p_quant.evaluation
+            if (
+                evaluation.match_id != self.match_id
+                or evaluation.market.canonical != self.market_key
+            ):
+                raise ValueError(
+                    "packet model evaluation does not match its match context"
+                )
+        return self
+
+
+class AnalysisPacketMatchV3(AnalysisPacketMatchSourceV3):
+    review_context_id: Identifier
+    review_context_hash: str = Field(pattern=SHA256_PATTERN)
+
+
+class AnalysisPacketSourceV3(DomainModel):
+    analysis_run: AnalysisPacketRunV3
+    quant_model_states: tuple[PacketQuantModelStateV3, ...] = Field(
+        default=(), max_length=MAX_PACKET_MATCHES
+    )
+    matches: tuple[AnalysisPacketMatchSourceV3, ...] = Field(
+        min_length=1, max_length=MAX_PACKET_MATCHES
+    )
+
+    @model_validator(mode="after")
+    def validate_lineage(self) -> AnalysisPacketSourceV3:
+        _validate_packet_v3_lineage(
+            self.analysis_run,
+            self.quant_model_states,
+            self.matches,
+            "analysis packet V3 source",
+        )
+        return self
+
+
+class AnalysisPacketV3(DomainModel):
+    schema_version: Literal["ANALYSIS_PACKET_V3"]
+    packet_id: Identifier
+    generated_at_utc: UtcDateTime
+    packet_hash: str = Field(pattern=SHA256_PATTERN)
+    analysis_run: AnalysisPacketRunV3
+    quant_model_states: tuple[PacketQuantModelStateV3, ...] = Field(
+        default=(), max_length=MAX_PACKET_MATCHES
+    )
+    matches: tuple[AnalysisPacketMatchV3, ...] = Field(
+        min_length=1, max_length=MAX_PACKET_MATCHES
+    )
+
+    @model_validator(mode="after")
+    def validate_lineage(self) -> AnalysisPacketV3:
+        _validate_packet_v3_lineage(
+            self.analysis_run,
+            self.quant_model_states,
+            self.matches,
+            "analysis packet V3",
+        )
+        if self.generated_at_utc < self.analysis_run.completed_at_utc:
+            raise ValueError("analysis packet cannot predate run completion")
+        return self
+
+
 class StoredAnalysisPacket(DomainModel):
     packet_id: Identifier
     parent_analysis_run_id: Identifier
@@ -447,9 +632,28 @@ class LLMReviewSubmissionV2(DomainModel):
         return self
 
 
-AnalysisPacketContract = AnalysisPacket | AnalysisPacketV2
-AnalysisPacketSourceContract = AnalysisPacketSource | AnalysisPacketSourceV2
-LLMReviewSubmissionContract = LLMReviewSubmission | LLMReviewSubmissionV2
+class LLMReviewSubmissionV3(DomainModel):
+    schema_version: Literal["LLM_REVIEW_V3"]
+    analysis_run_id: Identifier
+    packet_id: Identifier
+    packet_hash: str = Field(pattern=SHA256_PATTERN)
+    match_reviews: tuple[LLMMatchReviewV2, ...] = Field(max_length=MAX_PACKET_MATCHES)
+
+    @model_validator(mode="after")
+    def validate_matches(self) -> LLMReviewSubmissionV3:
+        match_ids = [review.match_id for review in self.match_reviews]
+        if not match_ids or len(match_ids) != len(set(match_ids)):
+            raise ValueError("LLM review V3 requires one unique result per match")
+        return self
+
+
+AnalysisPacketContract = AnalysisPacket | AnalysisPacketV2 | AnalysisPacketV3
+AnalysisPacketSourceContract = (
+    AnalysisPacketSource | AnalysisPacketSourceV2 | AnalysisPacketSourceV3
+)
+LLMReviewSubmissionContract = (
+    LLMReviewSubmission | LLMReviewSubmissionV2 | LLMReviewSubmissionV3
+)
 
 
 class LLMReviewArtifact(DomainModel):
@@ -465,6 +669,69 @@ class LLMReviewArtifact(DomainModel):
     normalized_review_hash: str = Field(pattern=SHA256_PATTERN)
     validator_version: str = "OFFLINE_REVIEW_VALIDATOR_V1"
     source_kind: Literal["OFFLINE_FILE"] = "OFFLINE_FILE"
+
+
+def _validate_packet_v3_lineage(
+    run: AnalysisPacketRunV3,
+    states: tuple[PacketQuantModelStateV3, ...],
+    matches: tuple[AnalysisPacketMatchSourceV3 | AnalysisPacketMatchV3, ...],
+    label: str,
+) -> None:
+    match_ids = tuple(match.match_id for match in matches)
+    if len(match_ids) != len(set(match_ids)):
+        raise ValueError(f"{label} requires unique matches")
+    state_ids = tuple(state.quant_model_state_id for state in states)
+    if len(state_ids) != len(set(state_ids)):
+        raise ValueError(f"{label} requires unique model states")
+    referenced_state_ids = {
+        match.p_quant.evaluation.quant_model_state_id
+        for match in matches
+        if isinstance(match.p_quant, PacketModelQuantLineageV3)
+    }
+    if referenced_state_ids != set(state_ids):
+        raise ValueError(f"{label} model-state lineage is incomplete")
+    if referenced_state_ids and run.input_manifest_version != "MVP_INPUT_MANIFEST_V3":
+        raise ValueError(f"{label} model lineage requires MVP_INPUT_MANIFEST_V3")
+    if any(state.analysis_run_id != run.analysis_run_id for state in states) or any(
+        match.p_quant.evaluation.analysis_run_id != run.analysis_run_id
+        for match in matches
+        if isinstance(match.p_quant, PacketModelQuantLineageV3)
+    ):
+        raise ValueError(f"{label} model lineage must belong to its AnalysisRun")
+    state_by_id = {state.quant_model_state_id: state for state in states}
+    has_manual_lineage = any(
+        isinstance(match.p_quant, PacketManualQuantLineageV3) for match in matches
+    )
+    if has_manual_lineage and referenced_state_ids:
+        raise ValueError(f"{label} cannot mix manual and model quant lineage")
+    target_match_ids = set(match_ids)
+    for match in matches:
+        if not isinstance(match.p_quant, PacketModelQuantLineageV3):
+            continue
+        state = state_by_id[match.p_quant.evaluation.quant_model_state_id]
+        if state.cutoff_at_utc != run.as_of_at_utc:
+            raise ValueError(f"{label} model-state cutoff must match its AnalysisRun")
+        if not (
+            run.started_at_utc <= state.generated_at_utc <= run.completed_at_utc
+        ) or not (
+            run.started_at_utc
+            <= match.p_quant.evaluation.evaluated_at_utc
+            <= run.completed_at_utc
+        ):
+            raise ValueError(f"{label} model timestamps are outside its AnalysisRun")
+        if target_match_ids & set(state.training_match_ids):
+            raise ValueError(f"{label} target matches cannot appear in model training")
+        prediction = match.p_quant.prediction
+        if prediction is not None and (
+            prediction.method != state.model_name
+            or prediction.method_version != state.model_version
+            or not (
+                run.started_at_utc
+                <= prediction.generated_at_utc
+                <= run.completed_at_utc
+            )
+        ):
+            raise ValueError(f"{label} model prediction version is inconsistent")
 
 
 def _require_unique(values: tuple, label: str) -> None:

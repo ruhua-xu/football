@@ -20,7 +20,47 @@ from football_system.infrastructure.database.session import (
     create_database_engine,
     create_schema,
     create_session_factory,
+    require_sqlite_database_url,
 )
+
+
+IDENTITY_MIGRATION_REVISION = "d2e7a4c9b615"
+CURRENT_MIGRATION_HEAD = "c4e8a1d7f205"
+QUANT_MODEL_MIGRATION_REVISION = "b7d4e9f2c631"
+BACKTEST_V2_MIGRATION_REVISION = "c4e8a1d7f205"
+IDENTITY_TABLES = {
+    "provider_team_aliases",
+    "provider_competition_mappings",
+    "canonical_match_identities",
+}
+FIXTURE_INGESTION_TABLES = {
+    "fixture_ingestion_captures",
+    "fixture_observations",
+}
+QUANT_MODEL_TABLES = {
+    "quant_model_states",
+    "quant_model_training_facts",
+    "quant_model_evaluations",
+}
+BACKTEST_V2_TABLES = {
+    "backtest_v2_runs",
+    "backtest_v2_run_archives",
+    "backtest_v2_slices",
+    "backtest_v2_training_sources",
+    "backtest_v2_evaluation_refs",
+    "backtest_v2_result_sources",
+    "backtest_v2_slice_ticket_settlements",
+    "backtest_v2_metric_snapshots",
+}
+FIXTURE_IDENTITY_ORIGIN_INDEXES = {
+    "matches": "ix_matches_fixture_ingestion",
+    "provider_team_aliases": "ix_provider_team_alias_fixture_ingestion",
+    "provider_competition_mappings": (
+        "ix_provider_competition_mapping_fixture_ingestion"
+    ),
+    "canonical_match_identities": ("ix_canonical_match_identity_fixture_ingestion"),
+    "provider_match_mappings": "ix_provider_match_mapping_fixture_ingestion",
+}
 
 
 def test_schema_contains_mvp_tables_and_enables_foreign_keys() -> None:
@@ -36,6 +76,8 @@ def test_schema_contains_mvp_tables_and_enables_foreign_keys() -> None:
         "sporttery_bonus_quotes",
         "manual_quant_inputs",
         "manual_quant_input_outcomes",
+        "fixture_ingestion_captures",
+        "fixture_observations",
         "analysis_runs",
         "market_probabilities",
         "quant_predictions",
@@ -56,9 +98,401 @@ def test_schema_contains_mvp_tables_and_enables_foreign_keys() -> None:
         "portfolio_revisions",
         "tickets",
     } <= tables
+    assert QUANT_MODEL_TABLES <= tables
+    assert BACKTEST_V2_TABLES <= tables
     with engine.connect() as connection:
         assert connection.scalar(text("PRAGMA foreign_keys")) == 1
         assert connection.scalar(text("PRAGMA recursive_triggers")) == 1
+
+
+def test_quant_model_schema_has_exclusive_lineage_and_sealing_triggers() -> None:
+    engine = create_database_engine("sqlite:///:memory:")
+    create_schema(engine)
+    inspector = inspect(engine)
+
+    context_columns = {
+        column["name"]: column
+        for column in inspector.get_columns("analysis_run_matches")
+    }
+    prediction_columns = {
+        column["name"]: column for column in inspector.get_columns("quant_predictions")
+    }
+    assert context_columns["manual_quant_input_id"]["nullable"] is True
+    assert context_columns["quant_model_evaluation_id"]["nullable"] is True
+    assert prediction_columns["manual_input_id"]["nullable"] is True
+    assert prediction_columns["input_payload_hash"]["nullable"] is True
+    assert prediction_columns["entered_at_utc"]["nullable"] is True
+    assert prediction_columns["generated_at_utc"]["nullable"] is True
+    assert {
+        item["name"] for item in inspector.get_check_constraints("quant_predictions")
+    } >= {"ck_quant_prediction_source"}
+    assert {
+        item["name"] for item in inspector.get_check_constraints("analysis_run_matches")
+    } >= {"ck_analysis_run_match_quant_source"}
+    assert {
+        (
+            tuple(item["constrained_columns"]),
+            item["referred_table"],
+            tuple(item["referred_columns"]),
+        )
+        for item in inspector.get_foreign_keys("quant_model_training_facts")
+    } >= {
+        (("match_result_id",), "match_results", ("match_result_id",)),
+        (("internal_match_id",), "matches", ("internal_match_id",)),
+    }
+    with engine.connect() as connection:
+        triggers = set(
+            connection.execute(
+                text("SELECT name FROM sqlite_master WHERE type = 'trigger'")
+            ).scalars()
+        )
+    assert "trg_analysis_runs_completion_quant_model_graph" in triggers
+    for table_name in QUANT_MODEL_TABLES:
+        assert f"trg_{table_name}_immutable_insert_existing" in triggers
+        assert f"trg_{table_name}_append_only_update" in triggers
+        assert f"trg_{table_name}_append_only_delete" in triggers
+        assert f"trg_{table_name}_sealed_insert" in triggers
+    engine.dispose()
+
+
+def test_identity_schema_contains_foreign_keys_unique_lookups_and_triggers() -> None:
+    engine = create_database_engine("sqlite:///:memory:")
+    create_schema(engine)
+    inspector = inspect(engine)
+
+    assert IDENTITY_TABLES <= set(inspector.get_table_names())
+    assert {
+        (
+            tuple(item["constrained_columns"]),
+            item["referred_table"],
+            tuple(item["referred_columns"]),
+            item["options"].get("ondelete"),
+        )
+        for table_name in IDENTITY_TABLES
+        for item in inspector.get_foreign_keys(table_name)
+    } == {
+        (("internal_team_id",), "teams", ("team_id",), "RESTRICT"),
+        (("provider_id",), "providers", ("provider_id",), "RESTRICT"),
+        (
+            ("internal_competition_id",),
+            "competitions",
+            ("competition_id",),
+            "RESTRICT",
+        ),
+        (("internal_match_id",), "matches", ("internal_match_id",), "RESTRICT"),
+    }
+    team_unique = {
+        tuple(item["column_names"])
+        for item in inspector.get_unique_constraints("provider_team_aliases")
+    }
+    assert (
+        "provider_id",
+        "provider_team_id",
+        "provider_team_name",
+        "language",
+        "team_type",
+        "internal_team_id",
+    ) in team_unique
+    competition_unique = {
+        tuple(item["column_names"])
+        for item in inspector.get_unique_constraints("provider_competition_mappings")
+    }
+    assert (
+        "provider_id",
+        "provider_competition_id",
+        "provider_competition_name",
+        "language",
+        "season",
+        "competition_type",
+        "internal_competition_id",
+    ) in competition_unique
+    assert {
+        item["name"]: tuple(item["column_names"])
+        for table_name in IDENTITY_TABLES
+        for item in inspector.get_indexes(table_name)
+    } == {
+        "ix_provider_team_alias_lookup_cutoff": (
+            "provider_id",
+            "provider_team_id",
+            "provider_team_name",
+            "language",
+            "team_type",
+            "available_at_utc",
+        ),
+        "ix_provider_competition_mapping_lookup_cutoff": (
+            "provider_id",
+            "provider_competition_id",
+            "provider_competition_name",
+            "language",
+            "season",
+            "competition_type",
+            "available_at_utc",
+        ),
+        "ix_canonical_match_identity_season_type_cutoff": (
+            "season",
+            "competition_type",
+            "available_at_utc",
+        ),
+        "ix_provider_team_alias_fixture_ingestion": ("fixture_ingestion_id",),
+        "ix_provider_competition_mapping_fixture_ingestion": ("fixture_ingestion_id",),
+        "ix_canonical_match_identity_fixture_ingestion": ("fixture_ingestion_id",),
+    }
+    with engine.connect() as connection:
+        trigger_sql = {
+            name: sql
+            for name, sql in connection.execute(
+                text(
+                    "SELECT name, lower(sql) FROM sqlite_master WHERE type = 'trigger'"
+                )
+            )
+        }
+    for table_name in IDENTITY_TABLES:
+        assert f"trg_{table_name}_immutable_insert_existing" in trigger_sql
+        assert f"trg_{table_name}_append_only_update" in trigger_sql
+        assert f"trg_{table_name}_append_only_delete" in trigger_sql
+    immutable_columns = {
+        "provider_team_aliases": (
+            "alias_id",
+            "provider_id",
+            "provider_team_id",
+            "provider_team_name",
+            "language",
+            "team_type",
+            "internal_team_id",
+        ),
+        "provider_competition_mappings": (
+            "mapping_id",
+            "provider_id",
+            "provider_competition_id",
+            "provider_competition_name",
+            "language",
+            "season",
+            "competition_type",
+            "internal_competition_id",
+        ),
+        "canonical_match_identities": ("internal_match_id",),
+    }
+    for table_name, columns in immutable_columns.items():
+        sql = trigger_sql[f"trg_{table_name}_immutable_insert_existing"]
+        for column in columns:
+            assert f"existing.{column} = new.{column}" in sql
+
+
+def test_identity_lookup_keys_allow_multiple_canonical_targets() -> None:
+    engine = create_database_engine("sqlite:///:memory:")
+    create_schema(engine)
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO providers (provider_id, code, name, provider_kind) "
+                "VALUES ('provider-identity', 'IDENTITY', 'Identity', 'TEST')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO teams (team_id, canonical_key, name, team_type) "
+                "VALUES ('team-a', 'team-a', 'Team A', 'CLUB'), "
+                "('team-b', 'team-b', 'Team B', 'CLUB')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO competitions "
+                "(competition_id, canonical_key, name, country_code) "
+                "VALUES ('competition-a', 'competition-a', 'Competition A', 'TST'), "
+                "('competition-b', 'competition-b', 'Competition B', 'TST')"
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO provider_team_aliases (
+                    alias_id, internal_team_id, provider_id, provider_team_id,
+                    provider_team_name, language, team_type, available_at_utc
+                ) VALUES
+                    ('alias-a', 'team-a', 'provider-identity', 'provider-team',
+                     'Provider Team', 'en', 'CLUB', '2026-09-02 10:00:00'),
+                    ('alias-b', 'team-b', 'provider-identity', 'provider-team',
+                     'Provider Team', 'en', 'CLUB', '2026-09-02 10:00:00')
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO provider_competition_mappings (
+                    mapping_id, internal_competition_id, provider_id,
+                    provider_competition_id, provider_competition_name,
+                    language, season, competition_type, available_at_utc
+                ) VALUES
+                    ('mapping-a', 'competition-a', 'provider-identity',
+                     'provider-competition', 'Provider Competition', 'en',
+                     '2026', 'LEAGUE', '2026-09-02 10:00:00'),
+                    ('mapping-b', 'competition-b', 'provider-identity',
+                     'provider-competition', 'Provider Competition', 'en',
+                     '2026', 'LEAGUE', '2026-09-02 10:00:00')
+                """
+            )
+        )
+        assert (
+            connection.scalar(text("SELECT COUNT(*) FROM provider_team_aliases")) == 2
+        )
+        assert (
+            connection.scalar(
+                text("SELECT COUNT(*) FROM provider_competition_mappings")
+            )
+            == 2
+        )
+
+
+def test_fixture_ingestion_schema_has_strict_lineage_constraints_and_indexes() -> None:
+    engine = create_database_engine("sqlite:///:memory:")
+    create_schema(engine)
+    inspector = inspect(engine)
+
+    assert FIXTURE_INGESTION_TABLES <= set(inspector.get_table_names())
+    parent_columns = {
+        column["name"]: column
+        for column in inspector.get_columns("fixture_ingestion_captures")
+    }
+    assert {
+        "provider_id",
+        "kickoff_from_utc",
+        "kickoff_to_utc",
+        "provider_competition_id",
+        "provider_season_id",
+        "season",
+        "competition_type",
+        "language",
+        "team_type",
+        "endpoint",
+        "request_parameters_json",
+        "requested_at_utc",
+        "received_at_utc",
+        "available_at_utc",
+        "ingested_at_utc",
+        "http_status",
+        "provider_request_id",
+        "duration_ms",
+        "outcome",
+        "failure_code",
+        "raw_artifact_id",
+        "raw_payload_sha256",
+        "observation_count",
+    } <= set(parent_columns)
+    assert all(
+        parent_columns[column]["nullable"] is False
+        for column in (
+            "provider_competition_id",
+            "provider_season_id",
+            "ingested_at_utc",
+        )
+    )
+    parent_checks = {
+        item["name"]: _normalize_sql(item["sqltext"])
+        for item in inspector.get_check_constraints("fixture_ingestion_captures")
+    }
+    assert (
+        "length(trim(provider_competition_id))>0"
+        in parent_checks["ck_fixture_ingestion_scope"]
+    )
+    assert (
+        "length(trim(provider_season_id))>0"
+        in parent_checks["ck_fixture_ingestion_scope"]
+    )
+    assert (
+        "received_at_utc<=ingested_at_utc"
+        in parent_checks["ck_fixture_ingestion_request_timeline"]
+    )
+    assert {
+        (
+            tuple(item["constrained_columns"]),
+            item["referred_table"],
+            tuple(item["referred_columns"]),
+            item["options"].get("ondelete"),
+        )
+        for table_name in FIXTURE_INGESTION_TABLES
+        for item in inspector.get_foreign_keys(table_name)
+    } == {
+        (("provider_id",), "providers", ("provider_id",), "RESTRICT"),
+        (
+            ("ingestion_id",),
+            "fixture_ingestion_captures",
+            ("ingestion_id",),
+            "RESTRICT",
+        ),
+        (
+            ("provider_mapping_id",),
+            "provider_match_mappings",
+            ("mapping_id",),
+            "RESTRICT",
+        ),
+        (("internal_match_id",), "matches", ("internal_match_id",), "RESTRICT"),
+    }
+    assert {
+        tuple(item["column_names"])
+        for item in inspector.get_unique_constraints("fixture_ingestion_captures")
+    } == {("raw_artifact_id",)}
+    assert {
+        tuple(item["column_names"])
+        for item in inspector.get_unique_constraints("fixture_observations")
+    } == {
+        ("ingestion_id", "internal_match_id"),
+        ("ingestion_id", "provider_mapping_id"),
+    }
+    assert {
+        item["name"]: tuple(item["column_names"])
+        for table_name in FIXTURE_INGESTION_TABLES
+        for item in inspector.get_indexes(table_name)
+    } == {
+        "ix_fixture_ingestion_provider_available": (
+            "provider_id",
+            "available_at_utc",
+        ),
+        "ix_fixture_ingestion_scope_available": (
+            "provider_id",
+            "provider_competition_id",
+            "provider_season_id",
+            "available_at_utc",
+        ),
+        "ix_fixture_observation_match_available": (
+            "internal_match_id",
+            "available_at_utc",
+        ),
+        "ix_fixture_observation_mapping_available": (
+            "provider_mapping_id",
+            "available_at_utc",
+        ),
+    }
+    for table_name, index_name in FIXTURE_IDENTITY_ORIGIN_INDEXES.items():
+        columns = {
+            column["name"]: column for column in inspector.get_columns(table_name)
+        }
+        assert columns["fixture_ingestion_id"]["nullable"] is True
+        indexes = {
+            item["name"]: tuple(item["column_names"])
+            for item in inspector.get_indexes(table_name)
+        }
+        assert indexes[index_name] == ("fixture_ingestion_id",)
+    with engine.connect() as connection:
+        trigger_sql = {
+            name: sql.lower()
+            for name, sql in connection.execute(
+                text("SELECT name, sql FROM sqlite_master WHERE type = 'trigger'")
+            )
+        }
+    for table_name in FIXTURE_INGESTION_TABLES:
+        assert f"trg_{table_name}_immutable_insert_existing" in trigger_sql
+        assert f"trg_{table_name}_append_only_update" in trigger_sql
+        assert f"trg_{table_name}_append_only_delete" in trigger_sql
+    lineage_sql = trigger_sql["trg_fixture_observations_lineage_insert"]
+    assert "mapping.provider_id = ingestion.provider_id" in lineage_sql
+    assert "mapping.internal_match_id = new.internal_match_id" in lineage_sql
+    for table_name in FIXTURE_IDENTITY_ORIGIN_INDEXES:
+        origin_sql = trigger_sql[f"trg_{table_name}_fixture_ingestion_origin_insert"]
+        assert "new.fixture_ingestion_id is not null" in origin_sql
+        assert "fixture identity origin is inconsistent" in origin_sql
 
 
 @pytest.mark.parametrize(
@@ -107,6 +541,26 @@ def test_database_entry_points_reject_non_sqlite_before_driver_loading(
     ) as error:
         operation()
     assert "secret" not in str(error.value)
+
+
+def test_upgrade_database_creates_missing_nested_sqlite_parent_after_validation(
+    tmp_path,
+) -> None:
+    database_path = tmp_path / "missing" / "nested" / "football.db"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+
+    require_sqlite_database_url(database_url)
+    assert not database_path.parent.exists()
+
+    upgrade_database(database_url)
+
+    assert database_path.is_file()
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            CURRENT_MIGRATION_HEAD
+        )
+    engine.dispose()
 
 
 @pytest.mark.parametrize("operation", (create_schema, create_session_factory))
@@ -192,6 +646,422 @@ def test_runtime_schema_matches_alembic_head(tmp_path) -> None:
 
     runtime_engine.dispose()
     migration_engine.dispose()
+
+
+def test_quant_model_migration_preserves_legacy_rows_and_empty_downgrade(
+    tmp_path,
+) -> None:
+    database_path = tmp_path / "quant-model-migration.db"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config("alembic.ini")
+    config.set_main_option("sqlalchemy.url", database_url)
+
+    command.upgrade(config, "a6c1f9e3b742")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        _insert_no_bet_risk_graph(connection, completed=True)
+    engine.dispose()
+
+    command.upgrade(config, QUANT_MODEL_MIGRATION_REVISION)
+    engine = create_database_engine(database_url)
+    assert QUANT_MODEL_TABLES <= set(inspect(engine).get_table_names())
+    with engine.connect() as connection:
+        context = connection.execute(
+            text(
+                "SELECT manual_quant_input_id, quant_model_evaluation_id "
+                "FROM analysis_run_matches WHERE analysis_run_id = 'run-legacy'"
+            )
+        ).one()
+        assert context == ("manual-legacy", None)
+        assert connection.execute(text("PRAGMA foreign_key_check")).all() == []
+    engine.dispose()
+
+    command.downgrade(config, "a6c1f9e3b742")
+    engine = create_database_engine(database_url)
+    assert not QUANT_MODEL_TABLES & set(inspect(engine).get_table_names())
+    assert "quant_model_evaluation_id" not in {
+        column["name"] for column in inspect(engine).get_columns("analysis_run_matches")
+    }
+    with engine.connect() as connection:
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT manual_quant_input_id FROM analysis_run_matches "
+                    "WHERE analysis_run_id = 'run-legacy'"
+                )
+            )
+            == "manual-legacy"
+        )
+        assert connection.execute(text("PRAGMA foreign_key_check")).all() == []
+    engine.dispose()
+
+
+def test_quant_model_migration_rejects_populated_downgrade(tmp_path) -> None:
+    database_path = tmp_path / "populated-quant-model.db"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config("alembic.ini")
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        _insert_no_bet_risk_graph(connection, completed=False)
+        connection.execute(
+            text(
+                "UPDATE analysis_runs SET input_manifest_version = "
+                "'MVP_INPUT_MANIFEST_V3' WHERE analysis_run_id = 'run-legacy'"
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO quant_model_states (
+                    quant_model_state_id, analysis_run_id, model_name,
+                    model_version, calibration_label, config_json, config_hash,
+                    cutoff_at_utc, season_id, state_json, state_hash,
+                    state_payload_hash, training_data_hash, training_fact_count,
+                    generated_at_utc
+                ) VALUES (
+                    'state-populated', 'run-legacy', 'MODEL', '1',
+                    'BASELINE_UNCALIBRATED', '{}', :config_hash,
+                    '2026-08-31 03:00:00', '2026', :state_json, :state_hash,
+                    :state_payload_hash, :training_data_hash, 0,
+                    '2026-08-31 03:00:00'
+                )
+                """
+            ),
+            {
+                "config_hash": "a" * 64,
+                "state_hash": "b" * 64,
+                "state_payload_hash": "c" * 64,
+                "training_data_hash": "d" * 64,
+                "state_json": (
+                    '{"config_hash":"'
+                    + "a" * 64
+                    + '","state_hash":"'
+                    + "b" * 64
+                    + '","training_data_hash":"'
+                    + "d" * 64
+                    + '"}'
+                ),
+            },
+        )
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="while model lineage exists"):
+        command.downgrade(config, "a6c1f9e3b742")
+
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            QUANT_MODEL_MIGRATION_REVISION
+        )
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT state_hash FROM quant_model_states "
+                    "WHERE quant_model_state_id = 'state-populated'"
+                )
+            )
+            == "b" * 64
+        )
+    engine.dispose()
+
+
+def test_backtest_v2_migration_upgrades_quant_head_and_empty_downgrade(
+    tmp_path,
+) -> None:
+    database_path = tmp_path / "backtest-v2-migration.db"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config("alembic.ini")
+    config.set_main_option("sqlalchemy.url", database_url)
+
+    command.upgrade(config, QUANT_MODEL_MIGRATION_REVISION)
+    engine = create_database_engine(database_url)
+    assert not BACKTEST_V2_TABLES & set(inspect(engine).get_table_names())
+    engine.dispose()
+
+    command.upgrade(config, BACKTEST_V2_MIGRATION_REVISION)
+    engine = create_database_engine(database_url)
+    assert BACKTEST_V2_TABLES <= set(inspect(engine).get_table_names())
+    with engine.connect() as connection:
+        triggers = set(
+            connection.execute(
+                text(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type = 'trigger' AND name LIKE 'trg_backtest_v2_%'"
+                )
+            ).scalars()
+        )
+        assert {
+            "trg_backtest_v2_runs_insert_running",
+            "trg_backtest_v2_runs_completion",
+            "trg_backtest_v2_slices_lineage_insert",
+            "trg_backtest_v2_metrics_lineage_insert",
+        } <= triggers
+        assert connection.execute(text("PRAGMA foreign_key_check")).all() == []
+    engine.dispose()
+
+    command.downgrade(config, QUANT_MODEL_MIGRATION_REVISION)
+    engine = create_database_engine(database_url)
+    assert not BACKTEST_V2_TABLES & set(inspect(engine).get_table_names())
+    with engine.connect() as connection:
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT COUNT(*) FROM sqlite_master "
+                    "WHERE type = 'trigger' AND name LIKE 'trg_backtest_v2_%'"
+                )
+            )
+            == 0
+        )
+        assert connection.execute(text("PRAGMA foreign_key_check")).all() == []
+    engine.dispose()
+
+
+def test_backtest_v2_migration_rejects_populated_downgrade(tmp_path) -> None:
+    database_path = tmp_path / "populated-backtest-v2.db"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config("alembic.ini")
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO backtest_v2_runs (
+                    backtest_run_id, schema_version, backtest_version, data_mode,
+                    date_from, date_to, strategy_version, strategy_config_json,
+                    strategy_config_hash, code_revision, status, created_at_utc,
+                    expected_slice_count, run_json, run_hash
+                ) VALUES (
+                    'backtest-v2-populated', 'BACKTEST_V2_RUN_RECORD_V1',
+                    'BACKTEST_V2', 'LIVE_STRICT', '2026-08-31', '2026-08-31',
+                    'strategy-v1', '{}', :strategy_config_hash, 'revision',
+                    'RUNNING', '2026-08-31 03:00:00', 1, :run_json, :run_hash
+                )
+                """
+            ),
+            {
+                "strategy_config_hash": "a" * 64,
+                "run_hash": "b" * 64,
+                "run_json": (
+                    '{"archive_provenance":[],"backtest_run_id":'
+                    '"backtest-v2-populated","backtest_version":"BACKTEST_V2",'
+                    '"expected_slice_ids":["slice-1"],"status":"COMPLETED"}'
+                ),
+            },
+        )
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="while backtest lineage exists"):
+        command.downgrade(config, QUANT_MODEL_MIGRATION_REVISION)
+
+    engine = create_database_engine(database_url)
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            BACKTEST_V2_MIGRATION_REVISION
+        )
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT run_hash FROM backtest_v2_runs "
+                    "WHERE backtest_run_id = 'backtest-v2-populated'"
+                )
+            )
+            == "b" * 64
+        )
+    engine.dispose()
+
+
+def test_identity_migration_upgrades_f3_head_and_downgrades_to_f3(tmp_path) -> None:
+    database_path = tmp_path / "identity-migration.db"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config("alembic.ini")
+    config.set_main_option("sqlalchemy.url", database_url)
+
+    command.upgrade(config, "f3a1c6d8e204")
+    engine = create_database_engine(database_url)
+    assert not IDENTITY_TABLES & set(inspect(engine).get_table_names())
+    engine.dispose()
+
+    command.upgrade(config, IDENTITY_MIGRATION_REVISION)
+    engine = create_database_engine(database_url)
+    assert IDENTITY_TABLES <= set(inspect(engine).get_table_names())
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            IDENTITY_MIGRATION_REVISION
+        )
+        triggers = set(
+            connection.execute(
+                text("SELECT name FROM sqlite_master WHERE type = 'trigger'")
+            ).scalars()
+        )
+        for table_name in IDENTITY_TABLES:
+            assert f"trg_{table_name}_immutable_insert_existing" in triggers
+            assert f"trg_{table_name}_append_only_update" in triggers
+            assert f"trg_{table_name}_append_only_delete" in triggers
+    engine.dispose()
+
+    command.downgrade(config, "f3a1c6d8e204")
+    engine = create_database_engine(database_url)
+    assert not IDENTITY_TABLES & set(inspect(engine).get_table_names())
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "f3a1c6d8e204"
+        )
+        triggers = set(
+            connection.execute(
+                text("SELECT name FROM sqlite_master WHERE type = 'trigger'")
+            ).scalars()
+        )
+        assert not {
+            trigger
+            for trigger in triggers
+            if any(table_name in trigger for table_name in IDENTITY_TABLES)
+        }
+    engine.dispose()
+
+
+def test_fixture_ingestion_migration_upgrades_identity_head_and_downgrades(
+    tmp_path,
+) -> None:
+    database_path = tmp_path / "fixture-ingestion-migration.db"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config("alembic.ini")
+    config.set_main_option("sqlalchemy.url", database_url)
+
+    command.upgrade(config, IDENTITY_MIGRATION_REVISION)
+    engine = create_database_engine(database_url)
+    assert not FIXTURE_INGESTION_TABLES & set(inspect(engine).get_table_names())
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    assert FIXTURE_INGESTION_TABLES <= set(inspect(engine).get_table_names())
+    parent_columns = {
+        column["name"]: column
+        for column in inspect(engine).get_columns("fixture_ingestion_captures")
+    }
+    assert all(
+        parent_columns[column]["nullable"] is False
+        for column in (
+            "provider_competition_id",
+            "provider_season_id",
+            "ingested_at_utc",
+        )
+    )
+    assert all(
+        "fixture_ingestion_id"
+        in {column["name"] for column in inspect(engine).get_columns(table_name)}
+        for table_name in FIXTURE_IDENTITY_ORIGIN_INDEXES
+    )
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            CURRENT_MIGRATION_HEAD
+        )
+        triggers = set(
+            connection.execute(
+                text("SELECT name FROM sqlite_master WHERE type = 'trigger'")
+            ).scalars()
+        )
+        assert "trg_fixture_observations_lineage_insert" in triggers
+        for table_name in FIXTURE_INGESTION_TABLES:
+            assert f"trg_{table_name}_immutable_insert_existing" in triggers
+            assert f"trg_{table_name}_append_only_update" in triggers
+            assert f"trg_{table_name}_append_only_delete" in triggers
+    engine.dispose()
+
+    command.downgrade(config, IDENTITY_MIGRATION_REVISION)
+    engine = create_database_engine(database_url)
+    assert not FIXTURE_INGESTION_TABLES & set(inspect(engine).get_table_names())
+    assert all(
+        "fixture_ingestion_id"
+        not in {column["name"] for column in inspect(engine).get_columns(table_name)}
+        for table_name in FIXTURE_IDENTITY_ORIGIN_INDEXES
+    )
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            IDENTITY_MIGRATION_REVISION
+        )
+        triggers = set(
+            connection.execute(
+                text("SELECT name FROM sqlite_master WHERE type = 'trigger'")
+            ).scalars()
+        )
+        assert not {
+            trigger
+            for trigger in triggers
+            if "fixture_ingestion" in trigger or "fixture_observations" in trigger
+        }
+    engine.dispose()
+
+
+def test_fixture_ingestion_migration_rejects_populated_downgrade(tmp_path) -> None:
+    database_path = tmp_path / "populated-fixture-ingestion.db"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config("alembic.ini")
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "head")
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO providers (provider_id, code, name, provider_kind)
+                VALUES ('fixture-provider', 'FIXTURE_PROVIDER',
+                        'Fixture Provider', 'FIXTURE')
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO fixture_ingestion_captures (
+                    ingestion_id, provider_id, kickoff_from_utc,
+                    kickoff_to_utc, provider_competition_id,
+                    provider_season_id, season, competition_type, language,
+                    team_type, endpoint, request_parameters_json,
+                    requested_at_utc, received_at_utc, available_at_utc,
+                    ingested_at_utc, http_status, provider_request_id,
+                    duration_ms, outcome, failure_code, raw_artifact_id,
+                    raw_payload_sha256, observation_count
+                ) VALUES (
+                    'populated-ingestion', 'fixture-provider',
+                    '2026-09-03 00:00:00', '2026-09-03 23:59:59',
+                    'league', 'season-id', '2026/27', 'LEAGUE', 'en',
+                    'CLUB', 'https://provider.invalid/fixtures', '{}',
+                    '2026-09-02 10:00:00', '2026-09-02 10:00:01',
+                    '2026-09-02 10:00:01', '2026-09-02 10:00:02',
+                    200, NULL, 1, 'SUCCESS', NULL,
+                    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                    'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                    0
+                )
+                """
+            )
+        )
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="while capture data exists"):
+        command.downgrade(config, IDENTITY_MIGRATION_REVISION)
+
+    engine = create_database_engine(database_url)
+    assert FIXTURE_INGESTION_TABLES <= set(inspect(engine).get_table_names())
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "a6c1f9e3b742"
+        )
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT raw_artifact_id FROM fixture_ingestion_captures "
+                    "WHERE ingestion_id = 'populated-ingestion'"
+                )
+            )
+            == "a" * 64
+        )
+    engine.dispose()
 
 
 def test_completed_analysis_run_requires_a_validated_transition() -> None:
@@ -473,7 +1343,7 @@ def test_post_review_migration_upgrades_0_2_head_and_downgrades(tmp_path) -> Non
     } <= set(inspect(engine).get_table_names())
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "f3a1c6d8e204"
+            CURRENT_MIGRATION_HEAD
         )
     engine.dispose()
 
@@ -618,7 +1488,7 @@ def test_hardening_migration_accepts_valid_completed_risk_graph(tmp_path) -> Non
     engine = create_database_engine(database_url)
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "f3a1c6d8e204"
+            CURRENT_MIGRATION_HEAD
         )
         assert (
             connection.scalar(

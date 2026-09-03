@@ -106,7 +106,9 @@ def test_static_store_has_valid_checksums_labels_and_ten_daily_slates() -> None:
         assert all(record.imported_at_utc is None for record in loaded.records)
         loaded_by_kind[loaded.manifest.dataset_kind] = loaded
 
-    assert set(loaded_by_kind) == set(HistoricalArchiveDatasetKind)
+    assert set(loaded_by_kind) == set(HistoricalArchiveDatasetKind) - {
+        HistoricalArchiveDatasetKind.MARKET_ODDS_ISSUES
+    }
     store = _store(config)
     assert len(store.manifests) == 6
     assert store.data_mode is HistoricalDataMode.LIVE_STRICT

@@ -2,6 +2,10 @@ from pathlib import Path
 
 import pytest
 
+from football_system.application.environment import (
+    CrossEnvironmentInputError,
+    MockProvenanceInLiveError,
+)
 from football_system.interfaces.cli import main
 
 
@@ -71,3 +75,43 @@ def test_cli_rejects_non_finite_numbers(argument, value) -> None:
     with pytest.raises(SystemExit) as error:
         main([argument, value])
     assert error.value.code == 2
+
+
+@pytest.mark.parametrize(
+    ("config_name", "error_type"),
+    (
+        ("live.toml", MockProvenanceInLiveError),
+        ("research.toml", CrossEnvironmentInputError),
+    ),
+)
+def test_default_cli_rejects_mock_bundle_before_io_in_non_mock_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    config_name: str,
+    error_type: type[ValueError],
+) -> None:
+    database_path = tmp_path / "must-not-exist.db"
+    fixture_was_read = False
+
+    def fail_if_fixture_is_read(path: Path) -> object:
+        nonlocal fixture_was_read
+        fixture_was_read = True
+        raise AssertionError(f"mock fixture was read from {path}")
+
+    monkeypatch.setattr(
+        "football_system.interfaces.cli.MockDataset.from_json",
+        fail_if_fixture_is_read,
+    )
+
+    with pytest.raises(error_type):
+        main(
+            [
+                "--config",
+                str(Path("config") / config_name),
+                "--database-url",
+                database_url(database_path),
+            ]
+        )
+
+    assert fixture_was_read is False
+    assert database_path.exists() is False

@@ -3,25 +3,49 @@
   "data": [
     {
       "id": "synthetic-fixture-001",
-      "starting_at": "2026-09-03T19:00:00Z",
+      "league_id": "synthetic-league-001",
+      "season_id": "synthetic-season-2026",
+      "starting_at": "2026-09-03 19:00:00",
       "state": {"short_name": "NS"},
       "league": {
         "id": "synthetic-league-001",
         "name": "Fabricated Coastal League",
+        "type": "league",
         "country": {"iso2": "GB"}
+      },
+      "season": {
+        "id": "synthetic-season-2026",
+        "league_id": "synthetic-league-001",
+        "name": "2026/27"
       },
       "participants": [
         {
           "id": "synthetic-team-harbour",
           "name": "Fabricated Harbour FC",
+          "type": "domestic",
+          "gender": "male",
           "meta": {"location": "home"}
         },
         {
           "id": "synthetic-team-orchard",
           "name": "Fabricated Orchard FC",
+          "type": "domestic",
+          "gender": "male",
           "meta": {"location": "away"}
         }
       ]
     }
-  ]
+  ],
+  "pagination": {
+    "count": 1,
+    "per_page": 50,
+    "current_page": 1,
+    "next_cursor": null,
+    "has_more": false
+  },
+  "rate_limit": {
+    "resets_in_seconds": 1800,
+    "remaining": 2999,
+    "requested_entity": "Fixture"
+  }
 }

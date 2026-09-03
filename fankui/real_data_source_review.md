@@ -49,12 +49,14 @@
 
 **裁决：adapter `ACCEPT`；真实调用 `DEFER`。**
 
+实现状态：`live ingest-fixtures` 已具备显式网络入口、raw archive 和 append-only SQLite lineage，但自动化验收不访问外网。该入口可用不改变真实调用的 `DEFER` 裁决；首次账户调用仍须先完成下列 entitlement go gate。
+
 | 维度 | 已核验事实 |
 | --- | --- |
 | planned usage | fixtures、competitions、teams、match results；第一版不读取 logo、照片或预测产品 |
 | coverage | 官方宣传覆盖大量联赛；实际可见联赛取决于订阅 entitlement，必须用 token 核验 |
 | pricing/free limit | 官方存在免费计划和付费联赛套餐；目标联赛和历史包必须按运行时 entitlement 核验 |
-| rate limit | 官方 v3 文档描述按 entity/hour 的限流和 `429`；client 必须保存响应限流 header 并有界退避 |
+| rate limit | 官方 v3 文档描述按 entity/hour 的限流和 `429`；client 必须保留并校验响应 `rate_limit` metadata，失败请求采用有界退避 |
 | timestamp semantics | `starting_at` 是 kickoff，不是 availability；`fixtures/latest` 的更新窗口也不是不可变 source publication timestamp |
 | historical availability | 较老赛季可能需要历史 add-on；不能仅凭当前响应重建过去修订链 |
 | license/terms note | [Terms of Service](https://www.sportmonks.com/terms-of-service/) 允许保存 service data，但禁止未经同意直接转售；logo/照片权利另行处理 |
@@ -65,7 +67,7 @@
 实现 go gate：
 
 1. token 只从 `SPORTMONKS_KEY` 读取，并使用 `Authorization` header，不能进入 URL、日志、raw metadata 或 Git。
-2. 首次真实调用前核对 entitlement、联赛、字段和限流 header。
+2. 首次真实调用前核对 entitlement、联赛、字段和限流 metadata。
 3. 保存完整本地 request/receipt 时间和 payload SHA-256，更新记录只能追加。
 4. provider 状态必须显式映射；无法映射的取消、腰斩、判罚、加时或点球状态 fail-closed。
 

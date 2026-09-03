@@ -1,6 +1,6 @@
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -10,6 +10,7 @@ from football_system.application.review_bridge import (
     ImportLLMReviewService,
     build_analysis_packet,
     build_analysis_packet_v2,
+    build_analysis_packet_v3,
     canonical_json,
     strict_json_loads,
     validate_review_files,
@@ -19,22 +20,34 @@ from football_system.infrastructure.files.review_bridge import (
     write_contract_file,
 )
 from football_system.domain.market import (
+    MarketKey,
+    MarketType,
     ThreeWayFixedBonus,
     ThreeWayMarketOdds,
     ThreeWayProbability,
+)
+from football_system.domain.prediction import (
+    ModelQuantPrediction,
+    QuantModelEvaluationStatus,
 )
 from football_system.domain.review import (
     AnalysisPacketMatch,
     AnalysisPacketMatchSourceV2,
     AnalysisPacketRun,
+    AnalysisPacketRunV3,
     AnalysisPacketSource,
     AnalysisPacketSourceV2,
+    AnalysisPacketMatchSourceV3,
+    AnalysisPacketSourceV3,
     MatchReviewContext,
     PacketDataQuality,
     PacketDataQualityStatus,
     PacketEvidence,
     PacketInternationalOdds,
     PacketMarketPrediction,
+    PacketModelQuantLineageV3,
+    PacketQuantModelEvaluationV3,
+    PacketQuantModelStateV3,
     PacketQuantPrediction,
     PacketSportteryOdds,
     StoredAnalysisPacket,
@@ -218,6 +231,94 @@ def _review_v2(packet, **match_updates) -> dict:
     return review
 
 
+def _source_v3(*, available: bool = True) -> AnalysisPacketSourceV3:
+    source_v2 = _source_v2()
+    run = AnalysisPacketRunV3(
+        **source_v2.analysis_run.model_dump(
+            mode="python",
+            exclude={"input_manifest_version"},
+        ),
+        input_manifest_version="MVP_INPUT_MANIFEST_V3",
+        started_at_utc=NOW,
+    )
+    config_json = "{}"
+    config_hash = hashlib.sha256(config_json.encode("utf-8")).hexdigest()
+    state_hash = "c" * 64
+    training_data_hash = "d" * 64
+    state = PacketQuantModelStateV3(
+        quant_model_state_id="model-state-1",
+        analysis_run_id=run.analysis_run_id,
+        model_name="ELO_THREE_WAY_BASELINE_V1",
+        model_version="1",
+        calibration_label="BASELINE_UNCALIBRATED",
+        config_hash=config_hash,
+        cutoff_at_utc=NOW,
+        season_id="2026",
+        state_hash=state_hash,
+        state_payload_hash="f" * 64,
+        training_data_hash=training_data_hash,
+        training_fact_count=0,
+        generated_at_utc=NOW,
+    )
+    status = (
+        QuantModelEvaluationStatus.AVAILABLE
+        if available
+        else QuantModelEvaluationStatus.UNAVAILABLE
+    )
+    reason = None if available else "INSUFFICIENT_PRIOR_MATCHES"
+    probabilities = PROBABILITIES if available else None
+    model_prediction_hash = "e" * 64
+    evaluation = PacketQuantModelEvaluationV3(
+        quant_model_evaluation_id="model-evaluation-1",
+        analysis_run_id=run.analysis_run_id,
+        quant_model_state_id=state.quant_model_state_id,
+        match_id="match-1",
+        market=MarketKey(market_type=MarketType.THREE_WAY),
+        status=status,
+        unavailable_reason=reason,
+        probabilities=probabilities,
+        output_hash="a" * 64,
+        model_prediction_hash=model_prediction_hash,
+        evaluated_at_utc=NOW,
+    )
+    prediction = (
+        ModelQuantPrediction(
+            prediction_id="p-quant-model-1",
+            analysis_run_id=run.analysis_run_id,
+            match_id="match-1",
+            market=evaluation.market,
+            probabilities=PROBABILITIES,
+            quant_model_evaluation_id=evaluation.quant_model_evaluation_id,
+            method=state.model_name,
+            method_version=state.model_version,
+            generated_at_utc=NOW,
+        )
+        if available
+        else None
+    )
+    source_match = source_v2.matches[0]
+    return AnalysisPacketSourceV3(
+        analysis_run=run,
+        quant_model_states=(state,),
+        matches=(
+            AnalysisPacketMatchSourceV3(
+                **source_match.model_dump(mode="python", exclude={"p_quant"}),
+                p_quant=PacketModelQuantLineageV3(
+                    status=status,
+                    evaluation=evaluation,
+                    prediction=prediction,
+                ),
+            ),
+        ),
+    )
+
+
+def _review_v3(packet, **match_updates) -> dict:
+    review = _review_v2(packet, **match_updates)
+    review["schema_version"] = "LLM_REVIEW_V3"
+    return review
+
+
 def _packet_bytes(packet) -> bytes:
     return canonical_json(packet.model_dump(mode="json")).encode("utf-8")
 
@@ -232,6 +333,29 @@ def test_analysis_packet_is_deterministic_and_excludes_betting_outputs() -> None
     for forbidden in ("p_final", "ev", "budget", "stake", "ticket", "portfolio"):
         assert f'"{forbidden}"' not in serialized.lower()
     assert '"config_hash"' not in serialized
+
+
+def test_analysis_packet_v1_v2_bytes_remain_frozen() -> None:
+    packets = (
+        (
+            build_analysis_packet(_source(), NOW),
+            "6e241e4a-c5c8-56cd-bbbc-81d913ebde22",
+            "c169f52b8a088f3a84b37b15c38cbb1a8919ba09758587bf79324dd309beda7b",
+            "66895ac83b22c2575a0febf39d0c04caaccf8e5cadde4185e737587363d684b1",
+        ),
+        (
+            build_analysis_packet_v2(_source_v2(), NOW),
+            "2b65370c-8b01-5bd2-b33b-f5936a343fdd",
+            "7c6a96033e6e7e53c1f35f6034c05679afded098536d6c152726f9fd7c708ad1",
+            "3fcc516aace06e16aee2c871cde13688678571881f4dd668302bed18e3a51aab",
+        ),
+    )
+
+    for packet, packet_id, packet_hash, serialized_hash in packets:
+        serialized = canonical_json(packet.model_dump(mode="json")).encode("utf-8")
+        assert packet.packet_id == packet_id
+        assert packet.packet_hash == packet_hash
+        assert hashlib.sha256(serialized).hexdigest() == serialized_hash
 
 
 def test_analysis_packet_v2_contains_auditable_context_and_strict_whitelist() -> None:
@@ -272,6 +396,90 @@ def test_analysis_packet_v2_contains_auditable_context_and_strict_whitelist() ->
         "strategy_profile",
     ):
         assert f'"{forbidden}"' not in serialized.lower()
+
+
+@pytest.mark.parametrize("available", (True, False))
+def test_analysis_packet_v3_preserves_model_lineage_and_unavailability(
+    available: bool,
+) -> None:
+    packet = build_analysis_packet_v3(_source_v3(available=available), NOW)
+    repeated = build_analysis_packet_v3(_source_v3(available=available), NOW)
+
+    assert packet == repeated
+    assert packet.schema_version == "ANALYSIS_PACKET_V3"
+    assert len(packet.quant_model_states) == 1
+    lineage = packet.matches[0].p_quant
+    assert lineage.source_kind == "MODEL"
+    assert lineage.evaluation.quant_model_state_id == (
+        packet.quant_model_states[0].quant_model_state_id
+    )
+    if available:
+        assert lineage.status is QuantModelEvaluationStatus.AVAILABLE
+        assert lineage.prediction is not None
+        assert lineage.prediction.probabilities == PROBABILITIES
+    else:
+        assert lineage.status is QuantModelEvaluationStatus.UNAVAILABLE
+        assert lineage.prediction is None
+        assert lineage.evaluation.probabilities is None
+        assert lineage.evaluation.unavailable_reason == "INSUFFICIENT_PRIOR_MATCHES"
+
+
+def test_review_v3_binds_context_and_rejects_older_review_schema() -> None:
+    packet = build_analysis_packet_v3(_source_v3(), NOW)
+    packet_bytes = _packet_bytes(packet)
+
+    _, submission, _ = validate_review_files(
+        packet_bytes,
+        canonical_json(_review_v3(packet)).encode("utf-8"),
+    )
+    assert submission.schema_version == "LLM_REVIEW_V3"
+
+    with pytest.raises(ValueError, match="file contract validation"):
+        validate_review_files(
+            packet_bytes,
+            canonical_json(_review_v2(packet)).encode("utf-8"),
+        )
+
+    unavailable_packet = build_analysis_packet_v3(
+        _source_v3(available=False),
+        NOW,
+    )
+    with pytest.raises(ValueError, match="preserve model unavailability"):
+        validate_review_files(
+            _packet_bytes(unavailable_packet),
+            canonical_json(_review_v3(unavailable_packet)).encode("utf-8"),
+        )
+
+
+def test_analysis_packet_v3_requires_each_referenced_model_state() -> None:
+    payload = _source_v3().model_dump(mode="python")
+    payload["quant_model_states"] = []
+
+    with pytest.raises(ValueError, match="model-state lineage is incomplete"):
+        AnalysisPacketSourceV3.model_validate(payload)
+
+
+def test_analysis_packet_v3_rejects_target_training_and_prestart_artifacts() -> None:
+    target_training = _source_v3().model_dump(mode="python")
+    target_training["quant_model_states"][0].update(
+        {
+            "training_fact_count": 1,
+            "training_match_ids": ["match-1"],
+            "training_result_ids": ["result-1"],
+        }
+    )
+    with pytest.raises(ValueError, match="target matches cannot appear"):
+        AnalysisPacketSourceV3.model_validate(target_training)
+
+    prestart = _source_v3().model_dump(mode="python")
+    prestart["analysis_run"].update(
+        {
+            "started_at_utc": NOW + timedelta(minutes=1),
+            "completed_at_utc": NOW + timedelta(minutes=2),
+        }
+    )
+    with pytest.raises(ValueError, match="timestamps are outside"):
+        AnalysisPacketSourceV3.model_validate(prestart)
 
 
 def test_review_v2_binds_the_exact_review_context_and_rejects_mixed_versions() -> None:

@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_EVEN, localcontext
 from enum import StrEnum
-from typing import ClassVar, Self
+from typing import Any, ClassVar, Self
 
 from pydantic import Field, field_validator, model_validator
 
@@ -71,21 +71,79 @@ class EloBaselineConfig(DomainModel):
 class EloRegularTimeResult(DomainModel):
     """A final regular-time score and the time at which it became usable."""
 
+    match_result_id: Identifier
     match_id: Identifier
     season_id: Identifier
     home_team_id: Identifier
     away_team_id: Identifier
     kickoff_at_utc: UtcDateTime
     available_at_utc: UtcDateTime
+    ingested_at_utc: UtcDateTime
     home_goals: int = Field(ge=0, strict=True)
     away_goals: int = Field(ge=0, strict=True)
+    payload_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    supersedes_match_result_id: Identifier | None = None
 
     @model_validator(mode="after")
     def validate_result(self) -> Self:
         if self.home_team_id == self.away_team_id:
             raise ValueError("home and away teams must differ")
-        if self.available_at_utc < self.kickoff_at_utc:
-            raise ValueError("result cannot be available before kickoff")
+        if not (self.kickoff_at_utc <= self.available_at_utc <= self.ingested_at_utc):
+            raise ValueError(
+                "result timestamps must follow kickoff, available, ingested"
+            )
+        if self.supersedes_match_result_id == self.match_result_id:
+            raise ValueError("result cannot supersede itself")
+        return self
+
+
+class EloTrainingFact(DomainModel):
+    """Exact normalized result version consumed at one deterministic sequence."""
+
+    sequence: int = Field(ge=0, strict=True)
+    match_result_id: Identifier
+    match_id: Identifier
+    season_id: Identifier
+    home_team_id: Identifier
+    away_team_id: Identifier
+    kickoff_at_utc: UtcDateTime
+    available_at_utc: UtcDateTime
+    ingested_at_utc: UtcDateTime
+    home_goals: int = Field(ge=0, strict=True)
+    away_goals: int = Field(ge=0, strict=True)
+    source_payload_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    supersedes_match_result_id: Identifier | None = None
+    fact_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @classmethod
+    def from_result(
+        cls,
+        *,
+        sequence: int,
+        result: EloRegularTimeResult,
+    ) -> Self:
+        values: dict[str, Any] = {
+            "sequence": sequence,
+            "match_result_id": result.match_result_id,
+            "match_id": result.match_id,
+            "season_id": result.season_id,
+            "home_team_id": result.home_team_id,
+            "away_team_id": result.away_team_id,
+            "kickoff_at_utc": result.kickoff_at_utc,
+            "available_at_utc": result.available_at_utc,
+            "ingested_at_utc": result.ingested_at_utc,
+            "home_goals": result.home_goals,
+            "away_goals": result.away_goals,
+            "source_payload_hash": result.payload_hash,
+            "supersedes_match_result_id": result.supersedes_match_result_id,
+        }
+        return cls(**values, fact_hash=_payload_sha256(values))
+
+    @model_validator(mode="after")
+    def validate_fact_hash(self) -> Self:
+        values = self.model_dump(mode="python", exclude={"fact_hash"})
+        if _payload_sha256(values) != self.fact_hash:
+            raise ValueError("Elo training fact hash does not match its contents")
         return self
 
 
@@ -128,6 +186,10 @@ class EloBaselineState(DomainModel):
     season_id: Identifier | None = None
     teams: tuple[EloTeamState, ...] = ()
     training_match_ids: tuple[Identifier, ...] = ()
+    training_result_ids: tuple[Identifier, ...] = ()
+    training_facts: tuple[EloTrainingFact, ...] = ()
+    training_data_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    state_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
 
     @model_validator(mode="after")
     def validate_state(self) -> Self:
@@ -144,6 +206,33 @@ class EloBaselineState(DomainModel):
             raise ValueError("Elo team states must use stable team-ID ordering")
         if len(self.training_match_ids) != len(set(self.training_match_ids)):
             raise ValueError("Elo training match IDs must be unique")
+        if len(self.training_result_ids) != len(set(self.training_result_ids)):
+            raise ValueError("Elo training result IDs must be unique")
+        if len(self.training_match_ids) != len(self.training_result_ids):
+            raise ValueError("Elo training match/result lineage lengths must match")
+        if len(self.training_facts) != len(self.training_match_ids):
+            raise ValueError("Elo training facts must cover every training match")
+        if tuple(fact.sequence for fact in self.training_facts) != tuple(
+            range(len(self.training_facts))
+        ):
+            raise ValueError("Elo training fact sequence must be contiguous")
+        if tuple(fact.match_id for fact in self.training_facts) != (
+            self.training_match_ids
+        ):
+            raise ValueError("Elo training facts must match training match IDs")
+        if tuple(fact.match_result_id for fact in self.training_facts) != (
+            self.training_result_ids
+        ):
+            raise ValueError("Elo training facts must match training result IDs")
+        if any(
+            fact.ingested_at_utc > self.cutoff_at_utc for fact in self.training_facts
+        ):
+            raise ValueError("Elo training facts cannot cross the state cutoff")
+        if _payload_sha256(self.training_facts) != self.training_data_hash:
+            raise ValueError("Elo training data hash does not match training facts")
+        state_values = self.model_dump(mode="python", exclude={"state_hash"})
+        if _payload_sha256(state_values) != self.state_hash:
+            raise ValueError("Elo state hash does not match its contents")
         return self
 
     def for_team(self, team_id: str) -> EloTeamState | None:
@@ -164,6 +253,8 @@ class EloBaselinePrediction(DomainModel):
     model_version: str = MODEL_VERSION
     calibration_label: str = BASELINE_UNCALIBRATED
     config_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    state_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    training_data_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     match_id: Identifier
     season_id: Identifier
     home_team_id: Identifier
@@ -178,6 +269,8 @@ class EloBaselinePrediction(DomainModel):
     home_prior_matches: int = Field(ge=0, strict=True)
     away_prior_matches: int = Field(ge=0, strict=True)
     training_match_ids: tuple[Identifier, ...] = ()
+    training_result_ids: tuple[Identifier, ...] = ()
+    prediction_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
 
     @model_validator(mode="after")
     def validate_prediction(self) -> Self:
@@ -189,6 +282,10 @@ class EloBaselinePrediction(DomainModel):
             raise ValueError("unexpected Elo calibration label")
         if len(self.training_match_ids) != len(set(self.training_match_ids)):
             raise ValueError("Elo training match IDs must be unique")
+        if len(self.training_result_ids) != len(set(self.training_result_ids)):
+            raise ValueError("Elo training result IDs must be unique")
+        if len(self.training_match_ids) != len(self.training_result_ids):
+            raise ValueError("Elo prediction training lineage lengths must match")
         insufficient = self.insufficient_history_team_ids
         if len(insufficient) != len(set(insufficient)):
             raise ValueError("insufficient-history team IDs must be unique")
@@ -198,12 +295,19 @@ class EloBaselinePrediction(DomainModel):
             if self.probabilities is None:
                 raise ValueError("available Elo prediction requires probabilities")
             if self.reason is not None or insufficient:
-                raise ValueError("available Elo prediction cannot have a failure reason")
+                raise ValueError(
+                    "available Elo prediction cannot have a failure reason"
+                )
         else:
             if self.probabilities is not None:
                 raise ValueError("unavailable Elo prediction cannot have probabilities")
             if self.reason is None or not insufficient:
-                raise ValueError("unavailable Elo prediction requires an explicit reason")
+                raise ValueError(
+                    "unavailable Elo prediction requires an explicit reason"
+                )
+        values = self.model_dump(mode="python", exclude={"prediction_hash"})
+        if _payload_sha256(values) != self.prediction_hash:
+            raise ValueError("Elo prediction hash does not match its contents")
         return self
 
 
@@ -225,11 +329,16 @@ class EloThreeWayBaseline:
         cutoff_at_utc: datetime,
         *,
         target_season_id: str | None = None,
+        exclude_match_ids: Iterable[str] = (),
     ) -> EloBaselineState:
         cutoff = normalize_utc(cutoff_at_utc)
         if target_season_id is not None and not target_season_id.strip():
             raise ValueError("target season ID must not be blank")
-        ordered_results = _visible_results(historical_results, cutoff)
+        ordered_results = _visible_results(
+            historical_results,
+            cutoff,
+            excluded_match_ids=frozenset(exclude_match_ids),
+        )
         ratings: dict[str, Decimal] = {}
         prior_matches: dict[str, int] = {}
         training_match_ids: list[str] = []
@@ -261,11 +370,18 @@ class EloThreeWayBaseline:
                 _regress_ratings(ratings, self.config)
                 current_season_id = target_season_id
 
-        return EloBaselineState(
-            config_hash=self.config_hash,
-            cutoff_at_utc=cutoff,
-            season_id=current_season_id,
-            teams=tuple(
+        training_facts = tuple(
+            EloTrainingFact.from_result(sequence=index, result=result)
+            for index, result in enumerate(ordered_results)
+        )
+        state_values: dict[str, Any] = {
+            "model_name": self.model_name,
+            "model_version": self.model_version,
+            "calibration_label": self.calibration_label,
+            "config_hash": self.config_hash,
+            "cutoff_at_utc": cutoff,
+            "season_id": current_season_id,
+            "teams": tuple(
                 EloTeamState(
                     team_id=team_id,
                     rating=ratings[team_id],
@@ -273,7 +389,16 @@ class EloThreeWayBaseline:
                 )
                 for team_id in sorted(ratings)
             ),
-            training_match_ids=tuple(training_match_ids),
+            "training_match_ids": tuple(training_match_ids),
+            "training_result_ids": tuple(
+                result.match_result_id for result in ordered_results
+            ),
+            "training_facts": training_facts,
+            "training_data_hash": _payload_sha256(training_facts),
+        }
+        return EloBaselineState(
+            **state_values,
+            state_hash=_payload_sha256(state_values),
         )
 
     def predict(
@@ -285,6 +410,7 @@ class EloThreeWayBaseline:
             historical_results,
             request.cutoff_at_utc,
             target_season_id=request.season_id,
+            exclude_match_ids=(request.match_id,),
         )
         return self.predict_from_state(request, state)
 
@@ -322,7 +448,12 @@ class EloThreeWayBaseline:
             if counts[team_id] < self.config.minimum_prior_matches
         )
         common = {
+            "model_name": self.model_name,
+            "model_version": self.model_version,
+            "calibration_label": self.calibration_label,
             "config_hash": self.config_hash,
+            "state_hash": state.state_hash,
+            "training_data_hash": state.training_data_hash,
             "match_id": request.match_id,
             "season_id": request.season_id,
             "home_team_id": request.home_team_id,
@@ -333,15 +464,16 @@ class EloThreeWayBaseline:
             "home_prior_matches": home_prior_matches,
             "away_prior_matches": away_prior_matches,
             "training_match_ids": state.training_match_ids,
+            "training_result_ids": state.training_result_ids,
         }
         if insufficient:
-            return EloBaselinePrediction(
+            return _build_prediction(
                 **common,
                 status=EloPredictionStatus.UNAVAILABLE,
                 reason=EloUnavailableReason.INSUFFICIENT_PRIOR_MATCHES,
                 insufficient_history_team_ids=insufficient,
             )
-        return EloBaselinePrediction(
+        return _build_prediction(
             **common,
             status=EloPredictionStatus.AVAILABLE,
             probabilities=_three_way_probabilities(
@@ -355,23 +487,29 @@ class EloThreeWayBaseline:
 def _visible_results(
     historical_results: Iterable[EloRegularTimeResult],
     cutoff_at_utc: datetime,
+    *,
+    excluded_match_ids: frozenset[str],
 ) -> tuple[EloRegularTimeResult, ...]:
+    source_results = tuple(historical_results)
+    result_ids = tuple(result.match_result_id for result in source_results)
+    if len(result_ids) != len(set(result_ids)):
+        raise ValueError("Elo source result IDs must be unique")
     visible = tuple(
         result
-        for result in historical_results
+        for result in source_results
         if result.available_at_utc <= cutoff_at_utc
+        and result.ingested_at_utc <= cutoff_at_utc
+        and result.match_id not in excluded_match_ids
     )
-    by_match_id: dict[str, EloRegularTimeResult] = {}
-    by_fixture: dict[
-        tuple[str, str, str, datetime], EloRegularTimeResult
-    ] = {}
+    versions_by_match: dict[str, list[EloRegularTimeResult]] = {}
     for result in visible:
-        previous = by_match_id.get(result.match_id)
-        if previous is not None:
-            kind = "duplicate" if previous == result else "conflicting"
-            raise ValueError(
-                f"{kind} historical result for match ID {result.match_id!r}"
-            )
+        versions_by_match.setdefault(result.match_id, []).append(result)
+    by_match_id = {
+        match_id: _current_result_version(versions)
+        for match_id, versions in versions_by_match.items()
+    }
+    by_fixture: dict[tuple[str, str, str, datetime], EloRegularTimeResult] = {}
+    for result in by_match_id.values():
         fixture_key = (
             result.season_id,
             result.home_team_id,
@@ -389,15 +527,16 @@ def _visible_results(
                 f"{kind} historical fixture with match IDs "
                 f"{previous.match_id!r} and {result.match_id!r}"
             )
-        by_match_id[result.match_id] = result
         by_fixture[fixture_key] = result
     return tuple(
         sorted(
-            visible,
+            by_match_id.values(),
             key=lambda result: (
                 result.kickoff_at_utc,
                 result.available_at_utc,
+                result.ingested_at_utc,
                 result.match_id,
+                result.match_result_id,
             ),
         )
     )
@@ -411,7 +550,9 @@ def _apply_result(
 ) -> None:
     home_rating = ratings.get(result.home_team_id, config.initial_rating)
     away_rating = ratings.get(result.away_team_id, config.initial_rating)
-    expected_home = _expected_home_score(home_rating, away_rating, config.home_advantage)
+    expected_home = _expected_home_score(
+        home_rating, away_rating, config.home_advantage
+    )
     if result.home_goals > result.away_goals:
         actual_home = Decimal(1)
     elif result.home_goals < result.away_goals:
@@ -425,6 +566,44 @@ def _apply_result(
         ratings[result.away_team_id] = _quantize_rating(away_rating - adjustment)
     prior_matches[result.home_team_id] = prior_matches.get(result.home_team_id, 0) + 1
     prior_matches[result.away_team_id] = prior_matches.get(result.away_team_id, 0) + 1
+
+
+def _current_result_version(
+    versions: list[EloRegularTimeResult],
+) -> EloRegularTimeResult:
+    if len(versions) == 1:
+        return versions[0]
+    by_id = {version.match_result_id: version for version in versions}
+    superseded_ids = {
+        version.supersedes_match_result_id
+        for version in versions
+        if version.supersedes_match_result_id in by_id
+    }
+    heads = [
+        version for version in versions if version.match_result_id not in superseded_ids
+    ]
+    if len(heads) != 1:
+        raise ValueError("Elo result corrections must form one supersession chain")
+    current = heads[0]
+    visited: set[str] = set()
+    cursor = current
+    while True:
+        if cursor.match_result_id in visited:
+            raise ValueError("Elo result correction chain cannot contain a cycle")
+        visited.add(cursor.match_result_id)
+        superseded_id = cursor.supersedes_match_result_id
+        if superseded_id not in by_id:
+            break
+        previous = by_id[superseded_id]
+        if (
+            previous.available_at_utc > cursor.available_at_utc
+            or previous.ingested_at_utc > cursor.ingested_at_utc
+        ):
+            raise ValueError("Elo result corrections must move forward in time")
+        cursor = previous
+    if visited != set(by_id):
+        raise ValueError("Elo result corrections must form one supersession chain")
+    return current
 
 
 def _regress_ratings(
@@ -483,3 +662,45 @@ def _three_way_probabilities(
 
 def _quantize_rating(value: Decimal) -> Decimal:
     return value.quantize(RATING_QUANTUM, rounding=ROUND_HALF_EVEN)
+
+
+def _build_prediction(**values: Any) -> EloBaselinePrediction:
+    values = {
+        "reason": None,
+        "probabilities": None,
+        "insufficient_history_team_ids": (),
+        **values,
+    }
+    return EloBaselinePrediction(
+        **values,
+        prediction_hash=_payload_sha256(values),
+    )
+
+
+def _payload_sha256(value: object) -> str:
+    payload = json.dumps(
+        _canonical_value(value),
+        allow_nan=False,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _canonical_value(value: object) -> object:
+    if isinstance(value, DomainModel):
+        return _canonical_value(value.model_dump(mode="python"))
+    if isinstance(value, Mapping):
+        return {str(key): _canonical_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_canonical_value(item) for item in value]
+    if isinstance(value, Decimal):
+        if not value.is_finite():
+            raise ValueError("Elo hashes cannot contain non-finite decimals")
+        return str(value)
+    if isinstance(value, datetime):
+        return normalize_utc(value).isoformat().replace("+00:00", "Z")
+    if isinstance(value, StrEnum):
+        return value.value
+    return value

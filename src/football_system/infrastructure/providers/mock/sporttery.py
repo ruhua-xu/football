@@ -7,6 +7,10 @@ from football_system.application.ports.data_providers import (
     SportteryBatch,
     SportteryProvider,
 )
+from football_system.application.environment import (
+    RuntimeEnvironment,
+    RuntimeProvenance,
+)
 from football_system.domain.common import stable_id
 from football_system.domain.market import MarketKey, MarketType
 from football_system.domain.match import (
@@ -24,6 +28,12 @@ from football_system.infrastructure.providers.mock.dataset import (
 
 class MockSportteryProvider(SportteryProvider):
     provider_code = "MOCK_SPORTTERY"
+    runtime_provenance = RuntimeProvenance(
+        environment=RuntimeEnvironment.MOCK,
+        provider_code=provider_code,
+        provenance="bundled deterministic mock Sporttery dataset",
+        is_mock=True,
+    )
 
     def __init__(self, dataset: MockDataset) -> None:
         self._dataset = dataset
@@ -40,7 +50,9 @@ class MockSportteryProvider(SportteryProvider):
         snapshots = tuple(_snapshot(seed, market) for seed in seeds)
         mappings = tuple(
             ProviderMatchMapping(
-                mapping_id=stable_id("mapping", self.provider_code, seed.sporttery_match_no),
+                mapping_id=stable_id(
+                    "mapping", self.provider_code, seed.sporttery_match_no
+                ),
                 provider_code=self.provider_code,
                 external_namespace="sporttery_match",
                 external_match_id=seed.sporttery_match_no,
@@ -60,7 +72,9 @@ def _snapshot(seed: MockMatchSeed, market: MarketKey) -> SportteryBonusSnapshot:
         f"{seed.sporttery_captured_at_utc.isoformat()}:{digest[:16]}"
     )
     return SportteryBonusSnapshot(
-        snapshot_id=stable_id("sporttery", MockSportteryProvider.provider_code, version_key),
+        snapshot_id=stable_id(
+            "sporttery", MockSportteryProvider.provider_code, version_key
+        ),
         match_id=seed.match_id,
         provider_code=MockSportteryProvider.provider_code,
         sporttery_match_no=seed.sporttery_match_no,

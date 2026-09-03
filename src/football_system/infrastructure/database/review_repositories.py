@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -9,18 +10,30 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from football_system.domain.common import stable_id
 from football_system.domain.market import (
+    MarketKey,
+    MarketType,
     SelectionKey,
     ThreeWayFixedBonus,
     ThreeWayMarketOdds,
     ThreeWayProbability,
 )
+from football_system.domain.prediction import (
+    ModelQuantPrediction,
+    QuantModelEvaluation,
+    QuantModelEvaluationStatus,
+    QuantModelStateArtifact,
+    QuantModelTrainingFactRef,
+)
 from football_system.domain.review import (
     AnalysisPacketContract,
     AnalysisPacketMatch,
     AnalysisPacketMatchSourceV2,
+    AnalysisPacketMatchSourceV3,
     AnalysisPacketRun,
+    AnalysisPacketRunV3,
     AnalysisPacketSource,
     AnalysisPacketSourceV2,
+    AnalysisPacketSourceV3,
     LLMReviewArtifact,
     MatchReviewContext,
     PacketDataQuality,
@@ -28,6 +41,10 @@ from football_system.domain.review import (
     PacketEvidence,
     PacketInternationalOdds,
     PacketMarketPrediction,
+    PacketManualQuantLineageV3,
+    PacketModelQuantLineageV3,
+    PacketQuantModelEvaluationV3,
+    PacketQuantModelStateV3,
     PacketQuantPrediction,
     PacketSportteryOdds,
     StoredAnalysisPacket,
@@ -49,6 +66,9 @@ from football_system.infrastructure.database.models import (
     ProviderRecord,
     QuantPredictionOutcomeRecord,
     QuantPredictionRecord,
+    QuantModelEvaluationRecord,
+    QuantModelStateRecord,
+    QuantModelTrainingFactRecord,
     SportteryBonusSnapshotRecord,
     SportteryBonusQuoteRecord,
     TeamRecord,
@@ -123,6 +143,51 @@ class SqlAlchemyReviewArtifactRepository:
                     code_revision=run.code_revision,
                     input_manifest_version=run.input_manifest_version,
                     input_manifest_hash=run.input_manifest_hash,
+                ),
+                matches=matches,
+            )
+
+    def load_packet_source_v3(self, analysis_run_id: str) -> AnalysisPacketSourceV3:
+        with self._session_factory() as session:
+            run = session.get(AnalysisRunRecord, analysis_run_id)
+            if run is None:
+                raise KeyError(f"unknown AnalysisRun: {analysis_run_id}")
+            if run.status != "COMPLETED" or run.completed_at_utc is None:
+                raise ValueError("AnalysisPacket requires a completed AnalysisRun")
+            if _sha256(run.config_json) != run.config_hash:
+                raise ValueError("stored AnalysisRun config failed hash verification")
+            if _sha256(run.input_manifest_json) != run.input_manifest_hash:
+                raise ValueError("stored AnalysisRun manifest failed hash verification")
+            contexts = tuple(
+                session.scalars(
+                    select(AnalysisRunMatchRecord)
+                    .where(AnalysisRunMatchRecord.analysis_run_id == analysis_run_id)
+                    .order_by(AnalysisRunMatchRecord.internal_match_id)
+                )
+            )
+            matches = tuple(
+                self._load_match_v3(session, run, context) for context in contexts
+            )
+            state_ids = sorted(
+                {
+                    match.p_quant.evaluation.quant_model_state_id
+                    for match in matches
+                    if isinstance(match.p_quant, PacketModelQuantLineageV3)
+                }
+            )
+            return AnalysisPacketSourceV3(
+                analysis_run=AnalysisPacketRunV3(
+                    analysis_run_id=run.analysis_run_id,
+                    as_of_at_utc=run.as_of_at_utc,
+                    started_at_utc=run.started_at_utc,
+                    completed_at_utc=run.completed_at_utc,
+                    pipeline_version=run.pipeline_version,
+                    code_revision=run.code_revision,
+                    input_manifest_version=run.input_manifest_version,
+                    input_manifest_hash=run.input_manifest_hash,
+                ),
+                quant_model_states=tuple(
+                    _quant_model_state(session, state_id) for state_id in state_ids
                 ),
                 matches=matches,
             )
@@ -212,6 +277,10 @@ class SqlAlchemyReviewArtifactRepository:
         run: AnalysisRunRecord,
         context: AnalysisRunMatchRecord,
     ) -> AnalysisPacketMatch:
+        if context.quant_model_evaluation_id is not None:
+            raise ValueError(
+                "ANALYSIS_PACKET_V1/V2 supports manual P_quant lineage only"
+            )
         if _sha256(context.context_json) != context.context_hash:
             raise ValueError("stored match context failed hash verification")
         match = _required(session.get(MatchRecord, context.internal_match_id), "match")
@@ -446,6 +515,402 @@ class SqlAlchemyReviewArtifactRepository:
             evidence_ids=tuple(item.evidence_id for item in evidence),
             review_context=review_context,
         )
+
+    @classmethod
+    def _load_match_v3(
+        cls,
+        session: Session,
+        run: AnalysisRunRecord,
+        context: AnalysisRunMatchRecord,
+    ) -> AnalysisPacketMatchSourceV3:
+        if context.quant_model_evaluation_id is None:
+            manual = cls._load_match_v2(session, run, context)
+            return AnalysisPacketMatchSourceV3(
+                **manual.model_dump(mode="python", exclude={"p_quant"}),
+                p_quant=PacketManualQuantLineageV3(prediction=manual.p_quant),
+            )
+        if context.manual_quant_input_id is not None:
+            raise ValueError("stored packet context has ambiguous quant lineage")
+        if _sha256(context.context_json) != context.context_hash:
+            raise ValueError("stored match context failed hash verification")
+        match = _required(session.get(MatchRecord, context.internal_match_id), "match")
+        competition = _required(
+            session.get(CompetitionRecord, match.competition_id), "competition"
+        )
+        home_team = _required(session.get(TeamRecord, match.home_team_id), "home team")
+        away_team = _required(session.get(TeamRecord, match.away_team_id), "away team")
+        odds_snapshot = _required(
+            session.get(MarketOddsSnapshotRecord, context.market_odds_snapshot_id),
+            "market odds snapshot",
+        )
+        bonus_snapshot = _required(
+            session.get(
+                SportteryBonusSnapshotRecord,
+                context.sporttery_bonus_snapshot_id,
+            ),
+            "Sporttery bonus snapshot",
+        )
+        evaluation = _quant_model_evaluation(
+            session,
+            context.quant_model_evaluation_id,
+        )
+        odds_market = _stored_market(odds_snapshot, "market odds snapshot")
+        bonus_market = _stored_market(bonus_snapshot, "Sporttery bonus snapshot")
+        if (
+            evaluation.analysis_run_id != run.analysis_run_id
+            or evaluation.match_id != match.internal_match_id
+            or odds_snapshot.internal_match_id != match.internal_match_id
+            or bonus_snapshot.internal_match_id != match.internal_match_id
+            or odds_market != evaluation.market
+            or bonus_market != evaluation.market
+        ):
+            raise ValueError("stored packet context has inconsistent model lineage")
+        market_prediction = _required_one(
+            session,
+            select(MarketProbabilityRecord).where(
+                MarketProbabilityRecord.analysis_run_id == run.analysis_run_id,
+                MarketProbabilityRecord.internal_match_id == match.internal_match_id,
+                MarketProbabilityRecord.market_key == evaluation.market.canonical,
+            ),
+            "market prediction",
+        )
+        if _stored_market(market_prediction, "market prediction") != evaluation.market:
+            raise ValueError("stored market prediction has inconsistent market lineage")
+        input_snapshot_ids = tuple(
+            session.scalars(
+                select(MarketProbabilityInputRecord.market_odds_snapshot_id)
+                .where(
+                    MarketProbabilityInputRecord.market_probability_id
+                    == market_prediction.market_probability_id
+                )
+                .order_by(MarketProbabilityInputRecord.market_odds_snapshot_id)
+            )
+        )
+        if input_snapshot_ids != (context.market_odds_snapshot_id,):
+            raise ValueError(
+                "stored packet predictions have inconsistent source lineage"
+            )
+        prediction_records = tuple(
+            session.scalars(
+                select(QuantPredictionRecord).where(
+                    QuantPredictionRecord.quant_model_evaluation_id
+                    == evaluation.quant_model_evaluation_id
+                )
+            )
+        )
+        prediction = None
+        if evaluation.status is QuantModelEvaluationStatus.AVAILABLE:
+            if len(prediction_records) != 1:
+                raise ValueError(
+                    "available model evaluation requires exactly one quant prediction"
+                )
+            record = prediction_records[0]
+            if record.generated_at_utc is None:
+                raise ValueError("model quant prediction requires generated_at_utc")
+            prediction = ModelQuantPrediction(
+                prediction_id=record.quant_prediction_id,
+                analysis_run_id=record.analysis_run_id,
+                match_id=record.internal_match_id,
+                market=_stored_market(record, "quant prediction"),
+                probabilities=_three_way_probabilities(
+                    session,
+                    QuantPredictionOutcomeRecord,
+                    "quant_prediction_id",
+                    record.quant_prediction_id,
+                ),
+                quant_model_evaluation_id=record.quant_model_evaluation_id,
+                method=record.method,
+                method_version=record.method_version,
+                generated_at_utc=record.generated_at_utc,
+            )
+        elif prediction_records:
+            raise ValueError(
+                "unavailable model evaluation cannot have a quant prediction"
+            )
+        quant_lineage = PacketModelQuantLineageV3(
+            status=evaluation.status,
+            evaluation=evaluation,
+            prediction=prediction,
+        )
+        review_context = _model_review_context(
+            session,
+            context,
+            evaluation.market.canonical,
+        )
+        return AnalysisPacketMatchSourceV3(
+            match_id=match.internal_match_id,
+            competition_id=competition.competition_id,
+            competition_name=competition.name,
+            home_team_id=home_team.team_id,
+            home_team_name=home_team.name,
+            away_team_id=away_team.team_id,
+            away_team_name=away_team.name,
+            kickoff_at_utc=match.kickoff_at_utc,
+            market_key=evaluation.market.canonical,
+            context_hash=context.context_hash,
+            p_market=PacketMarketPrediction(
+                prediction_id=market_prediction.market_probability_id,
+                probabilities=_three_way_probabilities(
+                    session,
+                    MarketProbabilityOutcomeRecord,
+                    "market_probability_id",
+                    market_prediction.market_probability_id,
+                ),
+                input_snapshot_ids=input_snapshot_ids,
+            ),
+            p_quant=quant_lineage,
+            evidence_ids=tuple(item.evidence_id for item in review_context.evidence),
+            review_context=review_context,
+        )
+
+
+def _stored_market(record: object, label: str) -> MarketKey:
+    market = MarketKey(
+        market_type=MarketType(record.market_type),
+        handicap_value=record.handicap_value,
+    )
+    if record.market_key != market.canonical:
+        raise ValueError(f"stored {label} has inconsistent market columns")
+    return market
+
+
+def _quant_model_state(
+    session: Session,
+    quant_model_state_id: str,
+) -> PacketQuantModelStateV3:
+    record = _required(
+        session.get(QuantModelStateRecord, quant_model_state_id),
+        "quant model state",
+    )
+    facts = tuple(
+        session.scalars(
+            select(QuantModelTrainingFactRecord)
+            .where(
+                QuantModelTrainingFactRecord.quant_model_state_id
+                == quant_model_state_id
+            )
+            .order_by(QuantModelTrainingFactRecord.fact_sequence)
+        )
+    )
+    if record.training_fact_count != len(facts):
+        raise ValueError("stored quant model state has incomplete training lineage")
+    artifact = QuantModelStateArtifact(
+        quant_model_state_id=record.quant_model_state_id,
+        analysis_run_id=record.analysis_run_id,
+        model_name=record.model_name,
+        model_version=record.model_version,
+        calibration_label=record.calibration_label,
+        config_json=record.config_json,
+        config_hash=record.config_hash,
+        cutoff_at_utc=record.cutoff_at_utc,
+        season_id=record.season_id,
+        state_json=record.state_json,
+        state_hash=record.state_hash,
+        state_payload_hash=record.state_payload_hash,
+        training_data_hash=record.training_data_hash,
+        training_facts=tuple(
+            QuantModelTrainingFactRef(
+                sequence=fact.fact_sequence,
+                match_result_id=fact.match_result_id,
+                match_id=fact.internal_match_id,
+                source_payload_hash=fact.source_payload_hash,
+                fact_hash=fact.fact_hash,
+            )
+            for fact in facts
+        ),
+        generated_at_utc=record.generated_at_utc,
+    )
+    return PacketQuantModelStateV3(
+        quant_model_state_id=artifact.quant_model_state_id,
+        analysis_run_id=artifact.analysis_run_id,
+        model_name=artifact.model_name,
+        model_version=artifact.model_version,
+        calibration_label=artifact.calibration_label,
+        config_hash=artifact.config_hash,
+        cutoff_at_utc=artifact.cutoff_at_utc,
+        season_id=artifact.season_id,
+        state_hash=artifact.state_hash,
+        state_payload_hash=artifact.state_payload_hash,
+        training_data_hash=artifact.training_data_hash,
+        training_fact_count=len(artifact.training_facts),
+        training_match_ids=tuple(fact.match_id for fact in artifact.training_facts),
+        training_result_ids=tuple(
+            fact.match_result_id for fact in artifact.training_facts
+        ),
+        generated_at_utc=artifact.generated_at_utc,
+    )
+
+
+def _quant_model_evaluation(
+    session: Session,
+    quant_model_evaluation_id: str,
+) -> PacketQuantModelEvaluationV3:
+    record = _required(
+        session.get(QuantModelEvaluationRecord, quant_model_evaluation_id),
+        "quant model evaluation",
+    )
+    try:
+        output = json.loads(record.output_json)
+    except (json.JSONDecodeError, TypeError) as error:
+        raise ValueError("stored quant model output is invalid JSON") from error
+    if not isinstance(output, dict):
+        raise ValueError("stored quant model output must be a JSON object")
+    status = QuantModelEvaluationStatus(record.status)
+    probabilities = (
+        ThreeWayProbability.model_validate(output.get("probabilities"))
+        if status is QuantModelEvaluationStatus.AVAILABLE
+        else None
+    )
+    evaluation = QuantModelEvaluation(
+        quant_model_evaluation_id=record.quant_model_evaluation_id,
+        analysis_run_id=record.analysis_run_id,
+        quant_model_state_id=record.quant_model_state_id,
+        match_id=record.internal_match_id,
+        market=_stored_market(record, "quant model evaluation"),
+        status=status,
+        unavailable_reason=record.unavailable_reason,
+        probabilities=probabilities,
+        output_json=record.output_json,
+        output_hash=record.output_hash,
+        model_prediction_hash=record.model_prediction_hash,
+        evaluated_at_utc=record.evaluated_at_utc,
+    )
+    return PacketQuantModelEvaluationV3(
+        quant_model_evaluation_id=evaluation.quant_model_evaluation_id,
+        analysis_run_id=evaluation.analysis_run_id,
+        quant_model_state_id=evaluation.quant_model_state_id,
+        match_id=evaluation.match_id,
+        market=evaluation.market,
+        status=evaluation.status,
+        unavailable_reason=evaluation.unavailable_reason,
+        probabilities=evaluation.probabilities,
+        output_hash=evaluation.output_hash,
+        model_prediction_hash=evaluation.model_prediction_hash,
+        evaluated_at_utc=evaluation.evaluated_at_utc,
+    )
+
+
+def _model_review_context(
+    session: Session,
+    context: AnalysisRunMatchRecord,
+    market_key: str,
+) -> MatchReviewContext:
+    market_snapshot = _required(
+        session.get(MarketOddsSnapshotRecord, context.market_odds_snapshot_id),
+        "market odds snapshot",
+    )
+    bonus_snapshot = _required(
+        session.get(
+            SportteryBonusSnapshotRecord,
+            context.sporttery_bonus_snapshot_id,
+        ),
+        "Sporttery bonus snapshot",
+    )
+    provider = _required(
+        session.get(ProviderRecord, market_snapshot.provider_id),
+        "market odds provider",
+    )
+    bookmaker = _required(
+        session.get(BookmakerRecord, market_snapshot.bookmaker_id),
+        "bookmaker",
+    )
+    sporttery_provider = _required(
+        session.get(ProviderRecord, bonus_snapshot.provider_id),
+        "Sporttery provider",
+    )
+    international_odds = PacketInternationalOdds(
+        snapshot_id=market_snapshot.snapshot_id,
+        provider_id=provider.provider_id,
+        provider_name=provider.name,
+        bookmaker_id=bookmaker.bookmaker_id,
+        bookmaker_name=bookmaker.name,
+        captured_at_utc=market_snapshot.captured_at_utc,
+        available_at_utc=market_snapshot.available_at_utc,
+        payload_hash=market_snapshot.payload_hash,
+        odds=_three_way_market_odds(session, market_snapshot.snapshot_id),
+    )
+    sporttery_odds = PacketSportteryOdds(
+        snapshot_id=bonus_snapshot.snapshot_id,
+        provider_id=sporttery_provider.provider_id,
+        provider_name=sporttery_provider.name,
+        sporttery_match_no=bonus_snapshot.sporttery_match_no,
+        sale_status=bonus_snapshot.sale_status,
+        captured_at_utc=bonus_snapshot.captured_at_utc,
+        available_at_utc=bonus_snapshot.available_at_utc,
+        payload_hash=bonus_snapshot.payload_hash,
+        odds=_three_way_fixed_bonus(session, bonus_snapshot.snapshot_id),
+    )
+    market_evidence = PacketEvidence(
+        evidence_id=stable_id(
+            "review-evidence",
+            market_snapshot.snapshot_id,
+            market_snapshot.payload_hash,
+        ),
+        category="INTERNATIONAL_ODDS",
+        body=_odds_body(
+            "International odds",
+            market_key,
+            international_odds.odds.items(),
+        ),
+        source_kind="SEALED_DATABASE_SNAPSHOT",
+        source_name=f"{provider.name} / {bookmaker.name}",
+        source_reference=f"market_odds_snapshots/{market_snapshot.snapshot_id}",
+        source_record_id=market_snapshot.snapshot_id,
+        source_payload_hash=market_snapshot.payload_hash,
+        observed_at_utc=market_snapshot.captured_at_utc,
+        available_at_utc=market_snapshot.available_at_utc,
+    )
+    sporttery_evidence = PacketEvidence(
+        evidence_id=stable_id(
+            "review-evidence",
+            bonus_snapshot.snapshot_id,
+            bonus_snapshot.payload_hash,
+        ),
+        category="SPORTTERY_ODDS",
+        body=_odds_body(
+            "Sporttery fixed bonus",
+            market_key,
+            sporttery_odds.odds.items(),
+        ),
+        source_kind="SEALED_DATABASE_SNAPSHOT",
+        source_name=sporttery_provider.name,
+        source_reference=f"sporttery_bonus_snapshots/{bonus_snapshot.snapshot_id}",
+        source_record_id=bonus_snapshot.snapshot_id,
+        source_payload_hash=bonus_snapshot.payload_hash,
+        observed_at_utc=bonus_snapshot.captured_at_utc,
+        available_at_utc=bonus_snapshot.available_at_utc,
+    )
+    evidence = tuple(
+        sorted((market_evidence, sporttery_evidence), key=lambda item: item.evidence_id)
+    )
+    return MatchReviewContext(
+        sporttery_odds=sporttery_odds,
+        international_odds=international_odds,
+        evidence=evidence,
+        data_quality=PacketDataQuality(
+            status=PacketDataQualityStatus.PARTIAL,
+            score=Decimal("0.25"),
+            available_fields=(
+                "evidence",
+                "international_odds",
+                "sporttery_odds",
+            ),
+            missing_fields=(
+                "confirmed_lineup",
+                "expected_lineup",
+                "home_away_form",
+                "injuries",
+                "odds_movement_summary",
+                "recent_form",
+                "rest_days",
+                "schedule_context",
+                "suspensions",
+            ),
+            notes=(
+                "Mock fixture supplies sealed odds snapshots only; contextual football data is unavailable.",
+            ),
+        ),
+    )
 
 
 def _three_way_probabilities(

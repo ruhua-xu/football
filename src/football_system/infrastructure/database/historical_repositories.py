@@ -8,12 +8,17 @@ import hashlib
 import json
 
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, aliased, sessionmaker
 
 from football_system.application.backtest import (
     WalkForwardBacktestResult,
     validate_walk_forward_backtest_result,
+)
+from football_system.application.backtest_v2 import (
+    WalkForwardBacktestV2Result,
+    WalkForwardBacktestV2SlateResult,
+    validate_walk_forward_backtest_v2_result,
 )
 from football_system.application.ports.data_providers import MatchResultBatch
 from football_system.domain.archive import (
@@ -23,9 +28,20 @@ from football_system.domain.archive import (
 from football_system.domain.backtest import (
     BacktestArchiveProvenance,
     BacktestMetrics,
+    BacktestMetricsConfig,
     BacktestRun,
+    BacktestRunStatus,
     BacktestSlice,
+    BacktestSlateSnapshot,
     BacktestStrategySnapshot,
+)
+from football_system.domain.backtest_v2 import (
+    BACKTEST_METRICS_V2,
+    BACKTEST_V2,
+    BACKTEST_V2_SLICE_V1,
+    BacktestV2DecisionSnapshot,
+    BacktestV2Metrics,
+    BacktestV2Slice,
 )
 from football_system.domain.betting import (
     CandidateStatus,
@@ -59,9 +75,13 @@ from football_system.domain.services.probability import (
     quantize_probability,
     selection_ev,
 )
+from football_system.domain.services.backtest_v2_metrics import (
+    calculate_backtest_v2_metrics,
+)
 from football_system.domain.settlement import (
     MatchResult,
     PortfolioSettlement,
+    PortfolioSettlementResult,
     Settlement,
     SettlementStatus,
 )
@@ -73,12 +93,22 @@ from football_system.infrastructure.database.models import (
     BacktestMetricTicketSettlementRecord,
     BacktestRunRecord,
     BacktestSliceRecord,
+    BacktestV2EvaluationRefRecord,
+    BacktestV2MetricSnapshotRecord,
+    BacktestV2ResultSourceRecord,
+    BacktestV2RunArchiveRecord,
+    BacktestV2RunRecord,
+    BacktestV2SliceRecord,
+    BacktestV2SliceTicketSettlementRecord,
+    BacktestV2TrainingSourceRecord,
     BetCandidateRecord,
     FinalPredictionOutcomeRecord,
     FinalPredictionRecord,
     HistoricalArchiveImportRecord,
     MatchRecord,
     MatchResultRecord,
+    MarketProbabilityOutcomeRecord,
+    MarketProbabilityRecord,
     PortfolioCashPositionRecord,
     PortfolioRecord,
     PortfolioRevisionRecord,
@@ -86,6 +116,11 @@ from football_system.infrastructure.database.models import (
     PortfolioSettlementTicketRecord,
     ProviderMatchMappingRecord,
     ProviderRecord,
+    QuantModelEvaluationRecord,
+    QuantModelStateRecord,
+    QuantModelTrainingFactRecord,
+    QuantPredictionOutcomeRecord,
+    QuantPredictionRecord,
     SportteryBonusQuoteRecord,
     SportteryBonusSnapshotRecord,
     TicketCandidateLegRecord,
@@ -708,6 +743,189 @@ class SqlAlchemyHistoricalRepository:
             )
             return backtest_run_value(stored_run)
 
+    def save_walk_forward_backtest_v2_result(
+        self,
+        result: WalkForwardBacktestV2Result,
+        *,
+        calculated_at_utc: datetime | None = None,
+    ) -> BacktestRun:
+        result = validate_walk_forward_backtest_v2_result(result)
+        calculated_at = _aware_utc(
+            result.backtest_run.created_at_utc
+            if calculated_at_utc is None
+            else calculated_at_utc,
+            "BACKTEST_V2 calculation timestamp",
+        )
+        final_cutoff = result.request.slates[-1].evaluation_as_of_at_utc
+        if calculated_at < final_cutoff:
+            raise ValueError(
+                "BACKTEST_V2 calculation timestamp cannot precede its final cutoff"
+            )
+
+        run_record = backtest_v2_run_record(result.backtest_run)
+        archive_records = backtest_v2_run_archive_records(result.backtest_run)
+        slice_records = tuple(
+            backtest_v2_slice_record(slate, slice_no, calculated_at)
+            for slice_no, slate in enumerate(result.slate_results, start=1)
+        )
+        training_records = tuple(
+            record
+            for slate in result.slate_results
+            for record in backtest_v2_training_source_records(slate)
+        )
+        evaluation_records = tuple(
+            record
+            for slate in result.slate_results
+            for record in backtest_v2_evaluation_ref_records(slate)
+        )
+        result_records = tuple(
+            record
+            for slate in result.slate_results
+            for record in backtest_v2_result_source_records(slate)
+        )
+        ticket_links = tuple(
+            record
+            for slate in result.slate_results
+            for record in backtest_v2_slice_ticket_settlement_records(slate)
+        )
+        metric_record = backtest_v2_metric_snapshot_record(result, calculated_at)
+
+        with self._session_factory.begin() as session:
+            _preflight_walk_forward_v2_graph(
+                session,
+                result,
+                run_record,
+                archive_records,
+                slice_records,
+                training_records,
+                evaluation_records,
+                result_records,
+                ticket_links,
+                metric_record,
+            )
+            existing = session.get(BacktestV2RunRecord, run_record.backtest_run_id)
+            if existing is not None:
+                return backtest_v2_run_value(existing)
+
+            _materialize_match_result_batches(
+                session,
+                tuple(
+                    slate.match_result_batch.to_match_result_batch()
+                    for slate in result.slate_results
+                ),
+            )
+            for settlement in _ordered_ticket_settlements(
+                tuple(
+                    settlement
+                    for slate in result.slate_results
+                    for settlement in slate.ticket_settlements
+                )
+            ):
+                _append_ticket_settlement(session, settlement)
+            for settlement in _ordered_portfolio_settlements(
+                tuple(
+                    slate.portfolio_settlement
+                    for slate in result.slate_results
+                    if slate.portfolio_settlement is not None
+                )
+            ):
+                _append_portfolio_settlement_record(
+                    session,
+                    _portfolio_settlement_record(settlement),
+                    settlement.ticket_settlement_ids,
+                )
+
+            staged_run = BacktestV2RunRecord(
+                **{
+                    **_record_payload(run_record, set()),
+                    "status": BacktestRunStatus.RUNNING.value,
+                }
+            )
+            session.add(staged_run)
+            session.flush()
+            session.add_all(archive_records)
+            session.flush()
+            session.add_all(slice_records)
+            session.flush()
+            session.add_all(training_records)
+            session.add_all(evaluation_records)
+            session.add_all(result_records)
+            session.add_all(ticket_links)
+            session.flush()
+            session.add(metric_record)
+            session.flush()
+            staged_run.status = BacktestRunStatus.COMPLETED.value
+            session.flush()
+            _verify_backtest_v2_graph(session, staged_run)
+            return backtest_v2_run_value(staged_run)
+
+    def find_backtest_v2_run_value(
+        self,
+        backtest_run_id: str,
+    ) -> BacktestRun | None:
+        with self._session_factory() as session:
+            record = session.get(BacktestV2RunRecord, backtest_run_id)
+            if record is None:
+                return None
+            _verify_backtest_v2_graph(session, record)
+            return backtest_v2_run_value(record)
+
+    def backtest_v2_slice_values(
+        self,
+        backtest_run_id: str,
+    ) -> tuple[BacktestV2Slice, ...]:
+        with self._session_factory() as session:
+            run = session.get(BacktestV2RunRecord, backtest_run_id)
+            if run is None:
+                raise KeyError(f"unknown BACKTEST_V2 run: {backtest_run_id}")
+            _verify_backtest_v2_graph(session, run)
+            records = tuple(
+                session.scalars(
+                    select(BacktestV2SliceRecord)
+                    .where(BacktestV2SliceRecord.backtest_run_id == backtest_run_id)
+                    .order_by(BacktestV2SliceRecord.slice_no)
+                )
+            )
+            return tuple(backtest_v2_slice_value(record) for record in records)
+
+    def find_backtest_v2_metrics_value(
+        self,
+        backtest_run_id: str,
+    ) -> BacktestV2Metrics | None:
+        with self._session_factory() as session:
+            run = session.get(BacktestV2RunRecord, backtest_run_id)
+            if run is None:
+                return None
+            _verify_backtest_v2_graph(session, run)
+            record = session.scalar(
+                select(BacktestV2MetricSnapshotRecord).where(
+                    BacktestV2MetricSnapshotRecord.backtest_run_id
+                    == backtest_run_id
+                )
+            )
+            if record is None:
+                raise ValueError("stored BACKTEST_V2 run is missing metrics")
+            return backtest_v2_metrics_value(record)
+
+    def backtest_v2_table_counts(self) -> dict[str, int]:
+        tables = {
+            "backtest_v2_runs": BacktestV2RunRecord,
+            "backtest_v2_run_archives": BacktestV2RunArchiveRecord,
+            "backtest_v2_slices": BacktestV2SliceRecord,
+            "backtest_v2_training_sources": BacktestV2TrainingSourceRecord,
+            "backtest_v2_evaluation_refs": BacktestV2EvaluationRefRecord,
+            "backtest_v2_result_sources": BacktestV2ResultSourceRecord,
+            "backtest_v2_slice_ticket_settlements": (
+                BacktestV2SliceTicketSettlementRecord
+            ),
+            "backtest_v2_metric_snapshots": BacktestV2MetricSnapshotRecord,
+        }
+        with self._session_factory() as session:
+            return {
+                name: int(session.scalar(select(func.count()).select_from(model)) or 0)
+                for name, model in tables.items()
+            }
+
     def find_backtest_metric_snapshot(
         self,
         metric_snapshot_id: str,
@@ -1098,6 +1316,364 @@ def backtest_metrics_value(record: BacktestMetricSnapshotRecord) -> BacktestMetr
     ):
         raise ValueError("stored backtest metric columns are inconsistent")
     return metrics
+
+
+def backtest_v2_run_record(run: BacktestRun) -> BacktestV2RunRecord:
+    if run.backtest_version != BACKTEST_V2:
+        raise ValueError("BACKTEST_V2 record requires a BACKTEST_V2 run")
+    if run.status is not BacktestRunStatus.COMPLETED:
+        raise ValueError("BACKTEST_V2 record requires a completed run")
+    run_json = _canonical_json(_domain_model_payload(run))
+    return BacktestV2RunRecord(
+        backtest_run_id=run.backtest_run_id,
+        schema_version="BACKTEST_V2_RUN_RECORD_V1",
+        backtest_version=run.backtest_version,
+        data_mode=run.data_mode.value,
+        date_from=run.date_from,
+        date_to=run.date_to,
+        strategy_version=run.strategy_version,
+        strategy_config_json=run.strategy_config_json,
+        strategy_config_hash=run.strategy_config_hash,
+        code_revision=run.code_revision,
+        status=BacktestRunStatus.COMPLETED.value,
+        created_at_utc=run.created_at_utc,
+        expected_slice_count=len(run.expected_slice_ids),
+        run_json=run_json,
+        run_hash=_sha256(run_json),
+    )
+
+
+def backtest_v2_run_value(record: BacktestV2RunRecord) -> BacktestRun:
+    if record.schema_version != "BACKTEST_V2_RUN_RECORD_V1":
+        raise ValueError("unsupported BACKTEST_V2 run record version")
+    if record.status != BacktestRunStatus.COMPLETED.value:
+        raise ValueError("stored BACKTEST_V2 run is not complete")
+    payload = _validate_canonical_json_hash(
+        record.run_json,
+        record.run_hash,
+        "BACKTEST_V2 run",
+    )
+    run = BacktestRun.model_validate(payload)
+    if (
+        run.backtest_run_id != record.backtest_run_id
+        or run.backtest_version != record.backtest_version
+        or run.data_mode.value != record.data_mode
+        or run.date_from != record.date_from
+        or run.date_to != record.date_to
+        or run.strategy_version != record.strategy_version
+        or run.strategy_config_json != record.strategy_config_json
+        or run.strategy_config_hash != record.strategy_config_hash
+        or run.code_revision != record.code_revision
+        or run.created_at_utc != record.created_at_utc
+        or run.status.value != record.status
+        or len(run.expected_slice_ids) != record.expected_slice_count
+    ):
+        raise ValueError("stored BACKTEST_V2 run columns are inconsistent")
+    return run
+
+
+def backtest_v2_run_archive_records(
+    run: BacktestRun,
+) -> tuple[BacktestV2RunArchiveRecord, ...]:
+    return tuple(
+        BacktestV2RunArchiveRecord(
+            backtest_run_id=run.backtest_run_id,
+            archive_id=archive.archive_id,
+            archive_no=archive_no,
+            archive_payload_sha256=archive.payload_sha256,
+        )
+        for archive_no, archive in enumerate(run.archive_provenance, start=1)
+    )
+
+
+def backtest_v2_slice_record(
+    slate: WalkForwardBacktestV2SlateResult,
+    slice_no: int,
+    created_at_utc: datetime,
+) -> BacktestV2SliceRecord:
+    value = slate.backtest_slice
+    decision = value.decision_snapshot
+    portfolio = slate.model_decision.analysis_artifacts.portfolios[0]
+    decision_json = _canonical_json(_domain_model_payload(decision))
+    slice_json = _canonical_json(_domain_model_payload(value))
+    settlement_json = _canonical_json(
+        _domain_model_payload(slate.portfolio_settlement_result)
+    )
+    slate_json = _canonical_json(_domain_model_payload(slate.slate_snapshot))
+    return BacktestV2SliceRecord(
+        backtest_slice_id=value.slice_id,
+        backtest_run_id=value.backtest_run_id,
+        slice_no=slice_no,
+        slice_version=value.slice_version,
+        analysis_run_id=decision.analysis_run_id,
+        quant_model_state_id=decision.quant_model_state_id,
+        portfolio_id=portfolio.portfolio_id,
+        portfolio_settlement_id=(
+            slate.portfolio_settlement.portfolio_settlement_id
+            if slate.portfolio_settlement is not None
+            else None
+        ),
+        data_mode=value.data_mode.value,
+        decision_as_of_at_utc=value.decision_as_of_at_utc,
+        evaluation_as_of_at_utc=value.evaluation_as_of_at_utc,
+        created_at_utc=_aware_utc(created_at_utc, "BACKTEST_V2 slice timestamp"),
+        planned_target_count=len(decision.expected_match_ids),
+        decision_target_count=len(decision.analyzed_match_ids),
+        result_target_count=len(value.match_snapshots),
+        quant_available_count=sum(
+            evaluation.status.value == "AVAILABLE"
+            for evaluation in decision.evaluations
+        ),
+        quant_unavailable_count=sum(
+            evaluation.status.value == "UNAVAILABLE"
+            for evaluation in decision.evaluations
+        ),
+        decision_snapshot_json=decision_json,
+        decision_snapshot_hash=decision.snapshot_hash,
+        slice_json=slice_json,
+        slice_hash=value.slice_hash,
+        settlement_result_json=settlement_json,
+        settlement_result_hash=_sha256(settlement_json),
+        slate_snapshot_json=slate_json,
+        slate_snapshot_hash=_sha256(slate_json),
+    )
+
+
+def backtest_v2_slice_value(record: BacktestV2SliceRecord) -> BacktestV2Slice:
+    decision_payload = _canonical_payload(
+        record.decision_snapshot_json,
+        "BACKTEST_V2 decision snapshot",
+    )
+    decision = BacktestV2DecisionSnapshot.model_validate(decision_payload)
+    slice_payload = _canonical_payload(record.slice_json, "BACKTEST_V2 slice")
+    value = BacktestV2Slice.model_validate(slice_payload)
+    settlement = backtest_v2_settlement_result_value(record)
+    slate = backtest_v2_slate_snapshot_value(record)
+    if (
+        record.slice_version != BACKTEST_V2_SLICE_V1
+        or decision != value.decision_snapshot
+        or decision.snapshot_hash != record.decision_snapshot_hash
+        or value.slice_hash != record.slice_hash
+        or value.slice_id != record.backtest_slice_id
+        or value.backtest_run_id != record.backtest_run_id
+        or value.data_mode.value != record.data_mode
+        or value.decision_as_of_at_utc != record.decision_as_of_at_utc
+        or value.evaluation_as_of_at_utc != record.evaluation_as_of_at_utc
+        or decision.analysis_run_id != record.analysis_run_id
+        or decision.quant_model_state_id != record.quant_model_state_id
+        or len(decision.expected_match_ids) != record.planned_target_count
+        or len(decision.analyzed_match_ids) != record.decision_target_count
+        or len(value.match_snapshots) != record.result_target_count
+        or sum(item.status.value == "AVAILABLE" for item in decision.evaluations)
+        != record.quant_available_count
+        or sum(item.status.value == "UNAVAILABLE" for item in decision.evaluations)
+        != record.quant_unavailable_count
+        or settlement.portfolio_id != record.portfolio_id
+        or slate.backtest_run_id != record.backtest_run_id
+        or slate.slice_id != record.backtest_slice_id
+    ):
+        raise ValueError("stored BACKTEST_V2 slice columns are inconsistent")
+    settlement_id = (
+        settlement.portfolio_settlement.portfolio_settlement_id
+        if settlement.portfolio_settlement is not None
+        else None
+    )
+    if settlement_id != record.portfolio_settlement_id:
+        raise ValueError("stored BACKTEST_V2 portfolio settlement is inconsistent")
+    return value
+
+
+def backtest_v2_settlement_result_value(
+    record: BacktestV2SliceRecord,
+) -> PortfolioSettlementResult:
+    payload = _validate_canonical_json_hash(
+        record.settlement_result_json,
+        record.settlement_result_hash,
+        "BACKTEST_V2 settlement result",
+    )
+    return PortfolioSettlementResult.model_validate(payload)
+
+
+def backtest_v2_slate_snapshot_value(
+    record: BacktestV2SliceRecord,
+) -> BacktestSlateSnapshot:
+    payload = _validate_canonical_json_hash(
+        record.slate_snapshot_json,
+        record.slate_snapshot_hash,
+        "BACKTEST_V2 slate snapshot",
+    )
+    return BacktestSlateSnapshot.model_validate(payload)
+
+
+def backtest_v2_training_source_records(
+    slate: WalkForwardBacktestV2SlateResult,
+) -> tuple[BacktestV2TrainingSourceRecord, ...]:
+    return tuple(
+        BacktestV2TrainingSourceRecord(
+            backtest_slice_id=slate.backtest_slice.slice_id,
+            training_sequence=source.sequence,
+            match_result_id=source.match_result_id,
+            archive_id=source.archive_id,
+            source_payload_hash=source.source_payload_hash,
+            fact_hash=source.fact_hash,
+            archive_payload_sha256=source.archive_payload_sha256,
+        )
+        for source in slate.backtest_slice.decision_snapshot.training_sources
+    )
+
+
+def backtest_v2_evaluation_ref_records(
+    slate: WalkForwardBacktestV2SlateResult,
+) -> tuple[BacktestV2EvaluationRefRecord, ...]:
+    return tuple(
+        BacktestV2EvaluationRefRecord(
+            backtest_slice_id=slate.backtest_slice.slice_id,
+            decision_no=decision_no,
+            internal_match_id=evaluation.match_id,
+            quant_model_evaluation_id=evaluation.quant_model_evaluation_id,
+            status=evaluation.status.value,
+            output_hash=evaluation.output_hash,
+            model_prediction_hash=evaluation.model_prediction_hash,
+            market_prediction_id=evaluation.market_prediction_id,
+            quant_prediction_id=evaluation.quant_prediction_id,
+            final_prediction_id=evaluation.final_prediction_id,
+        )
+        for decision_no, evaluation in enumerate(
+            slate.backtest_slice.decision_snapshot.evaluations,
+            start=1,
+        )
+    )
+
+
+def backtest_v2_result_source_records(
+    slate: WalkForwardBacktestV2SlateResult,
+) -> tuple[BacktestV2ResultSourceRecord, ...]:
+    source_by_id = {
+        source.result.match_result_id: source
+        for source in slate.match_result_batch.sources
+    }
+    records: list[BacktestV2ResultSourceRecord] = []
+    for result_no, snapshot in enumerate(
+        slate.backtest_slice.match_snapshots,
+        start=1,
+    ):
+        source = source_by_id.get(snapshot.match_result_id)
+        if source is None or source.result.match_id != snapshot.match_id:
+            raise ValueError("BACKTEST_V2 match snapshot lacks its archived result")
+        records.append(
+            BacktestV2ResultSourceRecord(
+                backtest_slice_id=slate.backtest_slice.slice_id,
+                result_no=result_no,
+                internal_match_id=snapshot.match_id,
+                match_result_id=snapshot.match_result_id,
+                archive_id=source.archive.archive_id,
+                source_payload_hash=snapshot.match_result_payload_hash,
+                archive_payload_sha256=source.archive.payload_sha256,
+            )
+        )
+    return tuple(records)
+
+
+def backtest_v2_slice_ticket_settlement_records(
+    slate: WalkForwardBacktestV2SlateResult,
+) -> tuple[BacktestV2SliceTicketSettlementRecord, ...]:
+    return tuple(
+        BacktestV2SliceTicketSettlementRecord(
+            backtest_slice_id=slate.backtest_slice.slice_id,
+            settlement_no=settlement_no,
+            settlement_id=settlement.settlement_id,
+        )
+        for settlement_no, settlement in enumerate(
+            slate.ticket_settlements,
+            start=1,
+        )
+    )
+
+
+def backtest_v2_metric_snapshot_record(
+    result: WalkForwardBacktestV2Result,
+    calculated_at_utc: datetime,
+) -> BacktestV2MetricSnapshotRecord:
+    metrics_json = _canonical_json(_domain_model_payload(result.metrics))
+    lineage_json = _canonical_json(
+        {
+            "backtest_slice_ids": [
+                slate.backtest_slice.slice_id for slate in result.slate_results
+            ],
+            "decision_snapshot_hashes": [
+                slate.backtest_slice.decision_snapshot.snapshot_hash
+                for slate in result.slate_results
+            ],
+            "portfolio_settlement_ids": [
+                slate.portfolio_settlement.portfolio_settlement_id
+                for slate in result.slate_results
+                if slate.portfolio_settlement is not None
+            ],
+            "slate_snapshot_hashes": [
+                _sha256(_canonical_json(_domain_model_payload(slate.slate_snapshot)))
+                for slate in result.slate_results
+            ],
+            "slice_hashes": [
+                slate.backtest_slice.slice_hash for slate in result.slate_results
+            ],
+            "ticket_settlement_ids": [
+                settlement.settlement_id
+                for slate in result.slate_results
+                for settlement in slate.ticket_settlements
+            ],
+        }
+    )
+    record = BacktestV2MetricSnapshotRecord(
+        metric_snapshot_id=stable_id(
+            "backtest-v2-metric-snapshot",
+            result.backtest_run.backtest_run_id,
+            result.metrics.metrics_version,
+        ),
+        backtest_run_id=result.backtest_run.backtest_run_id,
+        metric_version=result.metrics.metrics_version,
+        as_of_at_utc=result.request.slates[-1].evaluation_as_of_at_utc,
+        calculated_at_utc=_aware_utc(
+            calculated_at_utc,
+            "BACKTEST_V2 metric calculation timestamp",
+        ),
+        metrics_json=metrics_json,
+        metrics_hash=_sha256(metrics_json),
+        lineage_json=lineage_json,
+        lineage_hash=_sha256(lineage_json),
+        snapshot_hash="0" * 64,
+    )
+    record.snapshot_hash = backtest_v2_metric_snapshot_hash(record)
+    return record
+
+
+def backtest_v2_metrics_value(
+    record: BacktestV2MetricSnapshotRecord,
+) -> BacktestV2Metrics:
+    payload = _validate_canonical_json_hash(
+        record.metrics_json,
+        record.metrics_hash,
+        "BACKTEST_V2 metrics",
+    )
+    metrics = BacktestV2Metrics.model_validate(payload)
+    if (
+        record.metric_version != BACKTEST_METRICS_V2
+        or metrics.metrics_version != record.metric_version
+        or metrics.backtest_run_id != record.backtest_run_id
+        or backtest_v2_metric_snapshot_hash(record) != record.snapshot_hash
+    ):
+        raise ValueError("stored BACKTEST_V2 metrics are inconsistent")
+    _validate_canonical_json_hash(
+        record.lineage_json,
+        record.lineage_hash,
+        "BACKTEST_V2 metric lineage",
+    )
+    return metrics
+
+
+def backtest_v2_metric_snapshot_hash(
+    record: BacktestV2MetricSnapshotRecord,
+) -> str:
+    return _sha256(_canonical_json(_record_payload(record, {"snapshot_hash"})))
 
 
 def _portfolio_settlement_record(
@@ -2395,6 +2971,685 @@ def _preflight_walk_forward_graph(
             portfolio_settlement_ids,
             ticket_settlement_ids,
         )
+
+
+def _preflight_walk_forward_v2_graph(
+    session: Session,
+    result: WalkForwardBacktestV2Result,
+    run_record: BacktestV2RunRecord,
+    archive_records: Sequence[BacktestV2RunArchiveRecord],
+    slice_records: Sequence[BacktestV2SliceRecord],
+    training_records: Sequence[BacktestV2TrainingSourceRecord],
+    evaluation_records: Sequence[BacktestV2EvaluationRefRecord],
+    result_records: Sequence[BacktestV2ResultSourceRecord],
+    ticket_links: Sequence[BacktestV2SliceTicketSettlementRecord],
+    metric_record: BacktestV2MetricSnapshotRecord,
+) -> None:
+    batches = tuple(
+        slate.match_result_batch.to_match_result_batch()
+        for slate in result.slate_results
+    )
+    _preflight_match_result_batches(session, batches)
+    if len(slice_records) != len(result.slate_results):
+        raise ValueError("BACKTEST_V2 persistence data has incomplete slices")
+    if tuple(record.slice_no for record in slice_records) != tuple(
+        range(1, len(slice_records) + 1)
+    ):
+        raise ValueError("BACKTEST_V2 slice numbers must be contiguous from one")
+    if tuple(record.backtest_slice_id for record in slice_records) != (
+        result.backtest_run.expected_slice_ids
+    ):
+        raise ValueError("BACKTEST_V2 persisted slice order is inconsistent")
+    backtest_v2_run_value(run_record)
+    for record in slice_records:
+        backtest_v2_slice_value(record)
+    backtest_v2_metrics_value(metric_record)
+
+    for archive in result.backtest_run.archive_provenance:
+        stored = session.get(HistoricalArchiveImportRecord, archive.archive_id)
+        if stored is None or (
+            stored.archive_schema_version != archive.archive_schema_version
+            or stored.provider_code != archive.provider_code
+            or stored.dataset_kind != archive.dataset_kind.value
+            or stored.data_mode != result.backtest_run.data_mode.value
+            or stored.payload_sha256 != archive.payload_sha256
+        ):
+            raise ValueError(
+                f"BACKTEST_V2 archive import is missing or inconsistent: "
+                f"{archive.archive_id}"
+            )
+
+    existing = session.get(BacktestV2RunRecord, run_record.backtest_run_id)
+    hash_collision = session.scalar(
+        select(BacktestV2RunRecord).where(
+            BacktestV2RunRecord.run_hash == run_record.run_hash
+        )
+    )
+    if (
+        existing is not None
+        and hash_collision is not None
+        and existing.backtest_run_id != hash_collision.backtest_run_id
+    ):
+        raise ValueError("immutable BACKTEST_V2 run conflicts with stored data")
+    if hash_collision is not None and (
+        hash_collision.backtest_run_id != run_record.backtest_run_id
+    ):
+        raise ValueError("immutable BACKTEST_V2 run hash already exists")
+    if existing is not None:
+        _verify_backtest_v2_graph(session, existing)
+        _assert_same_record(existing, run_record, "BACKTEST_V2 run")
+        _assert_expected_records(session, archive_records, "BACKTEST_V2 archive")
+        _assert_expected_records(session, slice_records, "BACKTEST_V2 slice")
+        _assert_expected_records(session, training_records, "BACKTEST_V2 training")
+        _assert_expected_records(
+            session,
+            evaluation_records,
+            "BACKTEST_V2 evaluation",
+        )
+        _assert_expected_records(session, result_records, "BACKTEST_V2 result")
+        _assert_expected_records(
+            session,
+            ticket_links,
+            "BACKTEST_V2 ticket settlement",
+        )
+        _assert_expected_records(
+            session,
+            (metric_record,),
+            "BACKTEST_V2 metrics",
+        )
+        return
+
+    _reject_existing_records(session, archive_records, "BACKTEST_V2 archive")
+    _reject_existing_records(session, slice_records, "BACKTEST_V2 slice")
+    _reject_existing_records(session, training_records, "BACKTEST_V2 training")
+    _reject_existing_records(session, evaluation_records, "BACKTEST_V2 evaluation")
+    _reject_existing_records(session, result_records, "BACKTEST_V2 result")
+    _reject_existing_records(
+        session,
+        ticket_links,
+        "BACKTEST_V2 ticket settlement",
+    )
+    _reject_existing_records(session, (metric_record,), "BACKTEST_V2 metrics")
+    if session.scalar(
+        select(BacktestV2SliceRecord).where(
+            BacktestV2SliceRecord.slice_hash.in_(
+                tuple(record.slice_hash for record in slice_records)
+            )
+        )
+    ) is not None:
+        raise ValueError("immutable BACKTEST_V2 slice hash already exists")
+    if session.scalar(
+        select(BacktestV2MetricSnapshotRecord).where(
+            BacktestV2MetricSnapshotRecord.snapshot_hash
+            == metric_record.snapshot_hash
+        )
+    ) is not None:
+        raise ValueError("immutable BACKTEST_V2 metric hash already exists")
+
+    for slate, record in zip(
+        result.slate_results,
+        slice_records,
+        strict=True,
+    ):
+        _verify_backtest_v2_analysis_dependencies(session, slate, record)
+
+
+def _verify_backtest_v2_analysis_dependencies(
+    session: Session,
+    slate: WalkForwardBacktestV2SlateResult,
+    record: BacktestV2SliceRecord,
+) -> None:
+    artifacts = slate.model_decision.analysis_artifacts
+    run = artifacts.analysis_run
+    stored_run = _completed_analysis_run(session, run.analysis_run_id)
+    expected_run = {
+        "as_of_at_utc": run.as_of_at_utc,
+        "started_at_utc": run.started_at_utc,
+        "completed_at_utc": run.completed_at_utc,
+        "pipeline_version": run.pipeline_version,
+        "code_revision": run.code_revision,
+        "config_json": run.config_json,
+        "config_hash": run.config_hash,
+        "input_manifest_version": run.input_manifest_version,
+        "input_manifest_json": run.input_manifest_json,
+        "input_manifest_hash": run.input_manifest_hash,
+    }
+    if any(getattr(stored_run, field) != value for field, value in expected_run.items()):
+        raise ValueError("stored AnalysisRun conflicts with BACKTEST_V2 decision")
+    decision = slate.backtest_slice.decision_snapshot
+    state = session.get(QuantModelStateRecord, decision.quant_model_state_id)
+    if state is None or (
+        state.analysis_run_id != run.analysis_run_id
+        or state.model_name != decision.model_name
+        or state.model_version != decision.model_version
+        or state.calibration_label != decision.calibration_label
+        or state.config_hash != decision.model_config_hash
+        or state.state_hash != decision.state_hash
+        or state.state_payload_hash != decision.state_payload_hash
+        or state.training_data_hash != decision.training_data_hash
+    ):
+        raise ValueError("stored model state conflicts with BACKTEST_V2 decision")
+    portfolio = artifacts.portfolios[0]
+    stored_portfolio = session.get(PortfolioRecord, portfolio.portfolio_id)
+    if stored_portfolio is None or (
+        stored_portfolio.analysis_run_id != run.analysis_run_id
+        or stored_portfolio.budget_fen != portfolio.budget_fen
+        or stored_portfolio.total_stake_fen != portfolio.total_stake_fen
+        or stored_portfolio.unused_budget_fen != portfolio.unused_budget_fen
+        or stored_portfolio.status != portfolio.status.value
+        or record.portfolio_id != portfolio.portfolio_id
+    ):
+        raise ValueError("stored portfolio conflicts with BACKTEST_V2 decision")
+
+
+def _verify_backtest_v2_graph(
+    session: Session,
+    record: BacktestV2RunRecord,
+) -> None:
+    run = backtest_v2_run_value(record)
+    archive_records = tuple(
+        session.scalars(
+            select(BacktestV2RunArchiveRecord)
+            .where(
+                BacktestV2RunArchiveRecord.backtest_run_id == run.backtest_run_id
+            )
+            .order_by(BacktestV2RunArchiveRecord.archive_no)
+        )
+    )
+    expected_archives = backtest_v2_run_archive_records(run)
+    if len(archive_records) != len(expected_archives):
+        raise ValueError("stored BACKTEST_V2 archive lineage is incomplete")
+    for stored, expected, archive in zip(
+        archive_records,
+        expected_archives,
+        run.archive_provenance,
+        strict=True,
+    ):
+        _assert_same_record(stored, expected, "BACKTEST_V2 archive")
+        imported = session.get(HistoricalArchiveImportRecord, archive.archive_id)
+        if imported is None or (
+            imported.archive_schema_version != archive.archive_schema_version
+            or imported.provider_code != archive.provider_code
+            or imported.dataset_kind != archive.dataset_kind.value
+            or imported.data_mode != run.data_mode.value
+            or imported.payload_sha256 != archive.payload_sha256
+        ):
+            raise ValueError("stored BACKTEST_V2 archive source is inconsistent")
+
+    slices = tuple(
+        session.scalars(
+            select(BacktestV2SliceRecord)
+            .where(BacktestV2SliceRecord.backtest_run_id == run.backtest_run_id)
+            .order_by(BacktestV2SliceRecord.slice_no)
+        )
+    )
+    if (
+        len(slices) != record.expected_slice_count
+        or tuple(item.backtest_slice_id for item in slices) != run.expected_slice_ids
+    ):
+        raise ValueError("stored BACKTEST_V2 slice graph is incomplete")
+    values: list[BacktestV2Slice] = []
+    slates: list[BacktestSlateSnapshot] = []
+    for slice_record in slices:
+        values.append(_verify_backtest_v2_slice_graph(session, run, slice_record))
+        slates.append(backtest_v2_slate_snapshot_value(slice_record))
+
+    metrics_records = tuple(
+        session.scalars(
+            select(BacktestV2MetricSnapshotRecord).where(
+                BacktestV2MetricSnapshotRecord.backtest_run_id
+                == run.backtest_run_id
+            )
+        )
+    )
+    if len(metrics_records) != 1:
+        raise ValueError("stored BACKTEST_V2 run requires one metric snapshot")
+    metric_record = metrics_records[0]
+    metrics = backtest_v2_metrics_value(metric_record)
+    metric_config = BacktestMetricsConfig(
+        log_loss_clip_version=metrics.log_loss_clip_version,
+        log_loss_epsilon=metrics.log_loss_epsilon,
+    )
+    expected_metrics = calculate_backtest_v2_metrics(
+        run,
+        values,
+        slates,
+        metric_config,
+    )
+    if metrics != expected_metrics:
+        raise ValueError("stored BACKTEST_V2 metrics are not reproducible")
+    expected_lineage = _backtest_v2_metric_lineage(session, slices)
+    lineage = _canonical_payload(
+        metric_record.lineage_json,
+        "BACKTEST_V2 metric lineage",
+    )
+    if lineage != _canonical_value(expected_lineage):
+        raise ValueError("stored BACKTEST_V2 metric lineage is inconsistent")
+    if (
+        metric_record.as_of_at_utc != slices[-1].evaluation_as_of_at_utc
+        or metric_record.calculated_at_utc < metric_record.as_of_at_utc
+    ):
+        raise ValueError("stored BACKTEST_V2 metric timeline is inconsistent")
+
+
+def _verify_backtest_v2_slice_graph(
+    session: Session,
+    run: BacktestRun,
+    record: BacktestV2SliceRecord,
+) -> BacktestV2Slice:
+    value = backtest_v2_slice_value(record)
+    if value.backtest_run_id != run.backtest_run_id or value.data_mode != run.data_mode:
+        raise ValueError("stored BACKTEST_V2 slice crosses its run")
+    decision = value.decision_snapshot
+    analysis = _completed_analysis_run(session, decision.analysis_run_id)
+    state = session.get(QuantModelStateRecord, decision.quant_model_state_id)
+    if state is None or (
+        analysis.input_manifest_version != "MVP_INPUT_MANIFEST_V3"
+        or analysis.input_manifest_hash != decision.decision_input_manifest_hash
+        or analysis.as_of_at_utc != decision.decision_as_of_at_utc
+        or state.analysis_run_id != analysis.analysis_run_id
+        or state.model_name != decision.model_name
+        or state.model_version != decision.model_version
+        or state.calibration_label != decision.calibration_label
+        or state.config_hash != decision.model_config_hash
+        or state.state_hash != decision.state_hash
+        or state.state_payload_hash != decision.state_payload_hash
+        or state.training_data_hash != decision.training_data_hash
+        or state.training_fact_count != len(decision.training_sources)
+    ):
+        raise ValueError("stored BACKTEST_V2 model-state lineage is inconsistent")
+    portfolio = session.get(PortfolioRecord, record.portfolio_id)
+    if portfolio is None or portfolio.analysis_run_id != analysis.analysis_run_id:
+        raise ValueError("stored BACKTEST_V2 portfolio lineage is inconsistent")
+
+    _verify_backtest_v2_training_records(session, record, decision)
+    _verify_backtest_v2_evaluation_records(session, record, decision)
+    _verify_backtest_v2_result_records(session, record, value)
+    _verify_backtest_v2_financial_records(session, record, portfolio)
+    return value
+
+
+def _verify_backtest_v2_training_records(
+    session: Session,
+    record: BacktestV2SliceRecord,
+    decision: BacktestV2DecisionSnapshot,
+) -> None:
+    stored = tuple(
+        session.scalars(
+            select(BacktestV2TrainingSourceRecord)
+            .where(
+                BacktestV2TrainingSourceRecord.backtest_slice_id
+                == record.backtest_slice_id
+            )
+            .order_by(BacktestV2TrainingSourceRecord.training_sequence)
+        )
+    )
+    if len(stored) != len(decision.training_sources):
+        raise ValueError("stored BACKTEST_V2 training lineage is incomplete")
+    for row, source in zip(stored, decision.training_sources, strict=True):
+        fact = session.get(
+            QuantModelTrainingFactRecord,
+            (record.quant_model_state_id, source.sequence),
+        )
+        result = session.get(MatchResultRecord, source.match_result_id)
+        archive = session.get(HistoricalArchiveImportRecord, source.archive_id)
+        run_archive = session.get(
+            BacktestV2RunArchiveRecord,
+            (record.backtest_run_id, source.archive_id),
+        )
+        if fact is None or result is None or archive is None or run_archive is None:
+            raise ValueError("stored BACKTEST_V2 training source is missing")
+        if (
+            row.training_sequence != source.sequence
+            or row.match_result_id != source.match_result_id
+            or row.archive_id != source.archive_id
+            or row.source_payload_hash != source.source_payload_hash
+            or row.fact_hash != source.fact_hash
+            or row.archive_payload_sha256 != source.archive_payload_sha256
+            or fact.match_result_id != source.match_result_id
+            or fact.internal_match_id != source.match_id
+            or fact.source_payload_hash != source.source_payload_hash
+            or fact.fact_hash != source.fact_hash
+            or result.internal_match_id != source.match_id
+            or result.payload_hash != source.source_payload_hash
+            or result.available_at_utc != source.available_at_utc
+            or result.ingested_at_utc != source.ingested_at_utc
+            or result.available_at_utc > record.decision_as_of_at_utc
+            or result.ingested_at_utc > record.decision_as_of_at_utc
+            or archive.archive_schema_version != source.archive_schema_version
+            or archive.provider_code != source.archive_provider_code
+            or archive.dataset_kind != "MATCH_RESULTS"
+            or archive.payload_sha256 != source.archive_payload_sha256
+            or run_archive.archive_payload_sha256 != source.archive_payload_sha256
+            or source.match_id in decision.expected_match_ids
+        ):
+            raise ValueError("stored BACKTEST_V2 training source is inconsistent")
+
+
+def _verify_backtest_v2_evaluation_records(
+    session: Session,
+    record: BacktestV2SliceRecord,
+    decision: BacktestV2DecisionSnapshot,
+) -> None:
+    stored = tuple(
+        session.scalars(
+            select(BacktestV2EvaluationRefRecord)
+            .where(
+                BacktestV2EvaluationRefRecord.backtest_slice_id
+                == record.backtest_slice_id
+            )
+            .order_by(BacktestV2EvaluationRefRecord.decision_no)
+        )
+    )
+    if len(stored) != len(decision.evaluations):
+        raise ValueError("stored BACKTEST_V2 evaluation lineage is incomplete")
+    for decision_no, (row, expected) in enumerate(
+        zip(stored, decision.evaluations, strict=True),
+        start=1,
+    ):
+        evaluation = session.get(
+            QuantModelEvaluationRecord,
+            expected.quant_model_evaluation_id,
+        )
+        market = session.get(MarketProbabilityRecord, expected.market_prediction_id)
+        if evaluation is None or market is None:
+            raise ValueError("stored BACKTEST_V2 evaluation source is missing")
+        if (
+            row.decision_no != decision_no
+            or row.internal_match_id != expected.match_id
+            or row.quant_model_evaluation_id
+            != expected.quant_model_evaluation_id
+            or row.status != expected.status.value
+            or row.output_hash != expected.output_hash
+            or row.model_prediction_hash != expected.model_prediction_hash
+            or row.market_prediction_id != expected.market_prediction_id
+            or row.quant_prediction_id != expected.quant_prediction_id
+            or row.final_prediction_id != expected.final_prediction_id
+            or evaluation.analysis_run_id != record.analysis_run_id
+            or evaluation.quant_model_state_id != record.quant_model_state_id
+            or evaluation.internal_match_id != expected.match_id
+            or evaluation.status != expected.status.value
+            or evaluation.output_hash != expected.output_hash
+            or evaluation.model_prediction_hash != expected.model_prediction_hash
+            or market.analysis_run_id != record.analysis_run_id
+            or market.internal_match_id != expected.match_id
+            or _probability_outcomes(
+                session,
+                MarketProbabilityOutcomeRecord,
+                "market_probability_id",
+                expected.market_prediction_id,
+            )
+            != expected.p_market
+        ):
+            raise ValueError("stored BACKTEST_V2 evaluation source is inconsistent")
+        _verify_backtest_v2_projection_records(session, record, expected)
+
+
+def _verify_backtest_v2_projection_records(
+    session: Session,
+    record: BacktestV2SliceRecord,
+    expected,
+) -> None:
+    if expected.quant_prediction_id is None:
+        quant = session.scalar(
+            select(QuantPredictionRecord).where(
+                QuantPredictionRecord.quant_model_evaluation_id
+                == expected.quant_model_evaluation_id
+            )
+        )
+        final = session.scalar(
+            select(FinalPredictionRecord).where(
+                FinalPredictionRecord.analysis_run_id == record.analysis_run_id,
+                FinalPredictionRecord.internal_match_id == expected.match_id,
+            )
+        )
+        if quant is not None or final is not None:
+            raise ValueError("unavailable BACKTEST_V2 evaluation has a projection")
+        return
+    quant = session.get(QuantPredictionRecord, expected.quant_prediction_id)
+    final = session.get(FinalPredictionRecord, expected.final_prediction_id)
+    if quant is None or final is None or (
+        quant.analysis_run_id != record.analysis_run_id
+        or quant.internal_match_id != expected.match_id
+        or quant.quant_model_evaluation_id != expected.quant_model_evaluation_id
+        or final.analysis_run_id != record.analysis_run_id
+        or final.internal_match_id != expected.match_id
+        or final.market_probability_id
+        not in {None, expected.market_prediction_id}
+        or final.quant_prediction_id != expected.quant_prediction_id
+        or _probability_outcomes(
+            session,
+            QuantPredictionOutcomeRecord,
+            "quant_prediction_id",
+            expected.quant_prediction_id,
+        )
+        != expected.p_quant
+        or _probability_outcomes(
+            session,
+            FinalPredictionOutcomeRecord,
+            "final_prediction_id",
+            expected.final_prediction_id,
+        )
+        != expected.p_final
+    ):
+        raise ValueError("stored BACKTEST_V2 projection lineage is inconsistent")
+
+
+def _verify_backtest_v2_result_records(
+    session: Session,
+    record: BacktestV2SliceRecord,
+    value: BacktestV2Slice,
+) -> None:
+    stored = tuple(
+        session.scalars(
+            select(BacktestV2ResultSourceRecord)
+            .where(
+                BacktestV2ResultSourceRecord.backtest_slice_id
+                == record.backtest_slice_id
+            )
+            .order_by(BacktestV2ResultSourceRecord.result_no)
+        )
+    )
+    if len(stored) != len(value.match_snapshots):
+        raise ValueError("stored BACKTEST_V2 result lineage is incomplete")
+    for result_no, (row, snapshot) in enumerate(
+        zip(stored, value.match_snapshots, strict=True),
+        start=1,
+    ):
+        source = session.get(MatchResultRecord, snapshot.match_result_id)
+        archive = session.get(
+            HistoricalArchiveImportRecord,
+            snapshot.match_result_archive_id,
+        )
+        run_archive = session.get(
+            BacktestV2RunArchiveRecord,
+            (record.backtest_run_id, snapshot.match_result_archive_id),
+        )
+        if source is None or archive is None or run_archive is None:
+            raise ValueError("stored BACKTEST_V2 result source is missing")
+        if (
+            row.result_no != result_no
+            or row.internal_match_id != snapshot.match_id
+            or row.match_result_id != snapshot.match_result_id
+            or row.archive_id != snapshot.match_result_archive_id
+            or row.source_payload_hash != snapshot.match_result_payload_hash
+            or row.archive_payload_sha256
+            != snapshot.match_result_archive_payload_sha256
+            or source.internal_match_id != snapshot.match_id
+            or source.payload_hash != snapshot.match_result_payload_hash
+            or source.available_at_utc > record.evaluation_as_of_at_utc
+            or source.ingested_at_utc > record.evaluation_as_of_at_utc
+            or archive.archive_schema_version
+            != snapshot.match_result_archive_schema_version
+            or archive.provider_code != snapshot.match_result_archive_provider_code
+            or archive.dataset_kind != "MATCH_RESULTS"
+            or archive.payload_sha256
+            != snapshot.match_result_archive_payload_sha256
+            or run_archive.archive_payload_sha256
+            != snapshot.match_result_archive_payload_sha256
+            or _match_result(session, source).three_way_selection() != snapshot.outcome
+        ):
+            raise ValueError("stored BACKTEST_V2 result source is inconsistent")
+
+
+def _verify_backtest_v2_financial_records(
+    session: Session,
+    record: BacktestV2SliceRecord,
+    portfolio: PortfolioRecord,
+) -> None:
+    settlement_result = backtest_v2_settlement_result_value(record)
+    slate = backtest_v2_slate_snapshot_value(record)
+    links = tuple(
+        session.scalars(
+            select(BacktestV2SliceTicketSettlementRecord)
+            .where(
+                BacktestV2SliceTicketSettlementRecord.backtest_slice_id
+                == record.backtest_slice_id
+            )
+            .order_by(BacktestV2SliceTicketSettlementRecord.settlement_no)
+        )
+    )
+    expected_settlements = tuple(
+        result.settlement
+        for result in settlement_result.ticket_results
+        if result.settlement is not None
+    )
+    if tuple(link.settlement_id for link in links) != tuple(
+        settlement.settlement_id for settlement in expected_settlements
+    ):
+        raise ValueError("stored BACKTEST_V2 ticket settlement links are inconsistent")
+    for settlement in expected_settlements:
+        stored = session.get(TicketSettlementRecord, settlement.settlement_id)
+        if stored is None or _ticket_settlement(session, stored) != settlement:
+            raise ValueError("stored BACKTEST_V2 ticket settlement is inconsistent")
+    expected_portfolio_settlement = settlement_result.portfolio_settlement
+    if expected_portfolio_settlement is None:
+        if record.portfolio_settlement_id is not None:
+            raise ValueError("stored BACKTEST_V2 has an unexpected portfolio settlement")
+    else:
+        stored = session.get(
+            PortfolioSettlementRecord,
+            expected_portfolio_settlement.portfolio_settlement_id,
+        )
+        if stored is None:
+            raise ValueError("stored BACKTEST_V2 portfolio settlement is missing")
+        settlement_ids = tuple(
+            session.scalars(
+                select(PortfolioSettlementTicketRecord.settlement_id)
+                .where(
+                    PortfolioSettlementTicketRecord.portfolio_settlement_id
+                    == stored.portfolio_settlement_id
+                )
+                .order_by(PortfolioSettlementTicketRecord.settlement_no)
+            )
+        )
+        if (
+            record.portfolio_settlement_id != stored.portfolio_settlement_id
+            or _portfolio_settlement_value(stored, settlement_ids)
+            != expected_portfolio_settlement
+        ):
+            raise ValueError("stored BACKTEST_V2 portfolio settlement is inconsistent")
+    ticket_count = int(
+        session.scalar(
+            select(func.count())
+            .select_from(TicketRecord)
+            .where(TicketRecord.portfolio_id == portfolio.portfolio_id)
+        )
+        or 0
+    )
+    if (
+        settlement_result.portfolio_id != portfolio.portfolio_id
+        or slate.budget_fen != portfolio.budget_fen
+        or slate.stake_fen != portfolio.total_stake_fen
+        or slate.cash_fen != portfolio.unused_budget_fen
+        or slate.ticket_count != ticket_count
+        or slate.settled_ticket_count != len(expected_settlements)
+    ):
+        raise ValueError("stored BACKTEST_V2 financial snapshot is inconsistent")
+
+
+def _backtest_v2_metric_lineage(
+    session: Session,
+    slices: Sequence[BacktestV2SliceRecord],
+) -> dict[str, list[str]]:
+    ticket_ids: list[str] = []
+    for record in slices:
+        ticket_ids.extend(
+            session.scalars(
+                select(BacktestV2SliceTicketSettlementRecord.settlement_id)
+                .where(
+                    BacktestV2SliceTicketSettlementRecord.backtest_slice_id
+                    == record.backtest_slice_id
+                )
+                .order_by(BacktestV2SliceTicketSettlementRecord.settlement_no)
+            )
+        )
+    return {
+        "backtest_slice_ids": [record.backtest_slice_id for record in slices],
+        "decision_snapshot_hashes": [
+            record.decision_snapshot_hash for record in slices
+        ],
+        "portfolio_settlement_ids": [
+            record.portfolio_settlement_id
+            for record in slices
+            if record.portfolio_settlement_id is not None
+        ],
+        "slate_snapshot_hashes": [record.slate_snapshot_hash for record in slices],
+        "slice_hashes": [record.slice_hash for record in slices],
+        "ticket_settlement_ids": ticket_ids,
+    }
+
+
+def _probability_outcomes(
+    session: Session,
+    model,
+    identity_field: str,
+    identity: str,
+) -> ThreeWayProbability:
+    field = getattr(model, identity_field)
+    rows = tuple(
+        session.execute(
+            select(model.selection_key, model.probability)
+            .where(field == identity)
+            .order_by(model.selection_key)
+        )
+    )
+    values = {SelectionKey(selection): probability for selection, probability in rows}
+    if set(values) != set(SelectionKey):
+        raise ValueError("stored probability distribution is incomplete")
+    return ThreeWayProbability(
+        home_win=values[SelectionKey.HOME_WIN],
+        draw=values[SelectionKey.DRAW],
+        away_win=values[SelectionKey.AWAY_WIN],
+    )
+
+
+def _record_identity(record: object):
+    columns = tuple(getattr(record, "__table__").primary_key.columns)
+    values = tuple(getattr(record, column.name) for column in columns)
+    return values[0] if len(values) == 1 else values
+
+
+def _assert_expected_records(
+    session: Session,
+    records: Sequence[object],
+    label: str,
+) -> None:
+    for expected in records:
+        stored = session.get(type(expected), _record_identity(expected))
+        if stored is None:
+            raise ValueError(f"stored {label} graph is incomplete")
+        _assert_same_record(stored, expected, label)
+
+
+def _reject_existing_records(
+    session: Session,
+    records: Sequence[object],
+    label: str,
+) -> None:
+    for record in records:
+        if session.get(type(record), _record_identity(record)) is not None:
+            raise ValueError(f"immutable {label} record already exists")
 
 
 def _match_result(session: Session, record: MatchResultRecord) -> MatchResult:

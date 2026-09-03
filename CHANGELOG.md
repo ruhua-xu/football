@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- 增加显式 `live ingest-fixtures` vertical slice：仅在执行命令时从 `SPORTMONKS_KEY` 读取凭据，通过受审计的 Sportmonks HTTP client 获取指定 league/season/kickoff scope，并在规范化前封存 raw response。
+- 增加 deterministic Team、Competition、Match identity persistence、`fixture_ingestion_captures` 和 `fixture_observations`，由 Alembic revision `a6c1f9e3b742` 原子落库并以 SQLite append-only/lineage trigger 防止改写。
+- Fixture 首次创建的 identity row 显式保存 `fixture_ingestion_id`；catalog 同时要求来源 `available_at_utc` 与 capture `ingested_at_utc` 不晚于 cutoff，后续 kickoff、status 和名称漂移在对应 capture 实际入库前不可见，既有普通 identity 不会被后来 capture 重新分类。
+- Sportmonks adapter 对 league、season、team type/gender、locale、官方 terminal status、单页 pagination 和 rate-limit metadata 执行 fail-closed 校验；HTTP transport 拒绝 redirect 并限制响应为 16 MiB。
+- 包含 fixture capture 的数据库拒绝回退 `a6c1f9e3b742`，避免删除 capture provenance 后把保留的 identity 静默重分类；真实账户调用在 entitlement、目标联赛、字段和限流核验前仍为 operational `DEFER`。
+- 增加固定标识 `ELO_THREE_WAY_BASELINE_V1` / `BASELINE_UNCALIBRATED` 的三向 Elo baseline：按 season 和双时间 cutoff 读取已封存 MatchResult correction，排除 target match；数据不足显式保存 `UNAVAILABLE`，不复制 `P_market`，不自动调参。
+- 增加 `MVP_INPUT_MANIFEST_V3`、QuantModelState/TrainingFact/Evaluation 与 model-generated QuantPrediction lineage；Alembic revision `b7d4e9f2c631` 保持手工和模型 `P_quant` 互斥并封存完整 AnalysisRun graph。
+- 增加 `BACKTEST_V2` 双阶段 walk-forward、decision/evaluation snapshot、availability-aware metrics、archive/result/training/financial lineage，以及原子、幂等、可重验的 SQLite repository；Alembic revision `c4e8a1d7f205` 增加八张 V2 表、append-only/completion triggers 和 populated downgrade guard。
+- 增加 `ANALYSIS_PACKET_V3` / `LLM_REVIEW_V3`：保留 V2 review context，使用紧凑结构化 model lineage 表达 available/unavailable；V1/V2 输出字节和 manual-only 拒绝语义保持不变。
+
 ## 0.4.0 - 2026-09-01
 
 - 增加 provider-neutral `HISTORICAL_ARCHIVE_V1`，按 `FIXTURES`、`MARKET_ODDS`、`SPORTTERY_BONUS`、`MANUAL_QUANT`、`MATCH_RESULTS` 和 `PROVIDER_MAPPINGS` 六类只读文件执行 schema、checksum、业务键、时间、mapping 与更正链校验。

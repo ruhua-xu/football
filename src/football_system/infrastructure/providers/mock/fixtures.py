@@ -7,6 +7,10 @@ from football_system.application.ports.data_providers import (
     FixtureProvider,
     FixtureQuery,
 )
+from football_system.application.environment import (
+    RuntimeEnvironment,
+    RuntimeProvenance,
+)
 from football_system.domain.common import stable_id
 from football_system.domain.match import Match, ProviderMatchMapping
 from football_system.infrastructure.providers.mock.dataset import MockDataset
@@ -14,6 +18,12 @@ from football_system.infrastructure.providers.mock.dataset import MockDataset
 
 class MockFixtureProvider(FixtureProvider):
     provider_code = "MOCK_FIXTURE"
+    runtime_provenance = RuntimeProvenance(
+        environment=RuntimeEnvironment.MOCK,
+        provider_code=provider_code,
+        provenance="bundled deterministic mock fixture dataset",
+        is_mock=True,
+    )
 
     def __init__(self, dataset: MockDataset) -> None:
         self._dataset = dataset
@@ -44,7 +54,9 @@ class MockFixtureProvider(FixtureProvider):
         )
         mappings = tuple(
             ProviderMatchMapping(
-                mapping_id=stable_id("mapping", self.provider_code, seed.fixture_external_id),
+                mapping_id=stable_id(
+                    "mapping", self.provider_code, seed.fixture_external_id
+                ),
                 provider_code=self.provider_code,
                 external_namespace="fixture",
                 external_match_id=seed.fixture_external_id,
@@ -60,7 +72,9 @@ class MockFixtureProvider(FixtureProvider):
                 for competition in self._dataset.competitions
                 if competition.competition_id in competition_ids
             ),
-            teams=tuple(team for team in self._dataset.teams if team.team_id in team_ids),
+            teams=tuple(
+                team for team in self._dataset.teams if team.team_id in team_ids
+            ),
             matches=matches,
             mappings=mappings,
         )

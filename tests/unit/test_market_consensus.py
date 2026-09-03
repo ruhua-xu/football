@@ -4,6 +4,13 @@ from decimal import Decimal
 
 import pytest
 
+from football_system.application.environment import (
+    MockProvenanceInLiveError,
+    ProviderRuntimeProvenanceMismatchError,
+    RuntimeEnvironment,
+    RuntimeEnvironmentGuard,
+    RuntimeProvenance,
+)
 from football_system.application.market_consensus import (
     MARKET_CONSENSUS_MEDIAN_V1,
     ConsensusMarketOddsProvider,
@@ -12,9 +19,11 @@ from football_system.application.market_consensus import (
 )
 from football_system.application.ports.data_providers import (
     MarketOddsBatch,
+    MarketOddsReconciliationIssue,
+    MarketOddsReconciliationIssueReason,
     SnapshotQuery,
 )
-from football_system.domain.archive import canonical_payload_sha256
+from football_system.domain.archive import HistoricalDataMode, canonical_payload_sha256
 from football_system.domain.common import stable_id
 from football_system.domain.market import (
     MarketKey,
@@ -260,6 +269,8 @@ def test_consensus_refuses_conflicting_versions_and_mappings() -> None:
     )
     with pytest.raises(MarketConsensusError, match="conflicting duplicate bookmaker"):
         asyncio.run(provider.fetch_market_odds(_query()))
+    with pytest.raises(MarketConsensusError, match="conflicting duplicate bookmaker"):
+        market_movement_summary((first, conflicting))
 
     mapping_a = _batch(first).mappings[0]
     mapping_b = mapping_a.model_copy(
@@ -317,36 +328,236 @@ def test_consensus_has_no_output_for_missing_or_future_constituents() -> None:
     assert provider.lineages == ()
 
 
-def test_market_movement_reports_real_timepoints_and_not_single_snapshot() -> None:
-    opening = _snapshot(
+def test_consensus_preserves_source_reconciliation_issues() -> None:
+    snapshot = _snapshot(
         provider_code="FEED_A",
         bookmaker_code="alpha",
-        version="opening",
+        version="issue-source",
+        home="2.10",
+        draw="3.20",
+        away="3.50",
+    )
+    issue = MarketOddsReconciliationIssue(
+        issue_id="issue-upstream-unresolved",
+        reason=MarketOddsReconciliationIssueReason.IDENTITY_UNRESOLVED,
+        provider_code="FEED_A",
+        external_namespace="event",
+        external_match_id="unrelated-event",
+        code="MATCH_IDENTITY_UNRESOLVED",
+        detail="upstream provider could not resolve an unrelated event",
+    )
+    source_batch = _batch(snapshot).model_copy(update={"issues": (issue,)})
+    provider = ConsensusMarketOddsProvider((StaticMarketProvider(source_batch),))
+
+    result = asyncio.run(provider.fetch_market_odds(_query()))
+
+    assert len(result.snapshots) == 1
+    assert result.issues == (issue,)
+
+
+def test_consensus_rejects_synthetic_or_mismatched_source_provenance() -> None:
+    snapshot = _snapshot(
+        provider_code="FEED_A",
+        bookmaker_code="alpha",
+        version="provenance-source",
+        home="2.10",
+        draw="3.20",
+        away="3.50",
+    )
+    synthetic_source = StaticMarketProvider(_batch(snapshot))
+    synthetic_source.runtime_provenance = RuntimeProvenance(
+        environment=RuntimeEnvironment.LIVE,
+        provider_code="SYNTHETIC/FEED_A",
+        data_mode=HistoricalDataMode.LIVE_STRICT,
+    )
+    synthetic_consensus = ConsensusMarketOddsProvider((synthetic_source,))
+
+    assert synthetic_consensus.runtime_provenance.is_mock is True
+    with pytest.raises(MockProvenanceInLiveError):
+        RuntimeEnvironmentGuard(RuntimeEnvironment.LIVE).validate_input(
+            synthetic_consensus.runtime_provenance
+        )
+
+    mismatched_source = StaticMarketProvider(_batch(snapshot))
+    mismatched_source.runtime_provenance = RuntimeProvenance(
+        environment=RuntimeEnvironment.LIVE,
+        provider_code="DECLARED_FEED",
+        data_mode=HistoricalDataMode.LIVE_STRICT,
+    )
+    mismatched_consensus = ConsensusMarketOddsProvider((mismatched_source,))
+    with pytest.raises(
+        ProviderRuntimeProvenanceMismatchError,
+        match="source emitted data outside declared provenance",
+    ):
+        asyncio.run(mismatched_consensus.fetch_market_odds(_query()))
+
+
+def test_consensus_fetch_rejects_mixed_or_changed_runtime_provenance() -> None:
+    snapshot = _snapshot(
+        provider_code="FEED_A",
+        bookmaker_code="alpha",
+        version="runtime-boundary",
+        home="2.10",
+        draw="3.20",
+        away="3.50",
+    )
+    live_source = StaticMarketProvider(_batch(snapshot))
+    live_source.runtime_provenance = RuntimeProvenance(
+        environment=RuntimeEnvironment.LIVE,
+        provider_code="FEED_A",
+        data_mode=HistoricalDataMode.LIVE_STRICT,
+    )
+    research_source = StaticMarketProvider(MarketOddsBatch(snapshots=(), mappings=()))
+    research_source.runtime_provenance = RuntimeProvenance(
+        environment=RuntimeEnvironment.RESEARCH,
+        provider_code="FEED_B",
+        data_mode=HistoricalDataMode.SOURCE_TIME_RESEARCH,
+    )
+
+    mixed = ConsensusMarketOddsProvider((live_source, research_source))
+    with pytest.raises(
+        ProviderRuntimeProvenanceMismatchError,
+        match="cross runtime or data-mode boundaries",
+    ):
+        asyncio.run(mixed.fetch_market_odds(_query()))
+
+    cached = ConsensusMarketOddsProvider((live_source,))
+    assert cached.runtime_provenance.environment is RuntimeEnvironment.LIVE
+    live_source.runtime_provenance = RuntimeProvenance(
+        environment=RuntimeEnvironment.RESEARCH,
+        provider_code="FEED_A",
+        data_mode=HistoricalDataMode.SOURCE_TIME_RESEARCH,
+    )
+    with pytest.raises(
+        ProviderRuntimeProvenanceMismatchError,
+        match="runtime provenance changed",
+    ):
+        asyncio.run(cached.fetch_market_odds(_query()))
+
+
+def test_market_movement_ignores_staggered_updates_from_one_observation() -> None:
+    available_at = NOW - timedelta(minutes=10)
+    ingested_at = NOW - timedelta(minutes=9)
+    alpha = _snapshot(
+        provider_code="FEED_A",
+        bookmaker_code="alpha",
+        version="one-observation-alpha",
         home="2.10",
         draw="3.20",
         away="3.50",
         captured_at=NOW - timedelta(hours=2),
-        available_at=NOW - timedelta(hours=2),
-        ingested_at=NOW - timedelta(hours=2),
+        available_at=available_at,
+        ingested_at=ingested_at,
     )
-    latest = _snapshot(
+    beta = _snapshot(
         provider_code="FEED_A",
-        bookmaker_code="alpha",
-        version="latest",
+        bookmaker_code="beta",
+        version="one-observation-beta",
         home="2.30",
         draw="3.10",
         away="3.20",
         captured_at=NOW - timedelta(hours=1),
-        available_at=NOW - timedelta(hours=1),
-        ingested_at=NOW - timedelta(hours=1),
+        available_at=available_at,
+        ingested_at=ingested_at,
     )
 
-    summary = market_movement_summary((opening, latest))
+    assert market_movement_summary((alpha, beta)) is None
+
+
+def test_market_movement_compares_observation_consensus_with_freshness() -> None:
+    opening_available_at = NOW - timedelta(hours=2)
+    opening_ingested_at = opening_available_at + timedelta(minutes=1)
+    latest_available_at = NOW - timedelta(minutes=30)
+    latest_ingested_at = latest_available_at + timedelta(minutes=1)
+    opening_alpha = _snapshot(
+        provider_code="FEED_A",
+        bookmaker_code="alpha",
+        version="opening-alpha",
+        home="2.00",
+        draw="3.20",
+        away="4.00",
+        captured_at=NOW - timedelta(hours=3),
+        available_at=opening_available_at,
+        ingested_at=opening_ingested_at,
+    )
+    opening_beta = _snapshot(
+        provider_code="FEED_A",
+        bookmaker_code="beta",
+        version="opening-beta",
+        home="2.20",
+        draw="3.40",
+        away="3.60",
+        captured_at=NOW - timedelta(hours=2, minutes=45),
+        available_at=opening_available_at,
+        ingested_at=opening_ingested_at,
+    )
+    latest_alpha = _snapshot(
+        provider_code="FEED_A",
+        bookmaker_code="alpha",
+        version="latest-alpha",
+        home="1.80",
+        draw="3.50",
+        away="4.20",
+        captured_at=NOW - timedelta(minutes=50),
+        available_at=latest_available_at,
+        ingested_at=latest_ingested_at,
+    )
+    latest_beta = _snapshot(
+        provider_code="FEED_A",
+        bookmaker_code="beta",
+        version="latest-beta",
+        home="2.00",
+        draw="3.30",
+        away="3.80",
+        captured_at=NOW - timedelta(minutes=40),
+        available_at=latest_available_at,
+        ingested_at=latest_ingested_at,
+    )
+    latest_gamma = _snapshot(
+        provider_code="FEED_A",
+        bookmaker_code="gamma",
+        version="latest-gamma",
+        home="1.90",
+        draw="3.40",
+        away="4.00",
+        captured_at=NOW - timedelta(minutes=45),
+        available_at=latest_available_at,
+        ingested_at=latest_ingested_at,
+    )
+    snapshots = (
+        latest_beta,
+        opening_alpha,
+        latest_gamma,
+        latest_alpha,
+        opening_beta,
+    )
+
+    summary = market_movement_summary(snapshots)
+    reversed_summary = market_movement_summary(reversed(snapshots))
 
     assert summary is not None
-    assert summary.opening_odds == opening.three_way_odds()
-    assert summary.latest_odds == latest.three_way_odds()
-    assert summary.absolute_change.home_win == Decimal("0.20")
-    assert summary.relative_change.home_win == Decimal("0.20") / Decimal("2.10")
-    assert summary.bookmaker_count == 1
-    assert market_movement_summary((opening,)) is None
+    assert summary == reversed_summary
+    assert summary.opening_odds == ThreeWayMarketOdds(
+        home_win=Decimal("2.10"),
+        draw=Decimal("3.30"),
+        away_win=Decimal("3.80"),
+    )
+    assert summary.latest_odds == ThreeWayMarketOdds(
+        home_win=Decimal("1.90"),
+        draw=Decimal("3.40"),
+        away_win=Decimal("4.00"),
+    )
+    assert summary.absolute_change.home_win == Decimal("-0.20")
+    assert summary.relative_change.home_win == Decimal("-0.20") / Decimal("2.10")
+    assert summary.opening_provider_code == "FEED_A"
+    assert summary.latest_provider_code == "FEED_A"
+    assert summary.opening_available_at_utc == opening_available_at
+    assert summary.opening_ingested_at_utc == opening_ingested_at
+    assert summary.latest_available_at_utc == latest_available_at
+    assert summary.latest_ingested_at_utc == latest_ingested_at
+    assert summary.opening_captured_from_utc == opening_alpha.captured_at_utc
+    assert summary.opening_captured_to_utc == opening_beta.captured_at_utc
+    assert summary.latest_captured_from_utc == latest_alpha.captured_at_utc
+    assert summary.latest_captured_to_utc == latest_beta.captured_at_utc
+    assert summary.opening_bookmaker_count == 2
+    assert summary.latest_bookmaker_count == 3

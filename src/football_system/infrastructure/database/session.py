@@ -15,12 +15,11 @@ from football_system.infrastructure.database.models import Base
 
 def create_database_engine(database_url: str, echo: bool = False) -> Engine:
     url = require_sqlite_database_url(database_url)
+    ensure_sqlite_database_parent(url)
     kwargs: dict[str, object] = {"echo": echo}
     kwargs["connect_args"] = {"check_same_thread": False}
     if url.database in {None, "", ":memory:"}:
         kwargs["poolclass"] = StaticPool
-    else:
-        Path(url.database).parent.mkdir(parents=True, exist_ok=True)
     return configure_sqlite_engine(create_engine(database_url, **kwargs))
 
 
@@ -47,6 +46,11 @@ def require_sqlite_database_url(database_url: str) -> URL:
     url = make_url(database_url)
     _require_sqlite_backend(url.get_backend_name())
     return url
+
+
+def ensure_sqlite_database_parent(url: URL) -> None:
+    if url.database not in {None, "", ":memory:"}:
+        Path(url.database).parent.mkdir(parents=True, exist_ok=True)
 
 
 def _require_sqlite_backend(backend: str) -> None:

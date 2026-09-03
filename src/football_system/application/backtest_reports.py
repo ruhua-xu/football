@@ -226,7 +226,10 @@ class BacktestFixtureConfig(_FixtureModel):
         archive_kinds = [archive.dataset_kind for archive in self.archives]
         if len(archive_kinds) != len(set(archive_kinds)):
             raise ValueError("fixture archive dataset kinds must be unique")
-        if archive_kinds and set(archive_kinds) != set(HistoricalArchiveDatasetKind):
+        required_archive_kinds = set(HistoricalArchiveDatasetKind) - {
+            HistoricalArchiveDatasetKind.MARKET_ODDS_ISSUES
+        }
+        if archive_kinds and not required_archive_kinds <= set(archive_kinds):
             raise ValueError(
                 "fixture archives must cover every historical dataset kind"
             )
@@ -376,16 +379,12 @@ def expected_match_ids_from_analysis_manifest(
         or len(missing_decision_match_ids) != len(missing_match_set)
         or missing_decision_match_ids
         != tuple(
-            match_id
-            for match_id in expected_match_ids
-            if match_id in missing_match_set
+            match_id for match_id in expected_match_ids if match_id in missing_match_set
         )
     ):
         raise ValueError("persisted slice expected or missing match IDs are invalid")
     expected_decision_ids = tuple(
-        match_id
-        for match_id in expected_match_ids
-        if match_id not in missing_match_set
+        match_id for match_id in expected_match_ids if match_id not in missing_match_set
     )
     if actual_decision_ids != expected_decision_ids:
         raise ValueError(

@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import hashlib
+import json
 
 import pytest
 from sqlalchemy import event, func, select, text
@@ -10,11 +11,55 @@ from sqlalchemy.exc import IntegrityError
 from football_system.application.run_analysis import (
     RunAnalysisRequest,
     RunAnalysisService,
+    _validate_live_provider_outputs,
+    _validate_source_payloads,
+)
+from football_system.application.models import AnalysisArtifacts
+from football_system.application.quant_model import (
+    MVP_INPUT_MANIFEST_V3,
+    build_model_input_manifest_json,
+    freeze_elo_model_state,
+)
+from football_system.application.post_review import CreateFusionRunService
+from football_system.application.review_bridge import (
+    ExportAnalysisPacketService,
+    ImportLLMReviewService,
+    canonical_json,
+    validate_review_files,
+)
+from football_system.application.environment import (
+    MockProvenanceInLiveError,
+    ProviderRuntimeProvenanceMismatchError,
+    RuntimeEnvironment,
+    RuntimeProvenance,
+)
+from football_system.application.ports.data_providers import (
+    FixtureQuery,
+    MarketOddsReconciliationIssue,
+    MarketOddsReconciliationIssueReason,
+    SnapshotQuery,
 )
 from football_system.config import AppSettings
+from football_system.domain.archive import (
+    HistoricalDataMode,
+    match_result_payload_sha256,
+)
+from football_system.domain.analysis import ModelAnalysisMatchContext
 from football_system.domain.betting import CandidateStatus, PortfolioStatus
-from football_system.domain.prediction import FusionPolicyName
+from football_system.domain.common import stable_id
+from football_system.domain.prediction import (
+    FusionPolicyName,
+    ModelQuantPrediction,
+    QuantModelEvaluation,
+    QuantModelEvaluationStatus,
+)
+from football_system.domain.services.elo_baseline import (
+    EloBaselineConfig,
+    EloRegularTimeResult,
+    EloThreeWayBaseline,
+)
 from football_system.infrastructure.database.models import (
+    AnalysisPacketRecord,
     AnalysisRunRecord,
     Base,
     BetCandidateRecord,
@@ -24,6 +69,12 @@ from football_system.infrastructure.database.models import (
 )
 from football_system.infrastructure.database.repositories import (
     SqlAlchemyAnalysisRepository,
+)
+from football_system.infrastructure.database.post_review_repositories import (
+    SqlAlchemyPostReviewRepository,
+)
+from football_system.infrastructure.database.review_repositories import (
+    SqlAlchemyReviewArtifactRepository,
 )
 from football_system.infrastructure.database.session import (
     create_database_engine,
@@ -48,11 +99,33 @@ from football_system.infrastructure.providers.mock.sporttery import (
 EXECUTION_TIME = datetime(2026, 8, 31, 12, 0, tzinfo=timezone.utc)
 
 
+class RetrospectiveMockMarketOddsProvider(MockMarketOddsProvider):
+    runtime_provenance = RuntimeProvenance(
+        environment=RuntimeEnvironment.RESEARCH,
+        provider_code=MockMarketOddsProvider.provider_code,
+        provenance="retrospectively imported market fixture",
+        is_mock=True,
+        data_mode=HistoricalDataMode.SOURCE_TIME_RESEARCH,
+    )
+
+    async def fetch_market_odds(self, query):
+        batch = await super().fetch_market_odds(query)
+        return batch.model_copy(
+            update={
+                "snapshots": tuple(
+                    snapshot.model_copy(update={"ingested_at_utc": EXECUTION_TIME})
+                    for snapshot in batch.snapshots
+                )
+            }
+        )
+
+
 def build_service(
     dataset: MockDataset | None = None,
     market_provider_factory=MockMarketOddsProvider,
+    settings: AppSettings | None = None,
 ):
-    settings = AppSettings.from_toml("config/mvp.toml")
+    settings = settings or AppSettings.from_toml("config/mvp.toml")
     dataset = dataset or MockDataset.from_json(settings.mock.fixture_path)
     engine = create_database_engine("sqlite:///:memory:")
     create_schema(engine)
@@ -67,6 +140,168 @@ def build_service(
         settings=settings,
     )
     return service, repository, sessions, dataset, settings
+
+
+def test_live_analysis_rejects_mock_providers_before_fetch_or_persistence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, repository, _, dataset, _ = build_service(
+        settings=AppSettings.from_toml("config/live.toml")
+    )
+
+    async def fail_if_fetched(*args, **kwargs):
+        del args, kwargs
+        raise AssertionError("provider I/O occurred before runtime isolation")
+
+    for attribute, method_name in (
+        ("_fixture_provider", "fetch_fixtures"),
+        ("_market_odds_provider", "fetch_market_odds"),
+        ("_sporttery_provider", "fetch_fixed_bonus"),
+        ("_manual_quant_provider", "fetch_manual_quant"),
+    ):
+        monkeypatch.setattr(getattr(service, attribute), method_name, fail_if_fetched)
+
+    with pytest.raises(MockProvenanceInLiveError):
+        asyncio.run(service.run(request_for(dataset, "run-live-mock-rejected")))
+
+    assert repository.table_counts()["analysis_runs"] == 0
+
+
+def test_mock_analysis_does_not_trust_unvalidated_source_time_provenance() -> None:
+    service, _, _, dataset, _ = build_service(
+        market_provider_factory=RetrospectiveMockMarketOddsProvider
+    )
+
+    with pytest.raises(ValueError, match="knowledge cutoff"):
+        asyncio.run(service.run(request_for(dataset, "run-source-time-unvalidated")))
+
+
+def test_live_analysis_rejects_provider_output_that_conflicts_with_provenance() -> None:
+    service, repository, _, dataset, _ = build_service(
+        settings=AppSettings.from_toml("config/live.toml")
+    )
+    declared_codes = {
+        "_fixture_provider": "DECLARED_FIXTURE",
+        "_market_odds_provider": "DECLARED_MARKET",
+        "_sporttery_provider": "DECLARED_SPORTTERY",
+        "_manual_quant_provider": "DECLARED_QUANT",
+    }
+    for attribute, provider_code in declared_codes.items():
+        provider = getattr(service, attribute)
+        provider.runtime_provenance = RuntimeProvenance(
+            environment=RuntimeEnvironment.LIVE,
+            provider_code=provider_code,
+            data_mode=HistoricalDataMode.LIVE_STRICT,
+        )
+
+    with pytest.raises(ProviderRuntimeProvenanceMismatchError):
+        asyncio.run(service.run(request_for(dataset, "run-live-mismatch-rejected")))
+
+    assert repository.table_counts()["analysis_runs"] == 0
+
+
+def test_live_output_validation_requires_mapping_quant_and_issue_identity() -> None:
+    service, _, _, dataset, _ = build_service()
+
+    async def fetch_batches():
+        fixture_batch = await service._fixture_provider.fetch_fixtures(
+            FixtureQuery(
+                kickoff_from_utc=dataset.as_of_at_utc,
+                kickoff_to_utc=dataset.as_of_at_utc + timedelta(days=2),
+                as_of_at_utc=dataset.as_of_at_utc,
+            )
+        )
+        query = SnapshotQuery(
+            match_ids=tuple(match.match_id for match in fixture_batch.matches),
+            as_of_at_utc=dataset.as_of_at_utc,
+        )
+        market_batch, sporttery_batch, quant_batch = await asyncio.gather(
+            service._market_odds_provider.fetch_market_odds(query),
+            service._sporttery_provider.fetch_fixed_bonus(query),
+            service._manual_quant_provider.fetch_manual_quant(query),
+        )
+        return fixture_batch, market_batch, sporttery_batch, quant_batch
+
+    fixture_batch, market_batch, sporttery_batch, quant_batch = asyncio.run(
+        fetch_batches()
+    )
+    provenance = {
+        "fixture": service._fixture_provider.runtime_provenance,
+        "market_odds": service._market_odds_provider.runtime_provenance,
+        "sporttery": service._sporttery_provider.runtime_provenance,
+        "manual_quant": service._manual_quant_provider.runtime_provenance,
+    }
+    issue_codes = frozenset(
+        {service._market_odds_provider.runtime_provenance.provider_code}
+    )
+
+    with pytest.raises(
+        ProviderRuntimeProvenanceMismatchError,
+        match="without declared provider mapping",
+    ):
+        _validate_live_provider_outputs(
+            provenance,
+            fixture_batch.model_copy(update={"mappings": ()}),
+            market_batch,
+            sporttery_batch,
+            quant_batch,
+            issue_codes,
+        )
+
+    with pytest.raises(ValueError, match="exact provider mapping"):
+        _validate_source_payloads(
+            fixture_batch.mappings,
+            market_batch.snapshots,
+            sporttery_batch.snapshots,
+            quant_batch.inputs,
+        )
+
+    invalid_snapshot = market_batch.snapshots[0].model_copy(
+        update={
+            "captured_at_utc": market_batch.snapshots[0].available_at_utc
+            + timedelta(seconds=1)
+        }
+    )
+    with pytest.raises(ValueError, match="captured, available, ingested"):
+        _validate_source_payloads(
+            (*fixture_batch.mappings, *market_batch.mappings),
+            (invalid_snapshot,),
+            (),
+            (),
+        )
+
+    with pytest.raises(
+        ProviderRuntimeProvenanceMismatchError,
+        match="without provider identity",
+    ):
+        _validate_live_provider_outputs(
+            provenance,
+            fixture_batch,
+            market_batch,
+            sporttery_batch,
+            quant_batch.model_copy(update={"provider_code": None}),
+            issue_codes,
+        )
+
+    synthetic_issue = MarketOddsReconciliationIssue(
+        issue_id="synthetic-live-issue",
+        reason=MarketOddsReconciliationIssueReason.EVENT_DATA_INVALID,
+        provider_code="SYNTHETIC/ISSUE",
+        code="SYNTHETIC_EVENT_INVALID",
+        detail="synthetic issue must not cross the live provenance boundary",
+    )
+    with pytest.raises(
+        ProviderRuntimeProvenanceMismatchError,
+        match="issue outside declared provenance",
+    ):
+        _validate_live_provider_outputs(
+            provenance,
+            fixture_batch,
+            market_batch.model_copy(update={"issues": (synthetic_issue,)}),
+            sporttery_batch,
+            quant_batch,
+            issue_codes,
+        )
 
 
 def request_for(
@@ -483,6 +718,384 @@ def test_full_mvp_analysis_persists_replayable_artifacts() -> None:
             ),
             _rules(settings),
         )
+
+
+def test_model_quant_lineage_persists_without_manual_impersonation() -> None:
+    service, _, _, dataset, settings = build_service()
+    manual_artifacts = asyncio.run(
+        service.run(
+            request_for(
+                dataset,
+                "run-e2e-model-quant",
+                min_selection_ev=Decimal("100"),
+            )
+        )
+    )
+    run = manual_artifacts.analysis_run
+    baseline = EloThreeWayBaseline(EloBaselineConfig(minimum_prior_matches=0))
+    history_kickoff = run.as_of_at_utc - timedelta(days=2)
+    history_payload_hash = match_result_payload_sha256(2, 0)
+    history_result = EloRegularTimeResult(
+        match_result_id="model-history-result-v1",
+        match_id="model-history-match",
+        season_id="2026",
+        home_team_id="model-history-home",
+        away_team_id="model-history-away",
+        kickoff_at_utc=history_kickoff,
+        available_at_utc=history_kickoff + timedelta(hours=2),
+        ingested_at_utc=run.as_of_at_utc - timedelta(days=1),
+        home_goals=2,
+        away_goals=0,
+        payload_hash=history_payload_hash,
+    )
+    elo_state = baseline.rebuild_state(
+        (history_result,),
+        run.as_of_at_utc,
+        target_season_id="2026",
+    )
+    model_state = freeze_elo_model_state(
+        analysis_run_id=run.analysis_run_id,
+        baseline=baseline,
+        state=elo_state,
+        generated_at_utc=run.started_at_utc,
+    )
+    evaluations = []
+    model_predictions = []
+    model_contexts = []
+    manual_context_by_match = {
+        context.match_id: context for context in manual_artifacts.match_contexts
+    }
+    unavailable_match_id = manual_artifacts.quant_predictions[0].match_id
+    for manual_prediction in manual_artifacts.quant_predictions:
+        probability_payload = manual_prediction.probabilities.model_dump(mode="json")
+        is_available = manual_prediction.match_id != unavailable_match_id
+        status = "AVAILABLE" if is_available else "UNAVAILABLE"
+        unavailable_reason = None if is_available else "INSUFFICIENT_PRIOR_MATCHES"
+        model_prediction_hash = hashlib.sha256(
+            json.dumps(
+                {
+                    "match_id": manual_prediction.match_id,
+                    "probabilities": probability_payload,
+                },
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+        output_json = json.dumps(
+            {
+                "match_id": manual_prediction.match_id,
+                "prediction_hash": model_prediction_hash,
+                "probabilities": probability_payload if is_available else None,
+                "reason": unavailable_reason,
+                "status": status,
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        evaluation = QuantModelEvaluation(
+            quant_model_evaluation_id=stable_id(
+                "quant-model-evaluation",
+                run.analysis_run_id,
+                manual_prediction.match_id,
+            ),
+            analysis_run_id=run.analysis_run_id,
+            quant_model_state_id=model_state.quant_model_state_id,
+            match_id=manual_prediction.match_id,
+            market=manual_prediction.market,
+            status=QuantModelEvaluationStatus(status),
+            unavailable_reason=unavailable_reason,
+            probabilities=(manual_prediction.probabilities if is_available else None),
+            output_json=output_json,
+            output_hash=hashlib.sha256(output_json.encode("utf-8")).hexdigest(),
+            model_prediction_hash=model_prediction_hash,
+            evaluated_at_utc=run.started_at_utc,
+        )
+        evaluations.append(evaluation)
+        if is_available:
+            model_predictions.append(
+                ModelQuantPrediction(
+                    prediction_id=manual_prediction.prediction_id,
+                    analysis_run_id=run.analysis_run_id,
+                    match_id=manual_prediction.match_id,
+                    market=manual_prediction.market,
+                    probabilities=manual_prediction.probabilities,
+                    quant_model_evaluation_id=evaluation.quant_model_evaluation_id,
+                    method=model_state.model_name,
+                    method_version=model_state.model_version,
+                    generated_at_utc=run.started_at_utc,
+                )
+            )
+        manual_context = manual_context_by_match[manual_prediction.match_id]
+        context_json = json.dumps(
+            {
+                "as_of_at_utc": run.as_of_at_utc.isoformat(),
+                "market_odds_snapshot_id": manual_context.market_odds_snapshot_id,
+                "match_id": manual_prediction.match_id,
+                "quant_model_evaluation_id": evaluation.quant_model_evaluation_id,
+                "sporttery_bonus_snapshot_id": (
+                    manual_context.sporttery_bonus_snapshot_id
+                ),
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        model_contexts.append(
+            ModelAnalysisMatchContext(
+                analysis_run_id=run.analysis_run_id,
+                match_id=manual_prediction.match_id,
+                market_odds_snapshot_id=manual_context.market_odds_snapshot_id,
+                sporttery_bonus_snapshot_id=(
+                    manual_context.sporttery_bonus_snapshot_id
+                ),
+                quant_model_evaluation_id=evaluation.quant_model_evaluation_id,
+                context_json=context_json,
+                context_hash=hashlib.sha256(context_json.encode("utf-8")).hexdigest(),
+            )
+        )
+    manifest_json = build_model_input_manifest_json(
+        competitions=manual_artifacts.competitions,
+        teams=manual_artifacts.teams,
+        matches=manual_artifacts.matches,
+        mappings=manual_artifacts.provider_mappings,
+        market_snapshots=manual_artifacts.market_odds_snapshots,
+        sporttery_snapshots=manual_artifacts.sporttery_bonus_snapshots,
+        model_states=(model_state,),
+    )
+    model_run = run.model_copy(
+        update={
+            "input_manifest_version": MVP_INPUT_MANIFEST_V3,
+            "input_manifest_json": manifest_json,
+            "input_manifest_hash": hashlib.sha256(
+                manifest_json.encode("utf-8")
+            ).hexdigest(),
+        }
+    )
+    model_artifacts = AnalysisArtifacts(
+        competitions=manual_artifacts.competitions,
+        teams=manual_artifacts.teams,
+        matches=manual_artifacts.matches,
+        provider_mappings=manual_artifacts.provider_mappings,
+        market_odds_snapshots=manual_artifacts.market_odds_snapshots,
+        sporttery_bonus_snapshots=manual_artifacts.sporttery_bonus_snapshots,
+        manual_quant_inputs=(),
+        analysis_run=model_run,
+        match_contexts=tuple(model_contexts),
+        market_predictions=manual_artifacts.market_predictions,
+        quant_predictions=tuple(model_predictions),
+        final_predictions=tuple(
+            prediction
+            for prediction in manual_artifacts.final_predictions
+            if prediction.match_id != unavailable_match_id
+        ),
+        selection_candidates=tuple(
+            candidate
+            for candidate in manual_artifacts.selection_candidates
+            if candidate.match_id != unavailable_match_id
+        ),
+        ticket_candidates=manual_artifacts.ticket_candidates,
+        portfolios=manual_artifacts.portfolios,
+        portfolio_risk_reports=manual_artifacts.portfolio_risk_reports,
+        quant_model_states=(model_state,),
+        quant_model_evaluations=tuple(evaluations),
+    )
+    engine = create_database_engine("sqlite:///:memory:")
+    create_schema(engine)
+    source_time = history_kickoff.replace(tzinfo=None)
+    available_time = history_result.available_at_utc.replace(tzinfo=None)
+    ingested_time = history_result.ingested_at_utc.replace(tzinfo=None)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO competitions "
+                "(competition_id, canonical_key, name, country_code) VALUES "
+                "('model-history-competition', 'model-history-competition', "
+                "'Model History', 'TST')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO teams (team_id, canonical_key, name, team_type) "
+                "VALUES ('model-history-home', 'model-history-home', "
+                "'History Home', 'CLUB'), "
+                "('model-history-away', 'model-history-away', "
+                "'History Away', 'CLUB')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO providers (provider_id, code, name, provider_kind) "
+                "VALUES ('model-history-provider', 'MODEL_HISTORY', "
+                "'Model History', 'FIXTURE')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO matches (internal_match_id, competition_id, "
+                "home_team_id, away_team_id, kickoff_at_utc, status, "
+                "available_at_utc, created_at_utc) VALUES "
+                "('model-history-match', 'model-history-competition', "
+                "'model-history-home', 'model-history-away', :kickoff, "
+                "'FINISHED', :kickoff, :kickoff)"
+            ),
+            {"kickoff": source_time},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO provider_match_mappings (mapping_id, provider_id, "
+                "external_namespace, external_match_id, internal_match_id, "
+                "resolution_method, confidence, available_at_utc, "
+                "supersedes_mapping_id) VALUES ('model-history-mapping', "
+                "'model-history-provider', 'MODEL_HISTORY', 'history-1', "
+                "'model-history-match', 'EXACT_ID', 1, :kickoff, NULL)"
+            ),
+            {"kickoff": source_time},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO match_results (match_result_id, internal_match_id, "
+                "provider_id, provider_mapping_id, home_goals, away_goals, "
+                "observed_at_utc, available_at_utc, ingested_at_utc, "
+                "source_result_key, payload_hash, supersedes_match_result_id) "
+                "VALUES ('model-history-result-v1', 'model-history-match', "
+                "'model-history-provider', 'model-history-mapping', 2, 0, "
+                ":available, :available, :ingested, 'history-result-v1', "
+                ":payload_hash, NULL)"
+            ),
+            {
+                "available": available_time,
+                "ingested": ingested_time,
+                "payload_hash": history_payload_hash,
+            },
+        )
+    model_repository = SqlAlchemyAnalysisRepository(create_session_factory(engine))
+
+    model_repository.save_analysis(model_artifacts, _rules(settings))
+    model_repository.save_analysis(model_artifacts, _rules(settings))
+
+    assert model_repository.quant_model_table_counts() == {
+        "quant_model_states": 1,
+        "quant_model_training_facts": 1,
+        "quant_model_evaluations": 6,
+    }
+    assert model_repository.table_counts()["manual_quant_inputs"] == 0
+    assert model_repository.table_counts()["quant_predictions"] == 5
+    assert (
+        model_repository.load_quant_model_state(model_state.quant_model_state_id)
+        == model_state
+    )
+    assert (
+        model_repository.load_quant_model_evaluation(
+            evaluations[0].quant_model_evaluation_id
+        )
+        == evaluations[0]
+    )
+    assert evaluations[0].status is QuantModelEvaluationStatus.UNAVAILABLE
+    review_repository = SqlAlchemyReviewArtifactRepository(
+        create_session_factory(engine)
+    )
+    packet_service = ExportAnalysisPacketService(review_repository)
+    for legacy_version in ("ANALYSIS_PACKET_V1", "ANALYSIS_PACKET_V2"):
+        with pytest.raises(ValueError) as error:
+            packet_service.export(run.analysis_run_id, legacy_version)
+        assert str(error.value) == (
+            "ANALYSIS_PACKET_V1/V2 supports manual P_quant lineage only"
+        )
+    packet, packet_json = packet_service.export(
+        run.analysis_run_id,
+        "ANALYSIS_PACKET_V3",
+    )
+    repeated_packet, repeated_json = packet_service.export(
+        run.analysis_run_id,
+        "ANALYSIS_PACKET_V3",
+    )
+    assert repeated_packet == packet
+    assert repeated_json == packet_json
+    assert len(packet.quant_model_states) == 1
+    packet_state = packet.quant_model_states[0]
+    assert packet_state.quant_model_state_id == model_state.quant_model_state_id
+    assert packet_state.state_hash == model_state.state_hash
+    assert packet_state.state_payload_hash == model_state.state_payload_hash
+    assert packet_state.training_fact_count == len(model_state.training_facts)
+    assert packet_state.training_match_ids == tuple(
+        fact.match_id for fact in model_state.training_facts
+    )
+    assert packet_state.training_result_ids == tuple(
+        fact.match_result_id for fact in model_state.training_facts
+    )
+    assert '"state_json"' not in packet_json
+    assert '"config_json"' not in packet_json
+    assert '"output_json"' not in packet_json
+    packet_lineages = tuple(match.p_quant for match in packet.matches)
+    assert all(lineage.source_kind == "MODEL" for lineage in packet_lineages)
+    assert sum(lineage.prediction is None for lineage in packet_lineages) == 1
+    assert sum(lineage.prediction is not None for lineage in packet_lineages) == 5
+    review_payload = {
+        "schema_version": "LLM_REVIEW_V3",
+        "analysis_run_id": run.analysis_run_id,
+        "packet_id": packet.packet_id,
+        "packet_hash": packet.packet_hash,
+        "match_reviews": [
+            (
+                {
+                    "status": "UNAVAILABLE",
+                    "match_id": match.match_id,
+                    "market_key": match.market_key,
+                    "failure_code": "MODEL_UNAVAILABLE",
+                    "limitations": ["Model P_quant is unavailable."],
+                    "review_context_id": match.review_context_id,
+                    "review_context_hash": match.review_context_hash,
+                }
+                if match.p_quant.prediction is None
+                else {
+                    "status": "VALID",
+                    "match_id": match.match_id,
+                    "market_key": match.market_key,
+                    "p_llm": match.p_quant.prediction.probabilities,
+                    "assessment_confidence": "0.5",
+                    "scenarios": [],
+                    "preferred_outcomes": [],
+                    "avoid_outcomes": [],
+                    "counter_scenarios": [],
+                    "risk_tags": [],
+                    "reasoning_summary": "Review of frozen model lineage.",
+                    "limitations": [],
+                    "review_context_id": match.review_context_id,
+                    "review_context_hash": match.review_context_hash,
+                }
+            )
+            for match in packet.matches
+        ],
+    }
+    review_json = canonical_json(review_payload)
+    _, review_submission, _ = validate_review_files(
+        packet_json.encode("utf-8"),
+        review_json.encode("utf-8"),
+    )
+    assert (
+        sum(item.status == "UNAVAILABLE" for item in review_submission.match_reviews)
+        == 1
+    )
+    review_artifact = ImportLLMReviewService(review_repository).import_review(
+        packet_json.encode("utf-8"),
+        review_json.encode("utf-8"),
+    )
+    fusion_run = CreateFusionRunService(
+        SqlAlchemyPostReviewRepository(create_session_factory(engine)),
+        settings,
+    ).create(review_artifact.review_artifact_id)
+    assert len(fusion_run.results) == 5
+    assert unavailable_match_id not in {item.match_id for item in fusion_run.results}
+    with create_session_factory(engine)() as session:
+        assert (
+            session.scalar(select(func.count()).select_from(AnalysisPacketRecord)) == 1
+        )
+    with pytest.raises(IntegrityError, match="append-only"):
+        with engine.begin() as connection:
+            connection.execute(
+                text("UPDATE quant_model_training_facts SET fact_hash = :hash"),
+                {"hash": "0" * 64},
+            )
+    engine.dispose()
 
 
 def test_analysis_save_is_exactly_idempotent_and_detects_graph_conflicts() -> None:

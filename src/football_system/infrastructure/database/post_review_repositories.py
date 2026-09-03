@@ -35,9 +35,11 @@ from football_system.domain.review import (
     AnalysisPacket,
     AnalysisPacketContract,
     AnalysisPacketV2,
+    AnalysisPacketV3,
     LLMReviewArtifact,
     LLMReviewSubmission,
     LLMReviewSubmissionV2,
+    LLMReviewSubmissionV3,
     StoredAnalysisPacket,
 )
 from football_system.infrastructure.database.models import (
@@ -93,6 +95,10 @@ class SqlAlchemyPostReviewRepository:
             predictions = tuple(
                 _final_prediction(session, record) for record in records
             )
+            if not predictions:
+                raise ValueError(
+                    "FusionRun requires at least one available base prediction"
+                )
             return FusionSource(
                 artifact=artifact,
                 packet=packet,
@@ -509,6 +515,7 @@ def _stored_packet(
     packet_type = {
         "ANALYSIS_PACKET_V1": AnalysisPacket,
         "ANALYSIS_PACKET_V2": AnalysisPacketV2,
+        "ANALYSIS_PACKET_V3": AnalysisPacketV3,
     }.get(record.schema_version)
     if packet_type is None:
         raise ValueError(f"unsupported stored AnalysisPacket: {record.schema_version}")
@@ -564,6 +571,7 @@ def _review_artifact(
     submission_type = {
         "LLM_REVIEW_V1": LLMReviewSubmission,
         "LLM_REVIEW_V2": LLMReviewSubmissionV2,
+        "LLM_REVIEW_V3": LLMReviewSubmissionV3,
     }.get(record.review_schema_version)
     if submission_type is None:
         raise ValueError(
@@ -579,6 +587,10 @@ def _review_artifact(
         "ANALYSIS_PACKET_V2": (
             "LLM_REVIEW_V2",
             "OFFLINE_REVIEW_VALIDATOR_V2",
+        ),
+        "ANALYSIS_PACKET_V3": (
+            "LLM_REVIEW_V3",
+            "OFFLINE_REVIEW_VALIDATOR_V3",
         ),
     }[packet.schema_version]
     expected_id = stable_id(

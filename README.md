@@ -5,18 +5,29 @@
 ## 发布状态
 
 - `v0.1.0` 固定在提交 `fceb945d07218290dc85b465e885a47ae9912c3f`，保留原始 MVP 行为。
-- 当前发布准备版本为 `0.4.0`；`0.3.0` 的概率、EV、计奖、风险、离线 Review、FusionRun、PortfolioRevision 和不可变 AnalysisRun 合同保持不变。
+- 当前已发布 package metadata 保持 `0.4.0`；`0.5.0` 真实数据工作仍为 `Unreleased`，且不改变既有概率、EV、计奖、风险、离线 Review、FusionRun、PortfolioRevision 和不可变 AnalysisRun 合同。
 - `0.4.0` 仅支持 SQLite。运行时建库、Schema 创建和 Alembic 迁移都会在加载其他数据库驱动前拒绝非 SQLite URL。
-- 项目不连接真实比赛 API 或真实 LLM API，不读取 API Key，不执行自动下注。
+- 仅显式执行 `live ingest-fixtures` 时从进程环境读取 `SPORTMONKS_KEY` 并连接 Sportmonks；项目不连接真实 LLM API，不执行自动下注。
 
 ## 当前能力
 
-- Mock 或本地历史归档的 Fixture、国际市场赔率、竞彩固定奖金和手工 `P_quant`。
+- Mock 或本地历史归档的 Fixture、国际市场赔率、竞彩固定奖金、手工 `P_quant`，以及固定参数的三向 Elo baseline `P_quant`。
 - `THREE_WAY` 去水、`QUANT_ONLY_V1`、`MARKET_QUANT_BLEND_V1`、Selection EV 和简单2串1。
 - 显式 Cash、`NO_BET`、Exposure、确定性 Stress Test 和 Portfolio 风险约束。
 - SQLite、SQLAlchemy、Alembic、不可变 AnalysisRun 和追加型审计工件。
-- V1/V2 `analysis_packet`、`llm_review`、append-only FusionRun 和独立 PortfolioRevision。
-- Historical Archive V1、MatchResult、Ticket/Portfolio Settlement、walk-forward、概率/资金/回撤/覆盖率指标和并排策略比较。
+- V1/V2/V3 `analysis_packet`、`llm_review`、append-only FusionRun 和独立 PortfolioRevision；V1/V2 字节合同继续保持 manual-only，V3 显式承载 manual/model lineage 和 model unavailable。
+- Historical Archive V1、MatchResult、Ticket/Portfolio Settlement、walk-forward、概率/资金/回撤/覆盖率指标和并排策略比较；`BACKTEST_V2` 额外冻结 Elo state/evaluation、双 cutoff、归档和财务结算血缘。
+- Sportmonks fixture raw capture、canonical identity、append-only observation lineage 和 SQLite 原子落库；仓库与自动化测试不包含账户响应或真实第三方数据。
+
+## Live Fixture Ingestion
+
+`live ingest-fixtures` 是显式启用的 `LIVE_STRICT` 命令。它要求调用方提供 kickoff window、provider league/season ID、season、competition type 和 team type，并逐项校验 provider 返回的 league、season、team type/gender，不从不完整 payload 猜测 identity scope。API token 只从 `SPORTMONKS_KEY` 读取并放入 `Authorization` header；raw payload 和 secret-safe request metadata 会先写入 `data/raw`，完整 capture 验证通过后才迁移或打开数据库。
+
+```text
+football-system live ingest-fixtures --kickoff-from 2026-09-03T00:00:00Z --kickoff-to 2026-09-03T23:59:59Z --league-id 501 --provider-season-id 23690 --season 2026/27 --competition-type LEAGUE --team-type CLUB
+```
+
+每次成功响应使用本地 receipt time 作为 availability，并单独保存数据库 ingestion time；首次由 capture 创建的 identity row 显式绑定 `fixture_ingestion_id`，catalog 只有在 availability 和对应 ingestion 均不晚于 cutoff 时才可见。既有普通 identity 不会被后来 capture 重新分类；后续 status/kickoff 变化追加到 `fixture_observations`，名称漂移追加新 alias/mapping。当前 vertical slice 要求一个经过 league filter 的完整单页响应；若 terminal pagination metadata 不一致或 `pagination.has_more=true`，会拒绝落库并要求缩小 kickoff window，绝不把截断页当作完整数据。实际账户调用在核对 token entitlement、目标联赛、字段和限流 metadata 前仍处于 operational `DEFER`；自动化验收仅使用 scripted transport 和自造 payload，不访问外网。
 
 ## Historical Archive V1
 
@@ -58,6 +69,8 @@ football-system backtest compare
 ```
 
 `backtest run` 仅支持 `QUANT_ONLY_V1` 和 `MARKET_QUANT_BLEND_V1`。`backtest compare` 要求两次运行具有相同归档 provenance、模式、时间切片、预算、阈值、约束、指标配置和冻结输入，只并排报告结果，不宣布“最佳策略”。
+
+当前公开 `backtest run/report/compare` CLI 仍使用兼容的 `BACKTEST_V1`。`BACKTEST_V2` 已实现 application、domain、SQLite repository、append-only trigger 和 Alembic persistence boundary，供显式 model-analysis/walk-forward 编排使用；它不会把不可用的 Elo 输出替换成 `P_market`，也不会自动调参或选择“最佳”参数。
 
 ## 合成验收
 
@@ -106,7 +119,7 @@ NOT REAL HISTORICAL PERFORMANCE
 
 ## 离线文件桥
 
-外部协作者只处理已封存 AnalysisRun 导出的白名单 Packet，并返回绝对 `P_llm`；本地严格校验、追加导入，再创建 FusionRun 和独立 PortfolioRevision。导入不会更新原 AnalysisRun、`P_final`、候选、Ticket 或 Portfolio。合同见 `fankui/llm_review_v1_contract.md` 与 `fankui/llm_review_v2_contract.md`。
+外部协作者只处理已封存 AnalysisRun 导出的白名单 Packet，并返回绝对 `P_llm`；本地严格校验、追加导入，再创建 FusionRun 和独立 PortfolioRevision。导入不会更新原 AnalysisRun、`P_final`、候选、Ticket 或 Portfolio。V1/V2 只接受手工 `P_quant` lineage；V3 增加 `started_at_utc`、结构化 model state/evaluation hashes、紧凑训练 match/result ID lineage，以及有预测/无预测两种显式状态。model-unavailable 比赛必须返回 `MODEL_UNAVAILABLE`，不会伪造概率；若整次运行没有任何可用 base prediction，则拒绝创建 FusionRun。合同见 `fankui/llm_review_v1_contract.md`、`fankui/llm_review_v2_contract.md` 与 `fankui/llm_review_v3_contract.md`。
 
 ## 范围边界
 

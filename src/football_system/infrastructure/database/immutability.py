@@ -4,6 +4,59 @@ from sqlalchemy import Connection
 
 
 RUN_LOOKUPS = {
+    "backtest_v2_run_archives": (
+        "SELECT 1 FROM backtest_v2_runs r "
+        "WHERE r.backtest_run_id = {row}.backtest_run_id "
+        "AND r.status = 'COMPLETED'"
+    ),
+    "backtest_v2_slices": (
+        "SELECT 1 FROM backtest_v2_runs r "
+        "WHERE r.backtest_run_id = {row}.backtest_run_id "
+        "AND r.status = 'COMPLETED'"
+    ),
+    "backtest_v2_training_sources": (
+        "SELECT 1 FROM backtest_v2_runs r JOIN backtest_v2_slices s "
+        "ON s.backtest_run_id = r.backtest_run_id "
+        "WHERE s.backtest_slice_id = {row}.backtest_slice_id "
+        "AND r.status = 'COMPLETED'"
+    ),
+    "backtest_v2_evaluation_refs": (
+        "SELECT 1 FROM backtest_v2_runs r JOIN backtest_v2_slices s "
+        "ON s.backtest_run_id = r.backtest_run_id "
+        "WHERE s.backtest_slice_id = {row}.backtest_slice_id "
+        "AND r.status = 'COMPLETED'"
+    ),
+    "backtest_v2_result_sources": (
+        "SELECT 1 FROM backtest_v2_runs r JOIN backtest_v2_slices s "
+        "ON s.backtest_run_id = r.backtest_run_id "
+        "WHERE s.backtest_slice_id = {row}.backtest_slice_id "
+        "AND r.status = 'COMPLETED'"
+    ),
+    "backtest_v2_slice_ticket_settlements": (
+        "SELECT 1 FROM backtest_v2_runs r JOIN backtest_v2_slices s "
+        "ON s.backtest_run_id = r.backtest_run_id "
+        "WHERE s.backtest_slice_id = {row}.backtest_slice_id "
+        "AND r.status = 'COMPLETED'"
+    ),
+    "backtest_v2_metric_snapshots": (
+        "SELECT 1 FROM backtest_v2_runs r "
+        "WHERE r.backtest_run_id = {row}.backtest_run_id "
+        "AND r.status = 'COMPLETED'"
+    ),
+    "quant_model_states": (
+        "SELECT 1 FROM analysis_runs r "
+        "WHERE r.analysis_run_id = {row}.analysis_run_id AND r.status = 'COMPLETED'"
+    ),
+    "quant_model_training_facts": (
+        "SELECT 1 FROM analysis_runs r JOIN quant_model_states s "
+        "ON s.analysis_run_id = r.analysis_run_id "
+        "WHERE s.quant_model_state_id = {row}.quant_model_state_id "
+        "AND r.status = 'COMPLETED'"
+    ),
+    "quant_model_evaluations": (
+        "SELECT 1 FROM analysis_runs r "
+        "WHERE r.analysis_run_id = {row}.analysis_run_id AND r.status = 'COMPLETED'"
+    ),
     "analysis_run_matches": (
         "SELECT 1 FROM analysis_runs r "
         "WHERE r.analysis_run_id = {row}.analysis_run_id AND r.status = 'COMPLETED'"
@@ -119,7 +172,12 @@ SOURCE_TABLES = (
     "competitions",
     "teams",
     "matches",
+    "provider_team_aliases",
+    "provider_competition_mappings",
+    "canonical_match_identities",
     "provider_match_mappings",
+    "fixture_ingestion_captures",
+    "fixture_observations",
     "market_odds_snapshots",
     "market_odds_quotes",
     "sporttery_bonus_snapshots",
@@ -148,20 +206,126 @@ SOURCE_CHILD_INSERT_LOOKUPS = {
     ),
 }
 
+FIXTURE_IDENTITY_ORIGIN_RULES = {
+    "matches": "ingestion.available_at_utc = NEW.available_at_utc",
+    "provider_team_aliases": (
+        "ingestion.provider_id = NEW.provider_id "
+        "AND ingestion.language = NEW.language "
+        "AND ingestion.team_type = NEW.team_type "
+        "AND ingestion.available_at_utc = NEW.available_at_utc"
+    ),
+    "provider_competition_mappings": (
+        "ingestion.provider_id = NEW.provider_id "
+        "AND ingestion.provider_competition_id = NEW.provider_competition_id "
+        "AND ingestion.season = NEW.season "
+        "AND ingestion.competition_type = NEW.competition_type "
+        "AND ingestion.language = NEW.language "
+        "AND ingestion.available_at_utc = NEW.available_at_utc"
+    ),
+    "canonical_match_identities": (
+        "ingestion.season = NEW.season "
+        "AND ingestion.competition_type = NEW.competition_type "
+        "AND ingestion.available_at_utc = NEW.available_at_utc"
+    ),
+    "provider_match_mappings": (
+        "ingestion.provider_id = NEW.provider_id "
+        "AND ingestion.available_at_utc = NEW.available_at_utc"
+    ),
+}
+
 IMMUTABLE_INSERT_KEYS = {
+    "backtest_v2_runs": (
+        ("backtest_run_id",),
+        ("run_hash",),
+    ),
+    "backtest_v2_run_archives": (
+        ("backtest_run_id", "archive_id"),
+        ("backtest_run_id", "archive_no"),
+    ),
+    "backtest_v2_slices": (
+        ("backtest_slice_id",),
+        ("backtest_run_id", "slice_no"),
+        ("slice_hash",),
+    ),
+    "backtest_v2_training_sources": (
+        ("backtest_slice_id", "training_sequence"),
+        ("backtest_slice_id", "match_result_id"),
+    ),
+    "backtest_v2_evaluation_refs": (
+        ("backtest_slice_id", "decision_no"),
+        ("backtest_slice_id", "internal_match_id"),
+    ),
+    "backtest_v2_result_sources": (
+        ("backtest_slice_id", "result_no"),
+        ("backtest_slice_id", "internal_match_id"),
+    ),
+    "backtest_v2_slice_ticket_settlements": (
+        ("backtest_slice_id", "settlement_no"),
+        ("backtest_slice_id", "settlement_id"),
+    ),
+    "backtest_v2_metric_snapshots": (
+        ("metric_snapshot_id",),
+        ("backtest_run_id",),
+        ("snapshot_hash",),
+    ),
     "historical_archive_imports": (
         ("archive_id",),
         ("provider_code", "dataset_kind", "payload_sha256"),
     ),
     "analysis_runs": (("analysis_run_id",),),
+    "quant_model_states": (
+        ("quant_model_state_id",),
+        ("analysis_run_id", "model_name", "model_version", "state_hash"),
+    ),
+    "quant_model_training_facts": (
+        ("quant_model_state_id", "fact_sequence"),
+        ("quant_model_state_id", "match_result_id"),
+    ),
+    "quant_model_evaluations": (
+        ("quant_model_evaluation_id",),
+        ("analysis_run_id", "internal_match_id", "market_key"),
+    ),
     "providers": (("provider_id",), ("code",)),
     "bookmakers": (("bookmaker_id",), ("code",)),
     "competitions": (("competition_id",), ("canonical_key",)),
     "teams": (("team_id",), ("canonical_key",)),
     "matches": (("internal_match_id",),),
+    "provider_team_aliases": (
+        ("alias_id",),
+        (
+            "provider_id",
+            "provider_team_id",
+            "provider_team_name",
+            "language",
+            "team_type",
+            "internal_team_id",
+        ),
+    ),
+    "provider_competition_mappings": (
+        ("mapping_id",),
+        (
+            "provider_id",
+            "provider_competition_id",
+            "provider_competition_name",
+            "language",
+            "season",
+            "competition_type",
+            "internal_competition_id",
+        ),
+    ),
+    "canonical_match_identities": (("internal_match_id",),),
     "provider_match_mappings": (
         ("mapping_id",),
         ("provider_id", "external_namespace", "external_match_id"),
+    ),
+    "fixture_ingestion_captures": (
+        ("ingestion_id",),
+        ("raw_artifact_id",),
+    ),
+    "fixture_observations": (
+        ("observation_id",),
+        ("ingestion_id", "internal_match_id"),
+        ("ingestion_id", "provider_mapping_id"),
     ),
     "market_odds_snapshots": (
         ("snapshot_id",),
@@ -284,6 +448,19 @@ HISTORICAL_APPEND_ONLY_TABLES = (
     "backtest_metric_snapshots",
     "backtest_metric_settlements",
     "backtest_metric_ticket_settlements",
+    "backtest_v2_run_archives",
+    "backtest_v2_slices",
+    "backtest_v2_training_sources",
+    "backtest_v2_evaluation_refs",
+    "backtest_v2_result_sources",
+    "backtest_v2_slice_ticket_settlements",
+    "backtest_v2_metric_snapshots",
+)
+
+MODEL_APPEND_ONLY_TABLES = (
+    "quant_model_states",
+    "quant_model_training_facts",
+    "quant_model_evaluations",
 )
 
 POST_RUN_PARENT_LOOKUPS = {
@@ -374,6 +551,82 @@ POST_RUN_INSERT_CONFLICTS = {
 }
 
 LINEAGE_GUARDS = {
+    "quant_model_states": (
+        "NOT EXISTS (SELECT 1 FROM analysis_runs r "
+        "WHERE r.analysis_run_id = NEW.analysis_run_id "
+        "AND r.status = 'RUNNING' "
+        "AND r.as_of_at_utc = NEW.cutoff_at_utc "
+        "AND NEW.generated_at_utc >= r.as_of_at_utc)"
+    ),
+    "quant_model_training_facts": (
+        "NOT EXISTS (SELECT 1 FROM quant_model_states s "
+        "JOIN match_results result "
+        "ON result.match_result_id = NEW.match_result_id "
+        "WHERE s.quant_model_state_id = NEW.quant_model_state_id "
+        "AND result.internal_match_id = NEW.internal_match_id "
+        "AND result.payload_hash = NEW.source_payload_hash "
+        "AND result.available_at_utc <= s.cutoff_at_utc "
+        "AND result.ingested_at_utc <= s.cutoff_at_utc) "
+        "OR EXISTS (SELECT 1 FROM quant_model_states s "
+        "JOIN match_results successor "
+        "ON successor.supersedes_match_result_id = NEW.match_result_id "
+        "WHERE s.quant_model_state_id = NEW.quant_model_state_id "
+        "AND successor.available_at_utc <= s.cutoff_at_utc "
+        "AND successor.ingested_at_utc <= s.cutoff_at_utc)"
+    ),
+    "quant_model_evaluations": (
+        "NOT EXISTS (SELECT 1 FROM quant_model_states s "
+        "WHERE s.quant_model_state_id = NEW.quant_model_state_id "
+        "AND s.analysis_run_id = NEW.analysis_run_id "
+        "AND NEW.evaluated_at_utc >= s.cutoff_at_utc) "
+        "OR EXISTS (SELECT 1 FROM quant_model_training_facts f "
+        "WHERE f.quant_model_state_id = NEW.quant_model_state_id "
+        "AND f.internal_match_id = NEW.internal_match_id) "
+        "OR json_valid(NEW.output_json) = 0 "
+        "OR json_type(NEW.output_json) <> 'object' "
+        "OR json_extract(NEW.output_json, '$.match_id') <> NEW.internal_match_id "
+        "OR json_extract(NEW.output_json, '$.status') <> NEW.status "
+        "OR json_extract(NEW.output_json, '$.prediction_hash') "
+        "<> NEW.model_prediction_hash"
+    ),
+    "analysis_run_matches": (
+        "NOT EXISTS (SELECT 1 FROM market_odds_snapshots odds "
+        "JOIN sporttery_bonus_snapshots bonus "
+        "ON bonus.snapshot_id = NEW.sporttery_bonus_snapshot_id "
+        "WHERE odds.snapshot_id = NEW.market_odds_snapshot_id "
+        "AND odds.internal_match_id = NEW.internal_match_id "
+        "AND bonus.internal_match_id = NEW.internal_match_id) "
+        "OR (NEW.manual_quant_input_id IS NOT NULL AND NOT EXISTS ("
+        "SELECT 1 FROM manual_quant_inputs input "
+        "WHERE input.input_id = NEW.manual_quant_input_id "
+        "AND input.internal_match_id = NEW.internal_match_id)) "
+        "OR (NEW.quant_model_evaluation_id IS NOT NULL AND NOT EXISTS ("
+        "SELECT 1 FROM quant_model_evaluations evaluation "
+        "WHERE evaluation.quant_model_evaluation_id = "
+        "NEW.quant_model_evaluation_id "
+        "AND evaluation.analysis_run_id = NEW.analysis_run_id "
+        "AND evaluation.internal_match_id = NEW.internal_match_id))"
+    ),
+    "quant_predictions": (
+        "(NEW.manual_input_id IS NOT NULL AND NOT EXISTS ("
+        "SELECT 1 FROM manual_quant_inputs input "
+        "WHERE input.input_id = NEW.manual_input_id "
+        "AND input.internal_match_id = NEW.internal_match_id "
+        "AND input.market_key = NEW.market_key "
+        "AND input.payload_hash = NEW.input_payload_hash)) "
+        "OR (NEW.quant_model_evaluation_id IS NOT NULL AND NOT EXISTS ("
+        "SELECT 1 FROM quant_model_evaluations evaluation "
+        "JOIN quant_model_states state "
+        "ON state.quant_model_state_id = evaluation.quant_model_state_id "
+        "WHERE evaluation.quant_model_evaluation_id = "
+        "NEW.quant_model_evaluation_id "
+        "AND evaluation.analysis_run_id = NEW.analysis_run_id "
+        "AND evaluation.internal_match_id = NEW.internal_match_id "
+        "AND evaluation.market_key = NEW.market_key "
+        "AND evaluation.status = 'AVAILABLE' "
+        "AND state.model_name = NEW.method "
+        "AND state.model_version = NEW.method_version))"
+    ),
     "portfolio_cash_positions": (
         "NOT EXISTS (SELECT 1 FROM portfolios p "
         "WHERE p.portfolio_id = NEW.portfolio_id "
@@ -451,6 +704,92 @@ def install_sqlite_immutability_triggers(connection: Connection) -> None:
         WHEN OLD.status = 'COMPLETED'
         BEGIN
             SELECT RAISE(ABORT, 'sealed AnalysisRun is immutable');
+        END
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_analysis_runs_completion_quant_model_graph
+        BEFORE UPDATE OF status ON analysis_runs
+        WHEN NEW.status = 'COMPLETED' AND OLD.status <> 'COMPLETED' AND (
+            EXISTS (
+                SELECT 1 FROM quant_model_states state
+                WHERE state.analysis_run_id = NEW.analysis_run_id AND (
+                    state.cutoff_at_utc <> NEW.as_of_at_utc
+                    OR json_valid(state.config_json) = 0
+                    OR json_type(state.config_json) <> 'object'
+                    OR json_valid(state.state_json) = 0
+                    OR json_type(state.state_json) <> 'object'
+                    OR json_extract(state.state_json, '$.state_hash')
+                       <> state.state_hash
+                    OR json_extract(state.state_json, '$.training_data_hash')
+                       <> state.training_data_hash
+                    OR json_extract(state.state_json, '$.config_hash')
+                       <> state.config_hash
+                    OR (SELECT COUNT(*) FROM quant_model_training_facts fact
+                        WHERE fact.quant_model_state_id =
+                              state.quant_model_state_id)
+                       <> state.training_fact_count
+                    OR (state.training_fact_count > 0 AND (
+                        (SELECT MIN(fact.fact_sequence)
+                         FROM quant_model_training_facts fact
+                         WHERE fact.quant_model_state_id =
+                               state.quant_model_state_id) <> 0
+                        OR (SELECT MAX(fact.fact_sequence)
+                            FROM quant_model_training_facts fact
+                            WHERE fact.quant_model_state_id =
+                                  state.quant_model_state_id)
+                           <> state.training_fact_count - 1
+                    ))
+                    OR EXISTS (
+                        SELECT 1
+                        FROM quant_model_training_facts fact
+                        JOIN match_results successor
+                          ON successor.supersedes_match_result_id =
+                             fact.match_result_id
+                        WHERE fact.quant_model_state_id =
+                              state.quant_model_state_id
+                        AND successor.available_at_utc <= state.cutoff_at_utc
+                        AND successor.ingested_at_utc <= state.cutoff_at_utc
+                    )
+                )
+            )
+            OR EXISTS (
+                SELECT 1 FROM quant_model_evaluations evaluation
+                WHERE evaluation.analysis_run_id = NEW.analysis_run_id AND (
+                    (SELECT COUNT(*) FROM analysis_run_matches context
+                     WHERE context.analysis_run_id = evaluation.analysis_run_id
+                     AND context.internal_match_id = evaluation.internal_match_id
+                     AND context.quant_model_evaluation_id =
+                         evaluation.quant_model_evaluation_id) <> 1
+                    OR (evaluation.status = 'AVAILABLE' AND
+                        (SELECT COUNT(*) FROM quant_predictions prediction
+                         WHERE prediction.quant_model_evaluation_id =
+                               evaluation.quant_model_evaluation_id) <> 1)
+                    OR (evaluation.status = 'UNAVAILABLE' AND
+                        EXISTS (SELECT 1 FROM quant_predictions prediction
+                                WHERE prediction.quant_model_evaluation_id =
+                                      evaluation.quant_model_evaluation_id))
+                )
+            )
+            OR (NEW.input_manifest_version = 'MVP_INPUT_MANIFEST_V3' AND (
+                NOT EXISTS (SELECT 1 FROM quant_model_states state
+                            WHERE state.analysis_run_id = NEW.analysis_run_id)
+                OR EXISTS (SELECT 1 FROM analysis_run_matches context
+                           WHERE context.analysis_run_id = NEW.analysis_run_id
+                           AND context.quant_model_evaluation_id IS NULL)
+                OR (SELECT COUNT(*) FROM quant_model_evaluations evaluation
+                    WHERE evaluation.analysis_run_id = NEW.analysis_run_id)
+                   <> (SELECT COUNT(*) FROM analysis_run_matches context
+                       WHERE context.analysis_run_id = NEW.analysis_run_id)
+            ))
+            OR (NEW.input_manifest_version <> 'MVP_INPUT_MANIFEST_V3' AND EXISTS (
+                SELECT 1 FROM quant_model_states state
+                WHERE state.analysis_run_id = NEW.analysis_run_id
+            ))
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'completed AnalysisRun requires a valid quant model graph');
         END
         """
     )
@@ -1002,6 +1341,18 @@ def install_sqlite_immutability_triggers(connection: Connection) -> None:
                 END
                 """
             )
+    for table_name in MODEL_APPEND_ONLY_TABLES:
+        for action in ("UPDATE", "DELETE"):
+            connection.exec_driver_sql(
+                f"""
+                CREATE TRIGGER IF NOT EXISTS
+                  trg_{table_name}_append_only_{action.lower()}
+                BEFORE {action} ON {table_name}
+                BEGIN
+                    SELECT RAISE(ABORT, 'quant model artifacts are append-only');
+                END
+                """
+            )
     for table_name, lookup in SOURCE_CHILD_INSERT_LOOKUPS.items():
         connection.exec_driver_sql(
             f"""
@@ -1013,7 +1364,621 @@ def install_sqlite_immutability_triggers(connection: Connection) -> None:
             END
             """
         )
+    _install_fixture_ingestion_lineage_trigger(connection)
     _install_historical_lineage_triggers(connection)
+    install_backtest_v2_v1_triggers(connection)
+
+
+def _install_fixture_ingestion_lineage_trigger(connection: Connection) -> None:
+    for table_name, rule in FIXTURE_IDENTITY_ORIGIN_RULES.items():
+        connection.exec_driver_sql(
+            f"""
+            CREATE TRIGGER IF NOT EXISTS
+              trg_{table_name}_fixture_ingestion_origin_insert
+            BEFORE INSERT ON {table_name}
+            WHEN NEW.fixture_ingestion_id IS NOT NULL AND NOT EXISTS (
+                SELECT 1 FROM fixture_ingestion_captures ingestion
+                WHERE ingestion.ingestion_id = NEW.fixture_ingestion_id
+                AND {rule}
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'fixture identity origin is inconsistent');
+            END
+            """
+        )
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_fixture_observations_lineage_insert
+        BEFORE INSERT ON fixture_observations
+        WHEN NOT EXISTS (
+            SELECT 1
+            FROM fixture_ingestion_captures ingestion
+            JOIN provider_match_mappings mapping
+              ON mapping.mapping_id = NEW.provider_mapping_id
+            WHERE ingestion.ingestion_id = NEW.ingestion_id
+            AND mapping.provider_id = ingestion.provider_id
+            AND mapping.internal_match_id = NEW.internal_match_id
+            AND mapping.available_at_utc <= NEW.available_at_utc
+            AND ingestion.available_at_utc = NEW.available_at_utc
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'fixture observation lineage is inconsistent');
+        END
+        """
+    )
+
+
+def install_backtest_v2_v1_triggers(connection: Connection) -> None:
+    """Install the frozen trigger set introduced with BACKTEST_V2 record V1."""
+    table_names = (
+        "backtest_v2_runs",
+        "backtest_v2_run_archives",
+        "backtest_v2_slices",
+        "backtest_v2_training_sources",
+        "backtest_v2_evaluation_refs",
+        "backtest_v2_result_sources",
+        "backtest_v2_slice_ticket_settlements",
+        "backtest_v2_metric_snapshots",
+    )
+    for table_name in table_names:
+        key_sets = IMMUTABLE_INSERT_KEYS[table_name]
+        conflict_condition = " OR ".join(
+            "("
+            + " AND ".join(f"existing.{column} = NEW.{column}" for column in key_set)
+            + ")"
+            for key_set in key_sets
+        )
+        connection.exec_driver_sql(
+            f"""
+            CREATE TRIGGER IF NOT EXISTS trg_{table_name}_immutable_insert_existing
+            BEFORE INSERT ON {table_name}
+            WHEN EXISTS (
+                SELECT 1 FROM {table_name} existing
+                WHERE {conflict_condition}
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'immutable record already exists');
+            END
+            """
+        )
+    for table_name in table_names[1:]:
+        lookup = RUN_LOOKUPS[table_name]
+        for action in ("INSERT", "UPDATE", "DELETE"):
+            rows = ("NEW",) if action == "INSERT" else ("OLD",)
+            if action == "UPDATE":
+                rows = ("OLD", "NEW")
+            condition = " OR ".join(
+                f"EXISTS ({lookup.format(row=row)})" for row in rows
+            )
+            connection.exec_driver_sql(
+                f"""
+                CREATE TRIGGER IF NOT EXISTS trg_{table_name}_sealed_{action.lower()}
+                BEFORE {action} ON {table_name}
+                WHEN {condition}
+                BEGIN
+                    SELECT RAISE(ABORT, 'sealed AnalysisRun artifacts are immutable');
+                END
+                """
+            )
+        for action in ("UPDATE", "DELETE"):
+            connection.exec_driver_sql(
+                f"""
+                CREATE TRIGGER IF NOT EXISTS
+                  trg_{table_name}_append_only_{action.lower()}
+                BEFORE {action} ON {table_name}
+                BEGIN
+                    SELECT RAISE(ABORT, 'historical artifacts are append-only');
+                END
+                """
+            )
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_backtest_v2_runs_insert_running
+        BEFORE INSERT ON backtest_v2_runs
+        WHEN NEW.status <> 'RUNNING'
+          OR json_valid(NEW.run_json) = 0
+          OR json_type(NEW.run_json) <> 'object'
+          OR json_extract(NEW.run_json, '$.backtest_run_id') <> NEW.backtest_run_id
+          OR json_extract(NEW.run_json, '$.backtest_version') <> 'BACKTEST_V2'
+          OR json_extract(NEW.run_json, '$.status') <> 'COMPLETED'
+          OR json_array_length(json_extract(NEW.run_json, '$.expected_slice_ids'))
+             <> NEW.expected_slice_count
+        BEGIN
+            SELECT RAISE(ABORT, 'BACKTEST_V2 run must begin with frozen RUNNING data');
+        END
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_backtest_v2_runs_update
+        BEFORE UPDATE ON backtest_v2_runs
+        WHEN OLD.status <> 'RUNNING'
+          OR NEW.status <> 'COMPLETED'
+          OR NEW.backtest_run_id <> OLD.backtest_run_id
+          OR NEW.schema_version <> OLD.schema_version
+          OR NEW.backtest_version <> OLD.backtest_version
+          OR NEW.data_mode <> OLD.data_mode
+          OR NEW.date_from <> OLD.date_from
+          OR NEW.date_to <> OLD.date_to
+          OR NEW.strategy_version <> OLD.strategy_version
+          OR NEW.strategy_config_json <> OLD.strategy_config_json
+          OR NEW.strategy_config_hash <> OLD.strategy_config_hash
+          OR NEW.code_revision <> OLD.code_revision
+          OR NEW.created_at_utc <> OLD.created_at_utc
+          OR NEW.expected_slice_count <> OLD.expected_slice_count
+          OR NEW.run_json <> OLD.run_json
+          OR NEW.run_hash <> OLD.run_hash
+        BEGIN
+            SELECT RAISE(ABORT, 'BACKTEST_V2 run is immutable');
+        END
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_backtest_v2_runs_delete
+        BEFORE DELETE ON backtest_v2_runs
+        BEGIN
+            SELECT RAISE(ABORT, 'BACKTEST_V2 run is append-only');
+        END
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_backtest_v2_run_archives_lineage_insert
+        BEFORE INSERT ON backtest_v2_run_archives
+        WHEN NOT EXISTS (
+            SELECT 1
+            FROM backtest_v2_runs run
+            JOIN historical_archive_imports archive
+              ON archive.archive_id = NEW.archive_id
+            WHERE run.backtest_run_id = NEW.backtest_run_id
+              AND run.status = 'RUNNING'
+              AND archive.data_mode = run.data_mode
+              AND archive.payload_sha256 = NEW.archive_payload_sha256
+              AND json_extract(
+                    run.run_json,
+                    '$.archive_provenance[' || (NEW.archive_no - 1) || '].archive_id'
+                  ) = NEW.archive_id
+              AND json_extract(
+                    run.run_json,
+                    '$.archive_provenance[' || (NEW.archive_no - 1) ||
+                    '].archive_schema_version'
+                  ) = archive.archive_schema_version
+              AND json_extract(
+                    run.run_json,
+                    '$.archive_provenance[' || (NEW.archive_no - 1) ||
+                    '].provider_code'
+                  ) = archive.provider_code
+              AND json_extract(
+                    run.run_json,
+                    '$.archive_provenance[' || (NEW.archive_no - 1) ||
+                    '].dataset_kind'
+                  ) = archive.dataset_kind
+              AND json_extract(
+                    run.run_json,
+                    '$.archive_provenance[' || (NEW.archive_no - 1) ||
+                    '].payload_sha256'
+                  ) = archive.payload_sha256
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'BACKTEST_V2 archive lineage is inconsistent');
+        END
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_backtest_v2_slices_lineage_insert
+        BEFORE INSERT ON backtest_v2_slices
+        WHEN NOT EXISTS (
+            SELECT 1
+            FROM backtest_v2_runs run
+            JOIN analysis_runs analysis
+              ON analysis.analysis_run_id = NEW.analysis_run_id
+            JOIN quant_model_states state
+              ON state.quant_model_state_id = NEW.quant_model_state_id
+             AND state.analysis_run_id = analysis.analysis_run_id
+            WHERE run.backtest_run_id = NEW.backtest_run_id
+              AND run.status = 'RUNNING'
+              AND run.data_mode = NEW.data_mode
+              AND analysis.status = 'COMPLETED'
+              AND analysis.input_manifest_version = 'MVP_INPUT_MANIFEST_V3'
+              AND analysis.as_of_at_utc = NEW.decision_as_of_at_utc
+              AND state.cutoff_at_utc = NEW.decision_as_of_at_utc
+              AND EXISTS (
+                  SELECT 1 FROM portfolios portfolio
+                  WHERE portfolio.portfolio_id = NEW.portfolio_id
+                    AND portfolio.analysis_run_id = NEW.analysis_run_id
+              )
+              AND json_extract(
+                    run.run_json,
+                    '$.expected_slice_ids[' || (NEW.slice_no - 1) || ']'
+                  ) = NEW.backtest_slice_id
+        )
+        OR json_valid(NEW.decision_snapshot_json) = 0
+        OR json_type(NEW.decision_snapshot_json) <> 'object'
+        OR json_extract(NEW.decision_snapshot_json, '$.snapshot_hash')
+           <> NEW.decision_snapshot_hash
+        OR json_extract(NEW.decision_snapshot_json, '$.slice_id')
+           <> NEW.backtest_slice_id
+        OR json_extract(NEW.decision_snapshot_json, '$.analysis_run_id')
+           <> NEW.analysis_run_id
+        OR json_extract(NEW.decision_snapshot_json, '$.quant_model_state_id')
+           <> NEW.quant_model_state_id
+        OR json_valid(NEW.slice_json) = 0
+        OR json_type(NEW.slice_json) <> 'object'
+        OR json_extract(NEW.slice_json, '$.slice_hash') <> NEW.slice_hash
+        OR json_extract(NEW.slice_json, '$.slice_id') <> NEW.backtest_slice_id
+        OR json_array_length(
+               json_extract(NEW.decision_snapshot_json, '$.expected_match_ids')
+           ) <> NEW.planned_target_count
+        OR json_array_length(
+               json_extract(NEW.decision_snapshot_json, '$.analyzed_match_ids')
+           ) <> NEW.decision_target_count
+        OR json_array_length(
+               json_extract(NEW.slice_json, '$.match_snapshots')
+           ) <> NEW.result_target_count
+        OR json_valid(NEW.settlement_result_json) = 0
+        OR json_type(NEW.settlement_result_json) <> 'object'
+        OR json_extract(NEW.settlement_result_json, '$.portfolio_id')
+           <> NEW.portfolio_id
+        OR (
+            json_extract(
+                NEW.settlement_result_json,
+                '$.portfolio_settlement.portfolio_settlement_id'
+            ) IS NOT NEW.portfolio_settlement_id
+        )
+        OR (
+            NEW.portfolio_settlement_id IS NOT NULL AND NOT EXISTS (
+                SELECT 1 FROM portfolio_settlements settlement
+                WHERE settlement.portfolio_settlement_id =
+                      NEW.portfolio_settlement_id
+                  AND settlement.parent_analysis_run_id = NEW.analysis_run_id
+                  AND settlement.portfolio_id = NEW.portfolio_id
+                  AND settlement.settled_at_utc = NEW.evaluation_as_of_at_utc
+            )
+        )
+        OR json_valid(NEW.slate_snapshot_json) = 0
+        OR json_type(NEW.slate_snapshot_json) <> 'object'
+        OR json_extract(NEW.slate_snapshot_json, '$.backtest_run_id')
+           <> NEW.backtest_run_id
+        OR json_extract(NEW.slate_snapshot_json, '$.slice_id')
+           <> NEW.backtest_slice_id
+        OR json_extract(NEW.slate_snapshot_json, '$.match_count')
+           <> NEW.planned_target_count
+        OR json_extract(NEW.slate_snapshot_json, '$.settled_match_count')
+           <> NEW.result_target_count
+        BEGIN
+            SELECT RAISE(ABORT, 'BACKTEST_V2 slice lineage is inconsistent');
+        END
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_backtest_v2_training_sources_lineage_insert
+        BEFORE INSERT ON backtest_v2_training_sources
+        WHEN NOT EXISTS (
+            SELECT 1
+            FROM backtest_v2_slices slice
+            JOIN quant_model_training_facts fact
+              ON fact.quant_model_state_id = slice.quant_model_state_id
+             AND fact.fact_sequence = NEW.training_sequence
+             AND fact.match_result_id = NEW.match_result_id
+             AND fact.source_payload_hash = NEW.source_payload_hash
+             AND fact.fact_hash = NEW.fact_hash
+            JOIN match_results result
+              ON result.match_result_id = fact.match_result_id
+            JOIN historical_archive_imports archive
+              ON archive.archive_id = NEW.archive_id
+             AND archive.payload_sha256 = NEW.archive_payload_sha256
+            JOIN backtest_v2_run_archives run_archive
+              ON run_archive.backtest_run_id = slice.backtest_run_id
+             AND run_archive.archive_id = archive.archive_id
+             AND run_archive.archive_payload_sha256 = archive.payload_sha256
+            WHERE slice.backtest_slice_id = NEW.backtest_slice_id
+              AND result.payload_hash = NEW.source_payload_hash
+              AND result.available_at_utc <= slice.decision_as_of_at_utc
+              AND result.ingested_at_utc <= slice.decision_as_of_at_utc
+              AND json_extract(
+                    slice.decision_snapshot_json,
+                    '$.training_sources[' || NEW.training_sequence ||
+                    '].match_result_id'
+                  ) = NEW.match_result_id
+              AND json_extract(
+                    slice.decision_snapshot_json,
+                    '$.training_sources[' || NEW.training_sequence ||
+                    '].source_payload_hash'
+                  ) = NEW.source_payload_hash
+              AND json_extract(
+                    slice.decision_snapshot_json,
+                    '$.training_sources[' || NEW.training_sequence || '].fact_hash'
+                  ) = NEW.fact_hash
+              AND json_extract(
+                    slice.decision_snapshot_json,
+                    '$.training_sources[' || NEW.training_sequence || '].archive_id'
+                  ) = NEW.archive_id
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'BACKTEST_V2 training source lineage is inconsistent');
+        END
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_backtest_v2_evaluation_refs_lineage_insert
+        BEFORE INSERT ON backtest_v2_evaluation_refs
+        WHEN NOT EXISTS (
+            SELECT 1
+            FROM backtest_v2_slices slice
+            JOIN quant_model_evaluations evaluation
+              ON evaluation.quant_model_evaluation_id =
+                 NEW.quant_model_evaluation_id
+             AND evaluation.analysis_run_id = slice.analysis_run_id
+             AND evaluation.quant_model_state_id = slice.quant_model_state_id
+             AND evaluation.internal_match_id = NEW.internal_match_id
+             AND evaluation.status = NEW.status
+              AND evaluation.output_hash = NEW.output_hash
+              AND evaluation.model_prediction_hash = NEW.model_prediction_hash
+             JOIN market_probabilities market
+               ON market.market_probability_id = NEW.market_prediction_id
+              AND market.analysis_run_id = slice.analysis_run_id
+              AND market.internal_match_id = NEW.internal_match_id
+            WHERE slice.backtest_slice_id = NEW.backtest_slice_id
+              AND json_extract(
+                    slice.decision_snapshot_json,
+                    '$.evaluations[' || (NEW.decision_no - 1) || '].match_id'
+                  ) = NEW.internal_match_id
+              AND json_extract(
+                    slice.decision_snapshot_json,
+                    '$.evaluations[' || (NEW.decision_no - 1) ||
+                    '].quant_model_evaluation_id'
+                  ) = NEW.quant_model_evaluation_id
+              AND json_extract(
+                    slice.decision_snapshot_json,
+                    '$.evaluations[' || (NEW.decision_no - 1) || '].status'
+                  ) = NEW.status
+              AND json_extract(
+                    slice.decision_snapshot_json,
+                    '$.evaluations[' || (NEW.decision_no - 1) || '].output_hash'
+                  ) = NEW.output_hash
+              AND json_extract(
+                    slice.decision_snapshot_json,
+                    '$.evaluations[' || (NEW.decision_no - 1) ||
+                    '].model_prediction_hash'
+                  ) = NEW.model_prediction_hash
+              AND json_extract(
+                    slice.decision_snapshot_json,
+                    '$.evaluations[' || (NEW.decision_no - 1) ||
+                    '].market_prediction_id'
+                  ) = NEW.market_prediction_id
+              AND json_extract(
+                    slice.decision_snapshot_json,
+                    '$.evaluations[' || (NEW.decision_no - 1) ||
+                    '].quant_prediction_id'
+                  ) IS NEW.quant_prediction_id
+              AND json_extract(
+                    slice.decision_snapshot_json,
+                    '$.evaluations[' || (NEW.decision_no - 1) ||
+                    '].final_prediction_id'
+                  ) IS NEW.final_prediction_id
+        )
+        OR (NEW.status = 'AVAILABLE' AND NOT EXISTS (
+            SELECT 1
+            FROM quant_predictions quant
+            JOIN final_predictions final
+              ON final.final_prediction_id = NEW.final_prediction_id
+             AND final.analysis_run_id = quant.analysis_run_id
+             AND final.internal_match_id = quant.internal_match_id
+             AND final.quant_prediction_id = quant.quant_prediction_id
+            WHERE quant.quant_prediction_id = NEW.quant_prediction_id
+              AND quant.quant_model_evaluation_id =
+                  NEW.quant_model_evaluation_id
+              AND quant.internal_match_id = NEW.internal_match_id
+        ))
+        BEGIN
+            SELECT RAISE(ABORT, 'BACKTEST_V2 evaluation lineage is inconsistent');
+        END
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_backtest_v2_result_sources_lineage_insert
+        BEFORE INSERT ON backtest_v2_result_sources
+        WHEN NOT EXISTS (
+            SELECT 1
+            FROM backtest_v2_slices slice
+            JOIN match_results result
+              ON result.match_result_id = NEW.match_result_id
+             AND result.internal_match_id = NEW.internal_match_id
+             AND result.payload_hash = NEW.source_payload_hash
+            JOIN historical_archive_imports archive
+              ON archive.archive_id = NEW.archive_id
+             AND archive.payload_sha256 = NEW.archive_payload_sha256
+            JOIN backtest_v2_run_archives run_archive
+              ON run_archive.backtest_run_id = slice.backtest_run_id
+             AND run_archive.archive_id = archive.archive_id
+             AND run_archive.archive_payload_sha256 = archive.payload_sha256
+            WHERE slice.backtest_slice_id = NEW.backtest_slice_id
+              AND result.available_at_utc <= slice.evaluation_as_of_at_utc
+              AND result.ingested_at_utc <= slice.evaluation_as_of_at_utc
+              AND json_extract(
+                    slice.slice_json,
+                    '$.match_snapshots[' || (NEW.result_no - 1) || '].match_id'
+                  ) = NEW.internal_match_id
+              AND json_extract(
+                    slice.slice_json,
+                    '$.match_snapshots[' || (NEW.result_no - 1) ||
+                    '].match_result_id'
+                  ) = NEW.match_result_id
+              AND json_extract(
+                    slice.slice_json,
+                    '$.match_snapshots[' || (NEW.result_no - 1) ||
+                    '].match_result_payload_hash'
+                  ) = NEW.source_payload_hash
+              AND json_extract(
+                    slice.slice_json,
+                    '$.match_snapshots[' || (NEW.result_no - 1) ||
+                    '].match_result_archive_id'
+                  ) = NEW.archive_id
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'BACKTEST_V2 result source lineage is inconsistent');
+        END
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS
+          trg_backtest_v2_slice_ticket_settlements_lineage_insert
+        BEFORE INSERT ON backtest_v2_slice_ticket_settlements
+        WHEN NOT EXISTS (
+            SELECT 1
+            FROM backtest_v2_slices slice
+            JOIN ticket_settlements settlement
+              ON settlement.settlement_id = NEW.settlement_id
+             AND settlement.parent_analysis_run_id = slice.analysis_run_id
+             AND settlement.portfolio_id = slice.portfolio_id
+             AND settlement.settled_at_utc = slice.evaluation_as_of_at_utc
+            JOIN json_each(
+                slice.settlement_result_json,
+                '$.ticket_results'
+            ) ticket_result
+              ON json_extract(
+                    ticket_result.value,
+                    '$.settlement.settlement_id'
+                 ) = NEW.settlement_id
+            WHERE slice.backtest_slice_id = NEW.backtest_slice_id
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'BACKTEST_V2 ticket settlement lineage is inconsistent');
+        END
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_backtest_v2_metrics_lineage_insert
+        BEFORE INSERT ON backtest_v2_metric_snapshots
+        WHEN NOT EXISTS (
+            SELECT 1 FROM backtest_v2_runs run
+            WHERE run.backtest_run_id = NEW.backtest_run_id
+              AND run.status = 'RUNNING'
+        )
+        OR json_valid(NEW.metrics_json) = 0
+        OR json_type(NEW.metrics_json) <> 'object'
+        OR json_extract(NEW.metrics_json, '$.backtest_run_id')
+           <> NEW.backtest_run_id
+        OR json_extract(NEW.metrics_json, '$.metrics_version')
+           <> NEW.metric_version
+        OR json_valid(NEW.lineage_json) = 0
+        OR json_type(NEW.lineage_json) <> 'object'
+        OR json_array_length(
+               json_extract(NEW.lineage_json, '$.backtest_slice_ids')
+           ) <> (
+               SELECT COUNT(*) FROM backtest_v2_slices slice
+               WHERE slice.backtest_run_id = NEW.backtest_run_id
+           )
+        OR EXISTS (
+            SELECT 1 FROM backtest_v2_slices slice
+            WHERE slice.backtest_run_id = NEW.backtest_run_id
+              AND NOT EXISTS (
+                  SELECT 1 FROM json_each(
+                      NEW.lineage_json,
+                      '$.backtest_slice_ids'
+                  ) lineage
+                  WHERE lineage.value = slice.backtest_slice_id
+              )
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'BACKTEST_V2 metric lineage is inconsistent');
+        END
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_backtest_v2_runs_completion
+        BEFORE UPDATE OF status ON backtest_v2_runs
+        WHEN NEW.status = 'COMPLETED' AND (
+            (SELECT COUNT(*) FROM backtest_v2_slices slice
+             WHERE slice.backtest_run_id = NEW.backtest_run_id)
+            <> NEW.expected_slice_count
+            OR (SELECT COUNT(*) FROM backtest_v2_run_archives archive
+                WHERE archive.backtest_run_id = NEW.backtest_run_id)
+               <> json_array_length(
+                      json_extract(NEW.run_json, '$.archive_provenance')
+                  )
+            OR EXISTS (
+                SELECT 1
+                FROM json_each(NEW.run_json, '$.expected_slice_ids') expected
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM backtest_v2_slices slice
+                    WHERE slice.backtest_run_id = NEW.backtest_run_id
+                      AND slice.backtest_slice_id = expected.value
+                )
+            )
+            OR (SELECT COUNT(*) FROM backtest_v2_metric_snapshots metric
+                WHERE metric.backtest_run_id = NEW.backtest_run_id) <> 1
+            OR EXISTS (
+                SELECT 1
+                FROM backtest_v2_slices slice
+                WHERE slice.backtest_run_id = NEW.backtest_run_id AND (
+                    (SELECT COUNT(*) FROM backtest_v2_training_sources source
+                     WHERE source.backtest_slice_id = slice.backtest_slice_id)
+                    <> (SELECT COUNT(*) FROM quant_model_training_facts fact
+                        WHERE fact.quant_model_state_id =
+                              slice.quant_model_state_id)
+                    OR (SELECT COUNT(*) FROM backtest_v2_evaluation_refs ref
+                        WHERE ref.backtest_slice_id = slice.backtest_slice_id)
+                       <> slice.decision_target_count
+                    OR (SELECT COUNT(*) FROM backtest_v2_evaluation_refs ref
+                        WHERE ref.backtest_slice_id = slice.backtest_slice_id
+                          AND ref.status = 'AVAILABLE')
+                       <> slice.quant_available_count
+                    OR (SELECT COUNT(*) FROM backtest_v2_evaluation_refs ref
+                        WHERE ref.backtest_slice_id = slice.backtest_slice_id
+                          AND ref.status = 'UNAVAILABLE')
+                       <> slice.quant_unavailable_count
+                    OR (SELECT COUNT(*) FROM backtest_v2_result_sources source
+                        WHERE source.backtest_slice_id = slice.backtest_slice_id)
+                       <> slice.result_target_count
+                    OR (SELECT COUNT(*)
+                        FROM backtest_v2_slice_ticket_settlements source
+                        WHERE source.backtest_slice_id = slice.backtest_slice_id)
+                       <> (SELECT COUNT(*)
+                           FROM json_each(
+                               slice.settlement_result_json,
+                               '$.ticket_results'
+                           ) ticket_result
+                           WHERE json_type(
+                               ticket_result.value,
+                               '$.settlement'
+                           ) = 'object')
+                    OR (SELECT COUNT(*)
+                        FROM backtest_v2_slice_ticket_settlements source
+                        WHERE source.backtest_slice_id = slice.backtest_slice_id)
+                       <> json_extract(
+                              slice.slate_snapshot_json,
+                              '$.settled_ticket_count'
+                          )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM backtest_v2_training_sources source
+                        JOIN quant_model_training_facts fact
+                          ON fact.quant_model_state_id = slice.quant_model_state_id
+                         AND fact.fact_sequence = source.training_sequence
+                        JOIN json_each(
+                            slice.decision_snapshot_json,
+                            '$.expected_match_ids'
+                        ) target
+                          ON target.value = fact.internal_match_id
+                        WHERE source.backtest_slice_id = slice.backtest_slice_id
+                    )
+                )
+            )
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'BACKTEST_V2 completion graph is incomplete');
+        END
+        """
+    )
 
 
 def _install_historical_lineage_triggers(connection: Connection) -> None:

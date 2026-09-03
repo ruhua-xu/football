@@ -60,6 +60,10 @@ class _FailOnceFixtureProvider:
         self._fail_on_call = fail_on_call
         self.calls = 0
 
+    @property
+    def runtime_provenance(self):
+        return self._provider.runtime_provenance
+
     async def fetch_fixtures(self, query):
         self.calls += 1
         if self.calls == self._fail_on_call:
@@ -71,6 +75,10 @@ class _IssueResultProvider:
     def __init__(self, provider) -> None:
         self._provider = provider
         self.issue: MatchSettlementIssue | None = None
+
+    @property
+    def runtime_provenance(self):
+        return self._provider.runtime_provenance
 
     async def fetch_match_results(self, query):
         batch = await self._provider.fetch_match_results(query)

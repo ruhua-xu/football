@@ -1795,7 +1795,7 @@ def test_historical_migration_upgrades_c8_head_and_downgrades(tmp_path) -> None:
     } <= {item["name"] for item in inspect(engine).get_indexes("portfolio_settlements")}
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "f3a1c6d8e204"
+            "c4e8a1d7f205"
         )
         triggers = set(
             connection.execute(

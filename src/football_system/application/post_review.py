@@ -21,7 +21,11 @@ from football_system.domain.post_review import (
     ThreeWayProbabilityDelta,
 )
 from football_system.domain.prediction import FinalPrediction, FusionPolicyName
-from football_system.domain.review import AnalysisPacketV2, ValidLLMMatchReview
+from football_system.domain.review import (
+    AnalysisPacketV2,
+    AnalysisPacketV3,
+    ValidLLMMatchReview,
+)
 from football_system.domain.services.betting import (
     build_selection_candidates,
     build_two_leg_ticket_candidates,
@@ -284,7 +288,7 @@ def _validated_review_inputs(
     except ValueError:
         return {}, {}, True
     reviews = {item.match_id: item for item in submission.match_reviews}
-    if isinstance(packet, AnalysisPacketV2):
+    if isinstance(packet, (AnalysisPacketV2, AnalysisPacketV3)):
         quality = {
             item.match_id: item.review_context.data_quality.score
             for item in packet.matches

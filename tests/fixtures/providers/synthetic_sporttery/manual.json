@@ -1,12 +1,13 @@
 {
-  "schema_version": "SPORTTERY_MANUAL_ARCHIVE_V1",
+  "schema_version": "SPORTTERY_MANUAL_ARCHIVE_V2",
   "snapshot_id": "synthetic-sporttery-snapshot-001",
   "captured_at_utc": "2026-09-01T09:00:00Z",
   "source_reference": "synthetic://sporttery-contract-fixture",
   "source_artifact_path": "sporttery_source.raw",
   "source_artifact_sha256": "ba38c53cd7d0b245c801d0246952714083b30fbdfde5191bd125449dd0476803",
   "entered_by": "synthetic-enterer",
-  "reviewed_by": "synthetic-reviewer",
+  "review_level": "SELF_REVIEWED",
+  "reviewed_by": "synthetic-enterer",
   "reviewed_at_utc": "2026-09-01T09:05:00Z",
   "records": [
     {

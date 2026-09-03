@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from enum import StrEnum
+from inspect import getattr_static
 from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -51,6 +52,14 @@ class RuntimeDataModeError(RuntimeEnvironmentIsolationError):
     code = "RUNTIME_DATA_MODE_MISMATCH"
 
 
+class ProviderRuntimeProvenanceRequiredError(RuntimeEnvironmentIsolationError):
+    code = "PROVIDER_RUNTIME_PROVENANCE_REQUIRED"
+
+
+class ProviderRuntimeProvenanceMismatchError(RuntimeEnvironmentIsolationError):
+    code = "PROVIDER_RUNTIME_PROVENANCE_MISMATCH"
+
+
 class RuntimeEnvironmentGuard:
     def __init__(self, environment: RuntimeEnvironment | str) -> None:
         self.environment = RuntimeEnvironment(environment)
@@ -73,7 +82,6 @@ class RuntimeEnvironmentGuard:
             )
         if (
             self.environment is RuntimeEnvironment.LIVE
-            and provenance.data_mode is not None
             and provenance.data_mode is not HistoricalDataMode.LIVE_STRICT
         ):
             raise RuntimeDataModeError(
@@ -81,7 +89,6 @@ class RuntimeEnvironmentGuard:
             )
         if (
             self.environment is RuntimeEnvironment.RESEARCH
-            and provenance.data_mode is not None
             and provenance.data_mode is not HistoricalDataMode.SOURCE_TIME_RESEARCH
         ):
             raise RuntimeDataModeError(
@@ -93,7 +100,68 @@ def is_mock_provider_code(provider_code: str | None) -> bool:
     if provider_code is None:
         return False
     normalized = provider_code.strip().upper()
-    return normalized == "MOCK" or normalized.startswith(("MOCK_", "MOCK-", "MOCK."))
+    return any(
+        normalized == token
+        or normalized.startswith(
+            tuple(f"{token}{separator}" for separator in ("_", "-", "/", " "))
+        )
+        for token in ("MOCK", "SYNTHETIC")
+    )
+
+
+def provider_data_mode(provider: object) -> HistoricalDataMode:
+    try:
+        getattr_static(provider, "runtime_provenance")
+    except AttributeError:
+        return HistoricalDataMode.LIVE_STRICT
+    provenance = getattr(provider, "runtime_provenance")
+    if not isinstance(provenance, RuntimeProvenance):
+        raise ProviderRuntimeProvenanceRequiredError(
+            "provider must expose RuntimeProvenance"
+        )
+    if provenance.data_mode is not None:
+        return provenance.data_mode
+    return HistoricalDataMode.LIVE_STRICT
+
+
+def require_provider_runtime_provenance(
+    provider: object,
+    role: str,
+) -> RuntimeProvenance:
+    try:
+        provenance = getattr(provider, "runtime_provenance")
+    except Exception:
+        raise ProviderRuntimeProvenanceRequiredError(
+            f"{role} provider did not expose readable runtime provenance"
+        ) from None
+    if not isinstance(provenance, RuntimeProvenance):
+        raise ProviderRuntimeProvenanceRequiredError(
+            f"{role} provider must expose RuntimeProvenance"
+        )
+    if provenance.provider_code is None:
+        raise ProviderRuntimeProvenanceRequiredError(
+            f"{role} provider provenance requires provider_code"
+        )
+    return provenance
+
+
+def validate_analysis_provider_runtime(
+    environment: RuntimeEnvironment | str,
+    providers: Mapping[str, object],
+) -> dict[str, RuntimeProvenance]:
+    runtime = RuntimeEnvironment(environment)
+    if runtime is RuntimeEnvironment.MOCK:
+        return {}
+    if not providers:
+        raise ProviderRuntimeProvenanceRequiredError(
+            f"{runtime.value} analysis requires explicit provider provenance"
+        )
+    provenance_by_role = {
+        role: require_provider_runtime_provenance(provider, role)
+        for role, provider in providers.items()
+    }
+    RuntimeEnvironmentGuard(runtime).validate(provenance_by_role.values())
+    return provenance_by_role
 
 
 def validate_runtime_environment(

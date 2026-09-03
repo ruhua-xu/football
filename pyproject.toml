@@ -30,6 +30,7 @@ where = ["src"]
 "football_system_resources/config" = [
     "config/mvp.toml",
     "config/backtest.toml",
+    "config/live.toml",
 ]
 "football_system_resources/data/fixtures" = ["data/fixtures/mvp_matches.json"]
 "football_system_resources/data/fixtures/historical_acceptance" = [
@@ -55,6 +56,7 @@ where = ["src"]
     "fankui/historical_data_backtest.md",
     "fankui/llm_review_v1_contract.md",
     "fankui/llm_review_v2_contract.md",
+    "fankui/llm_review_v3_contract.md",
     "fankui/llm_strategy.md",
 ]
 "football_system_resources/fankui/decisions" = [
@@ -75,6 +77,10 @@ where = ["src"]
     "migrations/versions/9d4e6f1a2c70_harden_artifact_integrity.py",
     "migrations/versions/c8b7e2a4f190_add_post_review_persistence.py",
     "migrations/versions/f3a1c6d8e204_add_historical_backtest_persistence.py",
+    "migrations/versions/d2e7a4c9b615_add_identity_persistence_schema.py",
+    "migrations/versions/a6c1f9e3b742_add_fixture_ingestion_capture.py",
+    "migrations/versions/b7d4e9f2c631_add_quant_model_lineage.py",
+    "migrations/versions/c4e8a1d7f205_add_backtest_v2_lineage.py",
 ]
 
 [tool.pytest.ini_options]

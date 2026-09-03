@@ -8,7 +8,11 @@ from urllib.error import HTTPError, URLError
 import pytest
 
 from football_system.infrastructure.http.provider_client import HttpRequest
-from football_system.infrastructure.http.urllib_transport import UrllibTransport
+from football_system.infrastructure.http.urllib_transport import (
+    MAX_RESPONSE_BYTES,
+    UrllibTransport,
+    _RejectRedirectHandler,
+)
 
 
 class FakeHeaders:
@@ -20,8 +24,8 @@ class FakeResponse:
     status = 200
     headers = FakeHeaders()
 
-    def read(self) -> bytes:
-        return b"synthetic"
+    def read(self, amount: int = -1) -> bytes:
+        return b"synthetic"[:amount]
 
     def __enter__(self) -> FakeResponse:
         return self
@@ -57,7 +61,7 @@ def test_transport_uses_an_isolated_opener_without_global_mutation(
     before = urllib.request._opener
     monkeypatch.setattr(
         "football_system.infrastructure.http.urllib_transport.build_opener",
-        lambda: opener,
+        lambda *handlers: opener,
     )
 
     response = UrllibTransport().send(_request(), timeout_seconds=2.5)
@@ -81,7 +85,7 @@ def test_transport_returns_http_errors_and_hides_network_details(
     )
     monkeypatch.setattr(
         "football_system.infrastructure.http.urllib_transport.build_opener",
-        lambda: FakeOpener(error),
+        lambda *handlers: FakeOpener(error),
     )
 
     response = UrllibTransport().send(_request(), timeout_seconds=2.5)
@@ -91,8 +95,58 @@ def test_transport_returns_http_errors_and_hides_network_details(
 
     monkeypatch.setattr(
         "football_system.infrastructure.http.urllib_transport.build_opener",
-        lambda: FakeOpener(URLError(socket.timeout("synthetic-secret-token"))),
+        lambda *handlers: FakeOpener(
+            URLError(socket.timeout("synthetic-secret-token"))
+        ),
     )
     with pytest.raises(TimeoutError) as timeout:
         UrllibTransport().send(_request(), timeout_seconds=2.5)
     assert "synthetic-secret-token" not in str(timeout.value)
+
+
+def test_transport_rejects_redirects_before_credentials_can_be_forwarded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    handlers: list[object] = []
+
+    def opener_factory(*values: object) -> FakeOpener:
+        handlers.extend(values)
+        return FakeOpener(FakeResponse())
+
+    monkeypatch.setattr(
+        "football_system.infrastructure.http.urllib_transport.build_opener",
+        opener_factory,
+    )
+
+    UrllibTransport().send(_request(), timeout_seconds=2.5)
+
+    assert len(handlers) == 1
+    redirect_handler = handlers[0]
+    assert isinstance(redirect_handler, _RejectRedirectHandler)
+    assert (
+        redirect_handler.redirect_request(
+            object(),
+            object(),
+            302,
+            "redirect",
+            object(),
+            "https://attacker.invalid/",
+        )
+        is None
+    )
+
+
+def test_transport_rejects_oversized_responses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class OversizedResponse(FakeResponse):
+        def read(self, amount: int = -1) -> bytes:
+            return b"x" * min(amount, MAX_RESPONSE_BYTES + 1)
+
+    monkeypatch.setattr(
+        "football_system.infrastructure.http.urllib_transport.build_opener",
+        lambda *handlers: FakeOpener(OversizedResponse()),
+    )
+
+    with pytest.raises(OSError, match="size limit"):
+        UrllibTransport().send(_request(), timeout_seconds=2.5)

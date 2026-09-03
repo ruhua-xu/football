@@ -8,9 +8,17 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from football_system.application.models import AnalysisArtifacts, StoredInputManifest
-from football_system.domain.analysis import AnalysisRunStatus
+from football_system.domain.analysis import AnalysisMatchContext, AnalysisRunStatus
 from football_system.domain.betting import SportteryRules
 from football_system.domain.common import stable_id
+from football_system.domain.market import MarketKey, MarketType, ThreeWayProbability
+from football_system.domain.prediction import (
+    ModelQuantPrediction,
+    QuantModelEvaluation,
+    QuantModelEvaluationStatus,
+    QuantModelStateArtifact,
+    QuantModelTrainingFactRef,
+)
 from football_system.domain.services.payout import calculate_stake_fen
 from football_system.domain.services.risk import analyze_portfolio_risk
 from football_system.infrastructure.database.models import (
@@ -40,6 +48,10 @@ from football_system.infrastructure.database.models import (
     ProviderRecord,
     QuantPredictionOutcomeRecord,
     QuantPredictionRecord,
+    QuantModelEvaluationRecord,
+    QuantModelStateRecord,
+    QuantModelTrainingFactRecord,
+    MatchResultRecord,
     SportteryBonusQuoteRecord,
     SportteryBonusSnapshotRecord,
     TeamRecord,
@@ -77,6 +89,7 @@ class SqlAlchemyAnalysisRepository:
                 return
 
             self._persist_sources(session, artifacts)
+            self._assert_model_training_sources(session, artifacts)
             run_record = AnalysisRunRecord(
                 analysis_run_id=run.analysis_run_id,
                 run_kind=run.run_kind,
@@ -96,13 +109,23 @@ class SqlAlchemyAnalysisRepository:
             session.add(run_record)
             session.flush()
 
+            self._persist_quant_model_artifacts(session, artifacts)
             session.add_all(
                 AnalysisRunMatchRecord(
                     analysis_run_id=context.analysis_run_id,
                     internal_match_id=context.match_id,
                     market_odds_snapshot_id=context.market_odds_snapshot_id,
                     sporttery_bonus_snapshot_id=context.sporttery_bonus_snapshot_id,
-                    manual_quant_input_id=context.manual_quant_input_id,
+                    manual_quant_input_id=(
+                        context.manual_quant_input_id
+                        if isinstance(context, AnalysisMatchContext)
+                        else None
+                    ),
+                    quant_model_evaluation_id=(
+                        context.quant_model_evaluation_id
+                        if not isinstance(context, AnalysisMatchContext)
+                        else None
+                    ),
                     context_json=context.context_json,
                     context_hash=context.context_hash,
                 )
@@ -199,6 +222,7 @@ class SqlAlchemyAnalysisRepository:
         session: Session,
         artifacts: AnalysisArtifacts,
     ) -> None:
+        self._assert_model_training_sources(session, artifacts)
         for item in artifacts.manual_quant_inputs:
             record = session.get(ManualQuantInputRecord, item.input_id)
             if record is not None:
@@ -498,12 +522,127 @@ class SqlAlchemyAnalysisRepository:
             "Sporttery bonus quotes",
         )
 
+    @staticmethod
+    def _assert_model_training_sources(
+        session: Session,
+        artifacts: AnalysisArtifacts,
+    ) -> None:
+        for state in artifacts.quant_model_states:
+            for fact in state.training_facts:
+                result = session.get(MatchResultRecord, fact.match_result_id)
+                if (
+                    result is None
+                    or result.internal_match_id != fact.match_id
+                    or result.payload_hash != fact.source_payload_hash
+                    or result.available_at_utc > state.cutoff_at_utc
+                    or result.ingested_at_utc > state.cutoff_at_utc
+                ):
+                    raise ValueError(
+                        "quant model training fact has unavailable source result: "
+                        f"{fact.match_result_id}"
+                    )
+                visible_successor = session.scalar(
+                    select(MatchResultRecord.match_result_id).where(
+                        MatchResultRecord.supersedes_match_result_id
+                        == fact.match_result_id,
+                        MatchResultRecord.available_at_utc <= state.cutoff_at_utc,
+                        MatchResultRecord.ingested_at_utc <= state.cutoff_at_utc,
+                    )
+                )
+                if visible_successor is not None:
+                    raise ValueError(
+                        "quant model training fact is not the current result version: "
+                        f"{fact.match_result_id}"
+                    )
+
     def _assert_run_graph_matches(
         self,
         session: Session,
         artifacts: AnalysisArtifacts,
     ) -> None:
         run_id = artifacts.analysis_run.analysis_run_id
+        state_ids = tuple(
+            state.quant_model_state_id for state in artifacts.quant_model_states
+        )
+        _assert_exact_records(
+            session.scalars(
+                select(QuantModelStateRecord).where(
+                    QuantModelStateRecord.analysis_run_id == run_id
+                )
+            ),
+            (
+                {
+                    "quant_model_state_id": state.quant_model_state_id,
+                    "analysis_run_id": state.analysis_run_id,
+                    "model_name": state.model_name,
+                    "model_version": state.model_version,
+                    "calibration_label": state.calibration_label,
+                    "config_json": state.config_json,
+                    "config_hash": state.config_hash,
+                    "cutoff_at_utc": state.cutoff_at_utc,
+                    "season_id": state.season_id,
+                    "state_json": state.state_json,
+                    "state_hash": state.state_hash,
+                    "state_payload_hash": state.state_payload_hash,
+                    "training_data_hash": state.training_data_hash,
+                    "training_fact_count": len(state.training_facts),
+                    "generated_at_utc": state.generated_at_utc,
+                }
+                for state in artifacts.quant_model_states
+            ),
+            ("quant_model_state_id",),
+            "quant model states",
+        )
+        _assert_exact_records(
+            session.scalars(
+                select(QuantModelTrainingFactRecord).where(
+                    QuantModelTrainingFactRecord.quant_model_state_id.in_(state_ids)
+                )
+            ),
+            (
+                {
+                    "quant_model_state_id": state.quant_model_state_id,
+                    "fact_sequence": fact.sequence,
+                    "match_result_id": fact.match_result_id,
+                    "internal_match_id": fact.match_id,
+                    "source_payload_hash": fact.source_payload_hash,
+                    "fact_hash": fact.fact_hash,
+                }
+                for state in artifacts.quant_model_states
+                for fact in state.training_facts
+            ),
+            ("quant_model_state_id", "fact_sequence"),
+            "quant model training facts",
+        )
+        _assert_exact_records(
+            session.scalars(
+                select(QuantModelEvaluationRecord).where(
+                    QuantModelEvaluationRecord.analysis_run_id == run_id
+                )
+            ),
+            (
+                {
+                    "quant_model_evaluation_id": (
+                        evaluation.quant_model_evaluation_id
+                    ),
+                    "analysis_run_id": evaluation.analysis_run_id,
+                    "quant_model_state_id": evaluation.quant_model_state_id,
+                    "internal_match_id": evaluation.match_id,
+                    "market_key": evaluation.market.canonical,
+                    "market_type": evaluation.market.market_type.value,
+                    "handicap_value": evaluation.market.handicap_value,
+                    "status": evaluation.status.value,
+                    "unavailable_reason": evaluation.unavailable_reason,
+                    "output_json": evaluation.output_json,
+                    "output_hash": evaluation.output_hash,
+                    "model_prediction_hash": evaluation.model_prediction_hash,
+                    "evaluated_at_utc": evaluation.evaluated_at_utc,
+                }
+                for evaluation in artifacts.quant_model_evaluations
+            ),
+            ("quant_model_evaluation_id",),
+            "quant model evaluations",
+        )
         _assert_exact_records(
             session.scalars(
                 select(AnalysisRunMatchRecord).where(
@@ -518,7 +657,16 @@ class SqlAlchemyAnalysisRepository:
                     "sporttery_bonus_snapshot_id": (
                         context.sporttery_bonus_snapshot_id
                     ),
-                    "manual_quant_input_id": context.manual_quant_input_id,
+                    "manual_quant_input_id": (
+                        context.manual_quant_input_id
+                        if isinstance(context, AnalysisMatchContext)
+                        else None
+                    ),
+                    "quant_model_evaluation_id": (
+                        context.quant_model_evaluation_id
+                        if not isinstance(context, AnalysisMatchContext)
+                        else None
+                    ),
                     "context_json": context.context_json,
                     "context_hash": context.context_hash,
                 }
@@ -605,19 +753,7 @@ class SqlAlchemyAnalysisRepository:
                 )
             ),
             (
-                {
-                    "quant_prediction_id": prediction.prediction_id,
-                    "analysis_run_id": prediction.analysis_run_id,
-                    "internal_match_id": prediction.match_id,
-                    "market_key": prediction.market.canonical,
-                    "market_type": prediction.market.market_type.value,
-                    "handicap_value": prediction.market.handicap_value,
-                    "manual_input_id": prediction.manual_input_id,
-                    "input_payload_hash": prediction.input_payload_hash,
-                    "method": prediction.method,
-                    "method_version": prediction.method_version,
-                    "entered_at_utc": prediction.entered_at_utc,
-                }
+                _quant_prediction_record_values(prediction)
                 for prediction in artifacts.quant_predictions
             ),
             ("quant_prediction_id",),
@@ -1256,6 +1392,67 @@ class SqlAlchemyAnalysisRepository:
             )
         session.flush()
 
+    @staticmethod
+    def _persist_quant_model_artifacts(
+        session: Session,
+        artifacts: AnalysisArtifacts,
+    ) -> None:
+        for state in artifacts.quant_model_states:
+            session.add(
+                QuantModelStateRecord(
+                    quant_model_state_id=state.quant_model_state_id,
+                    analysis_run_id=state.analysis_run_id,
+                    model_name=state.model_name,
+                    model_version=state.model_version,
+                    calibration_label=state.calibration_label,
+                    config_json=state.config_json,
+                    config_hash=state.config_hash,
+                    cutoff_at_utc=state.cutoff_at_utc,
+                    season_id=state.season_id,
+                    state_json=state.state_json,
+                    state_hash=state.state_hash,
+                    state_payload_hash=state.state_payload_hash,
+                    training_data_hash=state.training_data_hash,
+                    training_fact_count=len(state.training_facts),
+                    generated_at_utc=state.generated_at_utc,
+                )
+            )
+        session.flush()
+        for state in artifacts.quant_model_states:
+            session.add_all(
+                QuantModelTrainingFactRecord(
+                    quant_model_state_id=state.quant_model_state_id,
+                    fact_sequence=fact.sequence,
+                    match_result_id=fact.match_result_id,
+                    internal_match_id=fact.match_id,
+                    source_payload_hash=fact.source_payload_hash,
+                    fact_hash=fact.fact_hash,
+                )
+                for fact in state.training_facts
+            )
+        session.flush()
+        for evaluation in artifacts.quant_model_evaluations:
+            session.add(
+                QuantModelEvaluationRecord(
+                    quant_model_evaluation_id=(
+                        evaluation.quant_model_evaluation_id
+                    ),
+                    analysis_run_id=evaluation.analysis_run_id,
+                    quant_model_state_id=evaluation.quant_model_state_id,
+                    internal_match_id=evaluation.match_id,
+                    market_key=evaluation.market.canonical,
+                    market_type=evaluation.market.market_type.value,
+                    handicap_value=evaluation.market.handicap_value,
+                    status=evaluation.status.value,
+                    unavailable_reason=evaluation.unavailable_reason,
+                    output_json=evaluation.output_json,
+                    output_hash=evaluation.output_hash,
+                    model_prediction_hash=evaluation.model_prediction_hash,
+                    evaluated_at_utc=evaluation.evaluated_at_utc,
+                )
+            )
+        session.flush()
+
     def _persist_predictions(
         self, session: Session, artifacts: AnalysisArtifacts
     ) -> None:
@@ -1291,6 +1488,7 @@ class SqlAlchemyAnalysisRepository:
                 for snapshot_id in prediction.input_snapshot_ids
             )
         for prediction in artifacts.quant_predictions:
+            is_model = isinstance(prediction, ModelQuantPrediction)
             session.add(
                 QuantPredictionRecord(
                     quant_prediction_id=prediction.prediction_id,
@@ -1299,11 +1497,21 @@ class SqlAlchemyAnalysisRepository:
                     market_key=prediction.market.canonical,
                     market_type=prediction.market.market_type.value,
                     handicap_value=prediction.market.handicap_value,
-                    manual_input_id=prediction.manual_input_id,
-                    input_payload_hash=prediction.input_payload_hash,
+                    manual_input_id=(None if is_model else prediction.manual_input_id),
+                    input_payload_hash=(
+                        None if is_model else prediction.input_payload_hash
+                    ),
+                    quant_model_evaluation_id=(
+                        prediction.quant_model_evaluation_id if is_model else None
+                    ),
                     method=prediction.method,
                     method_version=prediction.method_version,
-                    entered_at_utc=prediction.entered_at_utc,
+                    entered_at_utc=(
+                        None if is_model else prediction.entered_at_utc
+                    ),
+                    generated_at_utc=(
+                        prediction.generated_at_utc if is_model else None
+                    ),
                 )
             )
             session.flush()
@@ -1578,6 +1786,14 @@ class SqlAlchemyAnalysisRepository:
                 raise ValueError(
                     f"match context hash does not match JSON: {context.match_id}"
                 )
+        for state in artifacts.quant_model_states:
+            if _sha256(state.config_json) != state.config_hash:
+                raise ValueError("quant model config hash does not match config JSON")
+            if _sha256(state.state_json) != state.state_payload_hash:
+                raise ValueError("quant model state payload hash does not match state JSON")
+        for evaluation in artifacts.quant_model_evaluations:
+            if _sha256(evaluation.output_json) != evaluation.output_hash:
+                raise ValueError("quant model output hash does not match output JSON")
 
     def _validate_lineage(self, artifacts: AnalysisArtifacts) -> None:
         run_id = artifacts.analysis_run.analysis_run_id
@@ -1630,10 +1846,28 @@ class SqlAlchemyAnalysisRepository:
             for candidate in artifacts.selection_candidates
         }
         manual_inputs = {item.input_id: item for item in artifacts.manual_quant_inputs}
+        model_states = {
+            item.quant_model_state_id: item for item in artifacts.quant_model_states
+        }
+        model_evaluations = {
+            item.quant_model_evaluation_id: item
+            for item in artifacts.quant_model_evaluations
+        }
         for context in artifacts.match_contexts:
-            manual_input = manual_inputs.get(context.manual_quant_input_id)
-            if manual_input is None or manual_input.match_id != context.match_id:
-                raise ValueError("match context has inconsistent manual input lineage")
+            if isinstance(context, AnalysisMatchContext):
+                manual_input = manual_inputs.get(context.manual_quant_input_id)
+                if manual_input is None or manual_input.match_id != context.match_id:
+                    raise ValueError(
+                        "match context has inconsistent manual input lineage"
+                    )
+            else:
+                evaluation = model_evaluations.get(
+                    context.quant_model_evaluation_id
+                )
+                if evaluation is None or evaluation.match_id != context.match_id:
+                    raise ValueError(
+                        "match context has inconsistent model evaluation lineage"
+                    )
         for prediction in artifacts.market_predictions:
             sources = [
                 market_sources.get(snapshot_id)
@@ -1659,18 +1893,49 @@ class SqlAlchemyAnalysisRepository:
             for candidate in artifacts.ticket_candidates
         }
         for prediction in artifacts.quant_predictions:
-            manual_input = manual_inputs.get(prediction.manual_input_id)
             context = context_by_match.get(prediction.match_id)
-            if (
-                prediction.analysis_run_id != run_id
-                or context is None
-                or manual_input is None
-                or manual_input.match_id != prediction.match_id
-                or manual_input.market != prediction.market
-                or manual_input.payload_hash != prediction.input_payload_hash
-                or prediction.manual_input_id != context.manual_quant_input_id
-            ):
-                raise ValueError("quant prediction has inconsistent input lineage")
+            if isinstance(prediction, ModelQuantPrediction):
+                evaluation = model_evaluations.get(
+                    prediction.quant_model_evaluation_id
+                )
+                state = (
+                    model_states.get(evaluation.quant_model_state_id)
+                    if evaluation is not None
+                    else None
+                )
+                if (
+                    prediction.analysis_run_id != run_id
+                    or context is None
+                    or evaluation is None
+                    or state is None
+                    or evaluation.status
+                    is not QuantModelEvaluationStatus.AVAILABLE
+                    or evaluation.match_id != prediction.match_id
+                    or evaluation.market != prediction.market
+                    or evaluation.probabilities != prediction.probabilities
+                    or getattr(context, "quant_model_evaluation_id", None)
+                    != evaluation.quant_model_evaluation_id
+                    or prediction.method != state.model_name
+                    or prediction.method_version != state.model_version
+                ):
+                    raise ValueError(
+                        "quant prediction has inconsistent model input lineage"
+                    )
+            else:
+                manual_input = manual_inputs.get(prediction.manual_input_id)
+                if (
+                    prediction.analysis_run_id != run_id
+                    or context is None
+                    or manual_input is None
+                    or manual_input.match_id != prediction.match_id
+                    or manual_input.market != prediction.market
+                    or manual_input.payload_hash != prediction.input_payload_hash
+                    or prediction.manual_input_id
+                    != getattr(context, "manual_quant_input_id", None)
+                ):
+                    raise ValueError(
+                        "quant prediction has inconsistent manual input lineage"
+                    )
         for prediction in artifacts.final_predictions:
             market_prediction = market_predictions.get(prediction.market_prediction_id)
             quant_prediction = quant_predictions.get(prediction.quant_prediction_id)
@@ -1847,6 +2112,90 @@ class SqlAlchemyAnalysisRepository:
         ):
             raise ValueError(f"Sporttery snapshot ID collision: {value.snapshot_id}")
 
+    def load_quant_model_state(
+        self,
+        quant_model_state_id: str,
+    ) -> QuantModelStateArtifact:
+        with self._session_factory() as session:
+            record = session.get(QuantModelStateRecord, quant_model_state_id)
+            if record is None:
+                raise KeyError(f"unknown quant model state: {quant_model_state_id}")
+            facts = tuple(
+                session.scalars(
+                    select(QuantModelTrainingFactRecord)
+                    .where(
+                        QuantModelTrainingFactRecord.quant_model_state_id
+                        == quant_model_state_id
+                    )
+                    .order_by(QuantModelTrainingFactRecord.fact_sequence)
+                )
+            )
+            return QuantModelStateArtifact(
+                quant_model_state_id=record.quant_model_state_id,
+                analysis_run_id=record.analysis_run_id,
+                model_name=record.model_name,
+                model_version=record.model_version,
+                calibration_label=record.calibration_label,
+                config_json=record.config_json,
+                config_hash=record.config_hash,
+                cutoff_at_utc=record.cutoff_at_utc,
+                season_id=record.season_id,
+                state_json=record.state_json,
+                state_hash=record.state_hash,
+                state_payload_hash=record.state_payload_hash,
+                training_data_hash=record.training_data_hash,
+                training_facts=tuple(
+                    QuantModelTrainingFactRef(
+                        sequence=fact.fact_sequence,
+                        match_result_id=fact.match_result_id,
+                        match_id=fact.internal_match_id,
+                        source_payload_hash=fact.source_payload_hash,
+                        fact_hash=fact.fact_hash,
+                    )
+                    for fact in facts
+                ),
+                generated_at_utc=record.generated_at_utc,
+            )
+
+    def load_quant_model_evaluation(
+        self,
+        quant_model_evaluation_id: str,
+    ) -> QuantModelEvaluation:
+        with self._session_factory() as session:
+            record = session.get(
+                QuantModelEvaluationRecord,
+                quant_model_evaluation_id,
+            )
+            if record is None:
+                raise KeyError(
+                    "unknown quant model evaluation: "
+                    f"{quant_model_evaluation_id}"
+                )
+            output = json.loads(record.output_json)
+            status = QuantModelEvaluationStatus(record.status)
+            probabilities = (
+                ThreeWayProbability.model_validate(output["probabilities"])
+                if status is QuantModelEvaluationStatus.AVAILABLE
+                else None
+            )
+            return QuantModelEvaluation(
+                quant_model_evaluation_id=record.quant_model_evaluation_id,
+                analysis_run_id=record.analysis_run_id,
+                quant_model_state_id=record.quant_model_state_id,
+                match_id=record.internal_match_id,
+                market=MarketKey(
+                    market_type=MarketType(record.market_type),
+                    handicap_value=record.handicap_value,
+                ),
+                status=status,
+                unavailable_reason=record.unavailable_reason,
+                probabilities=probabilities,
+                output_json=record.output_json,
+                output_hash=record.output_hash,
+                model_prediction_hash=record.model_prediction_hash,
+                evaluated_at_utc=record.evaluated_at_utc,
+            )
+
     def table_counts(self) -> dict[str, int]:
         tables: Iterable[type] = (
             MatchRecord,
@@ -1867,6 +2216,21 @@ class SqlAlchemyAnalysisRepository:
             PortfolioSelectionExposureRecord,
             PortfolioStressResultRecord,
             PortfolioStressTicketResultRecord,
+        )
+        with self._session_factory() as session:
+            return {
+                table.__tablename__: session.scalar(
+                    select(func.count()).select_from(table)
+                )
+                or 0
+                for table in tables
+            }
+
+    def quant_model_table_counts(self) -> dict[str, int]:
+        tables: Iterable[type] = (
+            QuantModelStateRecord,
+            QuantModelTrainingFactRecord,
+            QuantModelEvaluationRecord,
         )
         with self._session_factory() as session:
             return {
@@ -1908,8 +2272,29 @@ def _unique_source_items(
     return tuple(unique.values())
 
 
-def _source_manifest_payload(artifacts: AnalysisArtifacts) -> dict[str, object]:
+def _quant_prediction_record_values(prediction: object) -> dict[str, object]:
+    is_model = isinstance(prediction, ModelQuantPrediction)
     return {
+        "quant_prediction_id": prediction.prediction_id,
+        "analysis_run_id": prediction.analysis_run_id,
+        "internal_match_id": prediction.match_id,
+        "market_key": prediction.market.canonical,
+        "market_type": prediction.market.market_type.value,
+        "handicap_value": prediction.market.handicap_value,
+        "manual_input_id": None if is_model else prediction.manual_input_id,
+        "input_payload_hash": None if is_model else prediction.input_payload_hash,
+        "quant_model_evaluation_id": (
+            prediction.quant_model_evaluation_id if is_model else None
+        ),
+        "method": prediction.method,
+        "method_version": prediction.method_version,
+        "entered_at_utc": None if is_model else prediction.entered_at_utc,
+        "generated_at_utc": prediction.generated_at_utc if is_model else None,
+    }
+
+
+def _source_manifest_payload(artifacts: AnalysisArtifacts) -> dict[str, object]:
+    payload = {
         "version": artifacts.analysis_run.input_manifest_version,
         "competitions": _manifest_records(artifacts.competitions, "competition_id"),
         "teams": _manifest_records(artifacts.teams, "team_id"),
@@ -1926,11 +2311,18 @@ def _source_manifest_payload(artifacts: AnalysisArtifacts) -> dict[str, object]:
             artifacts.sporttery_bonus_snapshots,
             "snapshot_id",
         ),
-        "manual_quant_inputs": _manifest_records(
+    }
+    if artifacts.analysis_run.input_manifest_version == "MVP_INPUT_MANIFEST_V3":
+        payload["quant_model_states"] = _manifest_records(
+            artifacts.quant_model_states,
+            "quant_model_state_id",
+        )
+    else:
+        payload["manual_quant_inputs"] = _manifest_records(
             artifacts.manual_quant_inputs,
             "input_id",
-        ),
-    }
+        )
+    return payload
 
 
 def _manifest_records(items: Iterable[object], identity_field: str) -> list[dict]:

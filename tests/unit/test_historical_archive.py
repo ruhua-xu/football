@@ -321,3 +321,20 @@ def test_research_import_must_be_later_than_source_time(tmp_path: Path) -> None:
 
     with pytest.raises(ArchiveValidationError, match="not retrospectively imported"):
         load_historical_archive(_write(tmp_path / "early-import.json", document))
+
+
+def test_research_snapshots_use_source_time_ingestion_boundary(tmp_path: Path) -> None:
+    record = _record(
+        _market_payload(),
+        retrospective=True,
+        imported_at=CREATED - timedelta(hours=1),
+    )
+    document = _document(
+        HistoricalArchiveDatasetKind.MARKET_ODDS,
+        "MARKET_TEST",
+        [record],
+        data_mode=HistoricalDataMode.SOURCE_TIME_RESEARCH,
+    )
+
+    with pytest.raises(ArchiveValidationError, match="source availability"):
+        load_historical_archive(_write(tmp_path / "research-market.json", document))

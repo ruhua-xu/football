@@ -75,6 +75,33 @@ def test_historical_cli_parse_errors_exit_two(arguments) -> None:
     assert error.value.code == 2
 
 
+def test_backtest_preflight_failure_does_not_create_database(tmp_path: Path) -> None:
+    database_path = tmp_path / "must-not-exist.db"
+
+    with pytest.raises(SystemExit) as error:
+        main(
+            [
+                "backtest",
+                "run",
+                "--archive",
+                str(ARCHIVE),
+                "--fixture-config",
+                str(FIXTURE_CONFIG),
+                "--config",
+                str(BACKTEST_CONFIG),
+                "--database-url",
+                f"sqlite:///{database_path.as_posix()}",
+                "--fusion-policy",
+                "QUANT_ONLY_V1",
+                "--data-mode",
+                "SOURCE_TIME_RESEARCH",
+            ]
+        )
+
+    assert error.value.code == 2
+    assert not database_path.exists()
+
+
 def test_historical_cli_runs_all_public_paths(tmp_path, capsys) -> None:
     database_url = f"sqlite:///{(tmp_path / 'historical-cli.db').as_posix()}"
     quant_output = tmp_path / "quant.md"

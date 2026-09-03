@@ -60,6 +60,124 @@ def _review_for_v2(packet: dict) -> dict:
     return review
 
 
+def _review_for_v3(packet: dict) -> dict:
+    return {
+        "schema_version": "LLM_REVIEW_V3",
+        "analysis_run_id": packet["analysis_run"]["analysis_run_id"],
+        "packet_id": packet["packet_id"],
+        "packet_hash": packet["packet_hash"],
+        "match_reviews": [
+            {
+                "status": "VALID",
+                "match_id": match["match_id"],
+                "market_key": match["market_key"],
+                "p_llm": match["p_quant"]["prediction"]["probabilities"],
+                "assessment_confidence": "0.5",
+                "scenarios": [],
+                "preferred_outcomes": [],
+                "avoid_outcomes": [],
+                "counter_scenarios": [],
+                "risk_tags": [],
+                "reasoning_summary": "Offline V3 file review.",
+                "limitations": ["No external Evidence in packet"],
+                "review_context_id": match["review_context_id"],
+                "review_context_hash": match["review_context_hash"],
+            }
+            for match in packet["matches"]
+        ],
+    }
+
+
+def test_cli_v3_packet_supports_manual_lineage_and_review(tmp_path) -> None:
+    database_url = _database_url(tmp_path / "review-v3.db")
+    packet_path = tmp_path / "analysis_packet_v3.json"
+    repeated_path = tmp_path / "analysis_packet_v3_repeated.json"
+    review_path = tmp_path / "llm_review_v3.json"
+
+    assert (
+        main(
+            [
+                "--database-url",
+                database_url,
+                "--budget-yuan",
+                "100",
+                "--analysis-run-id",
+                "run-review-v3",
+            ]
+        )
+        == 0
+    )
+    for output in (packet_path, repeated_path):
+        assert (
+            main(
+                [
+                    "analysis-packet",
+                    "export",
+                    "--database-url",
+                    database_url,
+                    "--analysis-run-id",
+                    "run-review-v3",
+                    "--schema-version",
+                    "ANALYSIS_PACKET_V3",
+                    "--output",
+                    str(output),
+                ]
+            )
+            == 0
+        )
+    assert packet_path.read_bytes() == repeated_path.read_bytes()
+    packet = json.loads(packet_path.read_text(encoding="utf-8"))
+    assert packet["schema_version"] == "ANALYSIS_PACKET_V3"
+    assert packet["quant_model_states"] == []
+    assert all(
+        match["p_quant"]["source_kind"] == "MANUAL"
+        and match["p_quant"]["status"] == "AVAILABLE"
+        for match in packet["matches"]
+    )
+
+    review_path.write_text(
+        json.dumps(_review_for_v3(packet), ensure_ascii=False),
+        encoding="utf-8",
+    )
+    assert (
+        main(
+            [
+                "llm-review",
+                "import",
+                "--database-url",
+                database_url,
+                "--packet",
+                str(packet_path),
+                "--review",
+                str(review_path),
+            ]
+        )
+        == 0
+    )
+    engine = create_database_engine(database_url)
+    sessions = create_session_factory(engine)
+    with sessions() as session:
+        artifact = session.scalar(select(LLMReviewArtifactRecord))
+        assert artifact.review_schema_version == "LLM_REVIEW_V3"
+        assert artifact.validator_version == "OFFLINE_REVIEW_VALIDATOR_V3"
+    assert (
+        main(
+            [
+                "fusion-run",
+                "create",
+                "--database-url",
+                database_url,
+                "--review-artifact-id",
+                artifact.review_artifact_id,
+            ]
+        )
+        == 0
+    )
+    with sessions() as session:
+        assert session.scalar(select(func.count()).select_from(FusionRunRecord)) == 1
+    engine.dispose()
+
+
 def test_cli_v2_packet_contains_auditable_mock_context(tmp_path) -> None:
     database_url = _database_url(tmp_path / "review-v2.db")
     packet_path = tmp_path / "analysis_packet_v2.json"
@@ -126,13 +244,15 @@ def test_cli_v2_packet_contains_auditable_mock_context(tmp_path) -> None:
         )
         == 0
     )
-    assert json.loads(packet_v1_path.read_text(encoding="utf-8"))[
-        "schema_version"
-    ] == "ANALYSIS_PACKET_V1"
+    assert (
+        json.loads(packet_v1_path.read_text(encoding="utf-8"))["schema_version"]
+        == "ANALYSIS_PACKET_V1"
+    )
     with sessions() as session:
-        assert set(
-            session.scalars(select(AnalysisPacketRecord.schema_version))
-        ) == {"ANALYSIS_PACKET_V1", "ANALYSIS_PACKET_V2"}
+        assert set(session.scalars(select(AnalysisPacketRecord.schema_version))) == {
+            "ANALYSIS_PACKET_V1",
+            "ANALYSIS_PACKET_V2",
+        }
     packet = json.loads(packet_path.read_text(encoding="utf-8"))
     assert packet["schema_version"] == "ANALYSIS_PACKET_V2"
     for match in packet["matches"]:

@@ -45,3 +45,13 @@ class AnalysisMatchContext(DomainModel):
     manual_quant_input_id: Identifier
     context_json: str
     context_hash: Identifier
+
+
+class ModelAnalysisMatchContext(DomainModel):
+    analysis_run_id: Identifier
+    match_id: Identifier
+    market_odds_snapshot_id: Identifier
+    sporttery_bonus_snapshot_id: Identifier
+    quant_model_evaluation_id: Identifier
+    context_json: str
+    context_hash: Identifier

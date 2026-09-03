@@ -6,6 +6,7 @@ from football_system.domain.review import (
     AnalysisPacketContract,
     AnalysisPacketSource,
     AnalysisPacketSourceV2,
+    AnalysisPacketSourceV3,
     LLMReviewArtifact,
     StoredAnalysisPacket,
 )
@@ -15,6 +16,8 @@ class ReviewArtifactRepository(Protocol):
     def load_packet_source(self, analysis_run_id: str) -> AnalysisPacketSource: ...
 
     def load_packet_source_v2(self, analysis_run_id: str) -> AnalysisPacketSourceV2: ...
+
+    def load_packet_source_v3(self, analysis_run_id: str) -> AnalysisPacketSourceV3: ...
 
     def find_analysis_packet(
         self,

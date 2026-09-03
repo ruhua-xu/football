@@ -61,7 +61,7 @@ def test_validate_summarizes_all_six_static_acceptance_manifests() -> None:
     assert len(summary.manifests) == len(summary.checksums) == 6
     assert {item.dataset_kind for item in summary.per_kind} == set(
         HistoricalArchiveDatasetKind
-    )
+    ) - {HistoricalArchiveDatasetKind.MARKET_ODDS_ISSUES}
     assert all(item.archive_count == 1 for item in summary.per_kind)
     assert sum(item.record_count for item in summary.per_kind) == 365
     assert summary.report_label == "LIVE_STRICT"

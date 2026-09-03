@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Iterable
+from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_EVEN, localcontext
 
 from football_system.domain.backtest import (
@@ -16,6 +17,12 @@ from football_system.domain.backtest import (
     BacktestSlateSnapshot,
 )
 from football_system.domain.market import SelectionKey, ThreeWayProbability
+
+
+@dataclass(frozen=True, slots=True)
+class _ProbabilityObservation:
+    outcome: SelectionKey
+    probabilities: ThreeWayProbability
 
 
 def calculate_backtest_metrics(
@@ -107,6 +114,22 @@ def calculate_backtest_metrics(
 compute_backtest_metrics = calculate_backtest_metrics
 
 
+def calculate_probability_metrics(
+    observations: Iterable[tuple[SelectionKey, ThreeWayProbability]],
+    config: BacktestMetricsConfig | None = None,
+) -> BacktestProbabilityMetrics:
+    """Score an explicit probability cohort with the versioned V1 math."""
+    values = tuple(
+        _ProbabilityObservation(outcome=outcome, probabilities=probabilities)
+        for outcome, probabilities in observations
+    )
+    return _probability_metrics(
+        values,
+        "probabilities",
+        config or BacktestMetricsConfig(),
+    )
+
+
 def _validate_scope(
     run: BacktestRun,
     matches: tuple[BacktestMatchSnapshot, ...],
@@ -136,7 +159,7 @@ def _validate_scope(
 
 
 def _probability_metrics(
-    matches: tuple[BacktestMatchSnapshot, ...],
+    matches: tuple[BacktestMatchSnapshot | _ProbabilityObservation, ...],
     probability_field: str,
     config: BacktestMetricsConfig,
 ) -> BacktestProbabilityMetrics:

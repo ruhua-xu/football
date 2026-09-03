@@ -2,14 +2,14 @@
 
 ## 状态
 
-- 状态：`0.4.0` 发布准备实现，Historical Archive/Settlement/Backtest 已落地
+- 状态：已发布 package metadata 为 `0.4.0`；`0.5.0` 真实数据工作为 `Unreleased`
 - 架构形态：Python 3.12+ 模块化单体
 - 边界模式：六边形架构
 - 存储边界：SQLite-only
 - 入口：CLI
 - 历史策略：Append-only Source Fact、Analysis Snapshot、Settlement 与 Backtest Artifact
 
-`0.4.0` 不改变总体模块化单体和六边形边界；在既有概率、融合、投注、风险与离线 Review 图之外，新增本地只读历史归档、赛果评估、结算和严格时间序列回测图。
+`0.4.0` 在既有概率、融合、投注、风险与离线 Review 图之外，增加本地只读历史归档、赛果评估、结算和严格时间序列回测图。当前 `Unreleased` 工作继续保持模块化单体和六边形边界，增加显式 Sportmonks fixture capture、raw archive 与数据库 identity lineage。
 
 ## 系统边界
 
@@ -32,7 +32,7 @@ PortfolioRecommendation | NO_BET
 | Domain | 市场、概率、竞彩计奖、Ticket、Portfolio、MatchResult、Settlement、Backtest 与指标不变量 |
 | Application | 编排数据冻结、预测、融合、组合优化、归档登记、结算和 walk-forward |
 | Ports | 决策数据 Provider、HistoricalDataProvider、Evidence/LLM Provider 与 Repository 协议 |
-| Infrastructure | SQLite、Mock Provider、本地只读 Historical Archive Provider；没有真实 API/LLM Adapter |
+| Infrastructure | SQLite、Mock/本地历史 Provider、Sportmonks/The Odds API Adapter、人工复核 Sporttery Adapter；没有真实 LLM Adapter |
 | Interfaces | CLI 输入和结果展示 |
 | Backtest | 先封存 base AnalysisRun，再按独立 evaluation cutoff 追加赛果、结算、指标和报告 |
 
@@ -88,6 +88,30 @@ Append-only Source Snapshots
 
 MVP 不接真实 Evidence Provider 和 LLM。对应端口与数据模型提前定义，运行时使用 Disabled Provider，`P_llm` 明确缺席。
 
+## Live Fixture Ingestion
+
+```text
+explicit CLI + SPORTMONKS_KEY
+              |
+              v
+audited bounded HTTP request
+              |
+              v
+immutable raw response archive
+              |
+              v
+scope / status / pagination validation
+              |
+              v
+capture + identity + observation transaction
+```
+
+`live ingest-fixtures` 是当前唯一显式联网入口。配置、SQLite URL、kickoff window 和 provider scope 必须在读取 secret、网络 I/O 或建库前通过校验；successful raw response 在 JSON/schema normalization 前封存，payload 错误不得打开数据库。
+
+Provider receipt time 作为 fixture identity 和 observation 的 `available_at_utc`，repository clock 记录 capture 的实际 `ingested_at_utc`。只有首次由某次 capture 创建的 Match、CanonicalMatchIdentity、TeamAlias、CompetitionMapping 和 ProviderMatchMapping 才保存该 capture 的 `fixture_ingestion_id`；预先存在的普通 identity 保持 `NULL`，不会因后续 capture 被追溯重分类。
+
+Catalog 查询对 fixture-owned identity 同时执行 `available_at_utc <= cutoff` 和 owner capture `ingested_at_utc <= cutoff`，latest fixture observation 也必须通过这两个边界。新 kickoff/status、team alias 或 competition mapping 在其 capture 实际入库前不可见。identity ownership、capture 和 observation 均为 append-only；包含任何 fixture capture 的数据库禁止回退 fixture-ingestion migration，以免删除 provenance 后保留无来源 identity。
+
 ## Historical Archive 与回测流
 
 ```text
@@ -117,6 +141,28 @@ Archive V1 将 `FIXTURES`、`MARKET_ODDS`、`SPORTTERY_BONUS`、`MANUAL_QUANT`�
 `LIVE_STRICT` 与 `SOURCE_TIME_RESEARCH` 是互斥运行模式。后者必须保存 `retrospective=true` 和独立 `imported_at_utc`，并在输出标记 `RETROSPECTIVE_SOURCE_TIME_RESEARCH`；不能伪装为系统当时实时保存的数据，也不能与严格模式指标静默混合。
 
 walk-forward V1 使用 `DAILY_FIXED_CUTOFF_V1`，每个 slate 共享一个 decision cutoff 和一个更晚的 evaluation cutoff，只支持 base AnalysisRun、`QUANT_ONLY_V1`/`MARKET_QUANT_BLEND_V1` 及一个预算 Portfolio。策略比较要求两边具有相同归档 provenance、切片、预算、阈值、约束、指标配置和冻结输入，不进行自动排名或调参。规范合同见 [backtest_v1_contract.md](backtest_v1_contract.md)。
+
+## Elo model quant 与 Backtest V2
+
+`Unreleased` model path 使用固定标识 `ELO_THREE_WAY_BASELINE_V1`、版本 `1` 和校准标签 `BASELINE_UNCALIBRATED`。它只读取显式 season 中同时满足 `available_at_utc <= cutoff` 与 `ingested_at_utc <= cutoff` 的常规时间 MatchResult，按 supersession chain 选择 cutoff 时最新可见 correction，并无条件排除本次 target match IDs。训练不足时保存 `QuantModelEvaluation(status=UNAVAILABLE)`，不创建 QuantPrediction/FinalPrediction，不复制 `P_market`。
+
+```text
+archived MatchResult + exact archive provenance
+                 |
+                 v
+       QuantModelTrainingFact refs
+                 |
+                 v
+        immutable Elo model state
+                 |
+                 v
+ AVAILABLE evaluation -> model QuantPrediction -> deterministic Fusion
+ UNAVAILABLE evaluation -----------------------> explicit no prediction
+```
+
+`MVP_INPUT_MANIFEST_V3` 将 model state 纳入 AnalysisRun input graph。manual context 与 model context 互斥；model prediction 必须引用同一 run/match/market 的 evaluation，state/evaluation/prediction 时间必须位于实际 run start/completion 范围，训练 match 不得与 target 集合相交。
+
+`BACKTEST_V2` 在每个 slice 中先完成并封存上述 decision graph，再在更晚的 evaluation cutoff 读取 target result。V2 run、archive、slice、training source、evaluation ref、result source、ticket-settlement link 和 metric snapshot 使用独立八表持久化；run 只能由 `RUNNING` 经完整性 trigger 一次转换为 `COMPLETED`。Repository 在一个事务中保存整图，exact retry 不增加行，读取时重算 canonical hashes、概率、结算和 metrics。Alembic revision `c4e8a1d7f205` 与 runtime schema/trigger signature 完全对齐，并只允许空 V2 lineage 数据库回退。
 
 ## Market 抽象
 
@@ -215,6 +261,8 @@ evidence.available_at_utc <= analysis_run.as_of_at_utc
 
 LLM 可以输出 `preferred_outcomes`、`avoid_outcomes`、`counter_scenarios` 和 `scenario_relationships`，但这些只是语义判断。是否成为投注候选仍由固定程序根据 `P_final`、竞彩固定奖金、EV、风险和预算决定。
 
+`ANALYSIS_PACKET_V1/V2` 保持原字节合同和 manual-only lineage。`ANALYSIS_PACKET_V3` 保留 V2 MatchReviewContext，并用判别联合显式区分 manual/model `P_quant`；顶层去重保存结构化 model state hashes、训练 match/result IDs 和真实 run start，evaluation 明确区分 `AVAILABLE` 与 `UNAVAILABLE`。V3 不输出任意 `config_json/state_json/output_json`，也不输出 `P_final`、EV、Ticket、Portfolio 或资金参数。`LLM_REVIEW_V3` 必须回显 context ID/hash；model unavailable 只能对应 `MODEL_UNAVAILABLE`，不能提交伪概率。详见 [llm_review_v3_contract.md](llm_review_v3_contract.md)。
+
 详细边界见 [llm_strategy.md](llm_strategy.md) 和 [0004-frozen-evidence-for-llm.md](decisions/0004-frozen-evidence-for-llm.md)。
 
 ## Ticket 与 AtomicBet
@@ -252,7 +300,7 @@ ingested_at_utc
 
 正式 AnalysisRun 封存后，其输入、预测、候选、Portfolio 和所有后代表不允许插入、更新或删除；来源聚合采用 append-only 语义。SQLite 触发器与 Repository 双重校验这些约束。重新分析必须创建新 `analysis_run_id`。
 
-历史回测额外冻结 `decision_as_of_at_utc < evaluation_as_of_at_utc`。MatchResult、Settlement 和 Backtest 指标不进入 AnalysisRun input manifest、AnalysisPacket 或 Review context；评估阶段不能改写 `P_final`、Ticket、Portfolio 或 Risk。赛果和结算更正通过 supersession 追加，BacktestRun/Slice/Metric 通过 hash、归档 provenance 和血缘表保持可回放。
+历史回测额外冻结 `decision_as_of_at_utc < evaluation_as_of_at_utc`。target MatchResult、Settlement 和 Backtest 指标不进入 AnalysisRun input manifest、AnalysisPacket 或 Review context；Elo 训练 MatchResult 只通过 cutoff 合法的 state/training lineage 进入 V3 manifest/packet。评估阶段不能改写 `P_final`、Ticket、Portfolio 或 Risk。赛果和结算更正通过 supersession 追加，BacktestRun/Slice/Metric 通过 hash、归档 provenance 和血缘表保持可回放。
 
 ## 版本化竞彩规则
 
@@ -303,6 +351,13 @@ Optimizer 默认在 preferred 范围内寻找方案。超出 preferred 的 Ticke
 - `HISTORICAL_ARCHIVE_V1`、本地 cutoff Provider、两种 data mode 和 manifest-only provenance 登记。
 - append-only MatchResult、`BACKTEST`/`THREE_WAY`/简单2串1 Ticket Settlement 与 Portfolio Settlement。
 - 固定 slate walk-forward、BacktestRun/Slice、概率/资金/覆盖率/回撤/风险指标、报告与并排策略比较。
+
+当前 `Unreleased` 另已实现：
+
+- Sportmonks fixture raw capture、canonical identity、双时间可见性与 append-only observation。
+- 固定参数三向 Elo model `P_quant`、`MVP_INPUT_MANIFEST_V3` 和 unavailable-aware analysis。
+- `BACKTEST_V2` 双 cutoff domain/application/repository、完整 SQLite lineage triggers 与 migration。
+- `ANALYSIS_PACKET_V3` / `LLM_REVIEW_V3` model-lineage 离线闭环，同时保留 V1/V2 bytes。
 
 `0.4.0` 不实现：
 

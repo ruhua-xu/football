@@ -1038,7 +1038,7 @@ def _generate_corpus(directory: Path) -> tuple[ArchiveInventory, ...]:
         directory,
         data_mode=HistoricalDataMode.LIVE_STRICT,
     )
-    if len(store.manifests) != len(HistoricalArchiveDatasetKind):
+    if len(store.manifests) != len(archive_specs):
         raise AssertionError("main acceptance store does not contain six archives")
     invalid_directories = (
         directory / "invalid_examples" / "mapping_conflict",

@@ -1,10 +1,22 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from decimal import Decimal, InvalidOperation
 
 from pydantic import Field, model_validator
 
+from football_system.application.environment import (
+    CrossEnvironmentInputError,
+    ProviderRuntimeProvenanceMismatchError,
+    ProviderRuntimeProvenanceRequiredError,
+    RuntimeEnvironment,
+    RuntimeEnvironmentGuard,
+    RuntimeDataModeError,
+    RuntimeProvenance,
+    is_mock_provider_code,
+    require_provider_runtime_provenance,
+)
 from football_system.application.models import AnalysisArtifacts
 from football_system.application.ports.data_providers import (
     HistoricalDataProvider,
@@ -17,6 +29,7 @@ from football_system.application.run_analysis import (
     build_input_manifest_json,
 )
 from football_system.application.settlement import SettlementService
+from football_system.config import AppSettings
 from football_system.domain.analysis import AnalysisRunStatus
 from football_system.domain.backtest import (
     BacktestArchiveProvenance,
@@ -45,6 +58,7 @@ from football_system.domain.common import (
     stable_id,
     utc_now,
 )
+from football_system.domain.match import MarketOddsSnapshot, SportteryBonusSnapshot
 from football_system.domain.prediction import FusionPolicyName
 from football_system.domain.risk import PortfolioRiskReport
 from football_system.domain.services.backtest_metrics import (
@@ -223,6 +237,50 @@ class BacktestComparisonResult(DomainModel):
     right: BacktestComparisonSide
 
 
+def validate_backtest_runtime_provenance(
+    data_mode: BacktestDataMode,
+    provenance_by_role: Mapping[str, RuntimeProvenance],
+) -> None:
+    expected_roles = {
+        "fixture",
+        "market_odds",
+        "sporttery",
+        "manual_quant",
+        "match_result",
+    }
+    if set(provenance_by_role) != expected_roles:
+        raise ProviderRuntimeProvenanceRequiredError(
+            "walk-forward backtest requires provenance for every provider role"
+        )
+    provenance = tuple(provenance_by_role.values())
+    if any(item.data_mode is not data_mode for item in provenance):
+        raise RuntimeDataModeError(
+            "walk-forward provider data modes must match the backtest request"
+        )
+    mock_flags = tuple(
+        item.is_mock or is_mock_provider_code(item.provider_code) for item in provenance
+    )
+    if any(mock_flags) and not all(mock_flags):
+        raise CrossEnvironmentInputError(
+            "walk-forward backtest cannot mix mock and real providers"
+        )
+    expected_environment = (
+        RuntimeEnvironment.RESEARCH
+        if data_mode is BacktestDataMode.SOURCE_TIME_RESEARCH
+        else RuntimeEnvironment.LIVE
+    )
+    if all(mock_flags):
+        if any(
+            item.environment not in {RuntimeEnvironment.MOCK, expected_environment}
+            for item in provenance
+        ):
+            raise CrossEnvironmentInputError(
+                "synthetic acceptance providers use an incompatible runtime"
+            )
+        return
+    RuntimeEnvironmentGuard(expected_environment).validate(provenance)
+
+
 class WalkForwardBacktestService:
     def __init__(
         self,
@@ -240,6 +298,17 @@ class WalkForwardBacktestService:
     ) -> WalkForwardBacktestResult:
         request = WalkForwardBacktestRequest.model_validate(
             request.model_dump(mode="python", exclude_computed_fields=True)
+        )
+        runtime_provenance = (
+            self._run_analysis_service.declared_provider_runtime_provenance()
+        )
+        result_provenance = require_provider_runtime_provenance(
+            self._historical_data_provider,
+            "match_result",
+        )
+        validate_backtest_runtime_provenance(
+            request.data_mode,
+            {**runtime_provenance, "match_result": result_provenance},
         )
         execution_time_utc = request.execution_time_utc or utc_now()
         if execution_time_utc < request.slates[-1].evaluation_as_of_at_utc:
@@ -266,6 +335,7 @@ class WalkForwardBacktestService:
                     plan,
                     slice_id,
                     frozen_artifacts,
+                    result_provenance,
                 )
             )
 
@@ -344,6 +414,7 @@ class WalkForwardBacktestService:
         plan: BacktestSlatePlan,
         slice_id: str,
         frozen_artifacts: AnalysisArtifacts,
+        result_provenance: RuntimeProvenance,
     ) -> WalkForwardBacktestSlateResult:
         match_ids = tuple(match.match_id for match in frozen_artifacts.matches)
         if match_ids:
@@ -365,7 +436,13 @@ class WalkForwardBacktestService:
                 results=(),
                 mappings=(),
             )
-        _validate_evaluation_batch(result_batch, match_ids, plan)
+        _validate_evaluation_batch(
+            result_batch,
+            match_ids,
+            plan,
+            request.data_mode,
+            result_provenance,
+        )
 
         portfolio = frozen_artifacts.portfolios[0]
         portfolio_match_ids = {
@@ -605,7 +682,7 @@ def _build_slate_result_outputs(
         for match_id in expected_match_ids
         if match_id not in analyzed_match_ids
     )
-    _validate_evaluation_batch(result_batch, match_ids, plan)
+    _validate_evaluation_batch(result_batch, match_ids, plan, data_mode)
     result_by_match = {result.match_id: result for result in result_batch.results}
     issue_by_match = {issue.match_id: issue for issue in result_batch.issues}
     ordered_results = tuple(
@@ -1156,7 +1233,14 @@ def _validate_frozen_decision(
         )
     except (json.JSONDecodeError, ValueError) as error:
         raise ValueError("AnalysisRun request configuration is invalid") from error
-    analysis_request_config = config.get("request") if isinstance(config, dict) else None
+    analysis_request_config = (
+        config.get("request") if isinstance(config, dict) else None
+    )
+    settings_config = config.get("settings") if isinstance(config, dict) else None
+    try:
+        stored_settings = AppSettings.model_validate(settings_config)
+    except ValueError as error:
+        raise ValueError("AnalysisRun settings configuration is invalid") from error
     expected_config_keys = {
         "fusion_policy",
         "budgets_fen",
@@ -1165,11 +1249,57 @@ def _validate_frozen_decision(
         "allow_partial_inputs",
         "expected_match_ids",
     }
-    if (
-        not isinstance(analysis_request_config, dict)
-        or set(analysis_request_config) != expected_config_keys
+    actual_config_keys = (
+        set(analysis_request_config)
+        if isinstance(analysis_request_config, dict)
+        else set()
+    )
+    if not isinstance(analysis_request_config, dict) or actual_config_keys not in (
+        expected_config_keys,
+        {*expected_config_keys, "provider_runtime_provenance"},
     ):
         raise ValueError("AnalysisRun request configuration is invalid")
+    has_provider_provenance = "provider_runtime_provenance" in analysis_request_config
+    requires_provider_provenance = (
+        stored_settings.runtime.environment is not RuntimeEnvironment.MOCK
+    )
+    if has_provider_provenance is not requires_provider_provenance:
+        raise ValueError("AnalysisRun provider runtime provenance is invalid")
+    stored_provider_provenance: dict[str, RuntimeProvenance] | None = None
+    if has_provider_provenance:
+        stored_provenance = analysis_request_config["provider_runtime_provenance"]
+        expected_roles = {"fixture", "market_odds", "sporttery", "manual_quant"}
+        if (
+            not isinstance(stored_provenance, dict)
+            or set(stored_provenance) != expected_roles
+        ):
+            raise ValueError("AnalysisRun provider runtime provenance is invalid")
+        try:
+            stored_provider_provenance = {
+                role: RuntimeProvenance.model_validate(stored_provenance[role])
+                for role in sorted(expected_roles)
+            }
+            runtime = (
+                RuntimeEnvironment.RESEARCH
+                if request.data_mode is BacktestDataMode.SOURCE_TIME_RESEARCH
+                else RuntimeEnvironment.LIVE
+            )
+            if stored_settings.runtime.environment is not runtime:
+                raise ValueError("stored runtime does not match backtest data mode")
+            RuntimeEnvironmentGuard(runtime).validate(
+                stored_provider_provenance.values()
+            )
+        except ValueError as error:
+            raise ValueError(
+                "AnalysisRun provider runtime provenance is invalid"
+            ) from error
+        if any(
+            item.data_mode is not request.data_mode
+            for item in stored_provider_provenance.values()
+        ):
+            raise ValueError("AnalysisRun provider runtime provenance is invalid")
+    if stored_settings.backtest.data_mode is not request.data_mode:
+        raise ValueError("AnalysisRun settings use another backtest data mode")
     fusion_policy = analysis_request_config["fusion_policy"]
     budgets = analysis_request_config["budgets_fen"]
     min_selection_ev = analysis_request_config["min_selection_ev"]
@@ -1227,13 +1357,33 @@ def _validate_frozen_decision(
             *artifacts.market_odds_snapshots,
             *artifacts.sporttery_bonus_snapshots,
         )
-        for timestamp in (
-            snapshot.captured_at_utc,
-            snapshot.available_at_utc,
-            snapshot.ingested_at_utc,
-        )
+        for timestamp in _backtest_snapshot_timestamps(snapshot)
     ):
         raise ValueError("frozen analysis contains future odds or bonus snapshots")
+    if request.data_mode is BacktestDataMode.SOURCE_TIME_RESEARCH and any(
+        snapshot.ingested_at_utc != snapshot.available_at_utc
+        for snapshot in (
+            *artifacts.market_odds_snapshots,
+            *artifacts.sporttery_bonus_snapshots,
+        )
+    ):
+        raise ValueError(
+            "source-time frozen snapshots must use the source-time ingestion boundary"
+        )
+    if any(
+        not (
+            snapshot.captured_at_utc
+            <= snapshot.available_at_utc
+            <= snapshot.ingested_at_utc
+        )
+        for snapshot in (
+            *artifacts.market_odds_snapshots,
+            *artifacts.sporttery_bonus_snapshots,
+        )
+    ):
+        raise ValueError(
+            "frozen snapshot timestamps must follow captured, available, ingested"
+        )
     if any(
         not (plan.kickoff_from_utc <= match.kickoff_at_utc <= plan.kickoff_to_utc)
         for match in artifacts.matches
@@ -1262,6 +1412,36 @@ def _validate_frozen_decision(
         )
     ):
         raise ValueError("AnalysisRun snapshot is missing its provider mapping")
+    if stored_provider_provenance is not None:
+        expected_codes = {
+            role: item.provider_code
+            for role, item in stored_provider_provenance.items()
+        }
+        allowed_mapping_codes = {
+            expected_codes["fixture"],
+            expected_codes["market_odds"],
+            expected_codes["sporttery"],
+        }
+        if any(
+            mapping.provider_code not in allowed_mapping_codes
+            for mapping in artifacts.provider_mappings
+        ):
+            raise ValueError("AnalysisRun provider mapping provenance is invalid")
+        if (
+            any(
+                (expected_codes["fixture"], match_id) not in mapped_sources
+                for match_id in analyzed_match_ids
+            )
+            or any(
+                snapshot.provider_code != expected_codes["market_odds"]
+                for snapshot in artifacts.market_odds_snapshots
+            )
+            or any(
+                snapshot.provider_code != expected_codes["sporttery"]
+                for snapshot in artifacts.sporttery_bonus_snapshots
+            )
+        ):
+            raise ValueError("AnalysisRun frozen input provenance is invalid")
     if plan.match_ids:
         analyzed = set(analyzed_match_ids)
         expected = set(plan.match_ids)
@@ -1305,14 +1485,37 @@ def _validate_frozen_decision(
         raise ValueError("frozen portfolio does not match the strategy constraints")
 
 
+def _backtest_snapshot_timestamps(
+    snapshot: MarketOddsSnapshot | SportteryBonusSnapshot,
+) -> tuple[UtcDateTime, ...]:
+    return (
+        snapshot.captured_at_utc,
+        snapshot.available_at_utc,
+        snapshot.ingested_at_utc,
+    )
+
+
 def _validate_evaluation_batch(
     batch: MatchResultBatch,
     match_ids: tuple[str, ...],
     plan: BacktestSlatePlan,
+    data_mode: BacktestDataMode,
+    runtime_provenance: RuntimeProvenance | None = None,
 ) -> None:
     cutoff = plan.evaluation_as_of_at_utc
     if batch.as_of_at_utc != cutoff:
         raise ValueError("match result provider used a different evaluation cutoff")
+    if runtime_provenance is not None:
+        expected_provider_code = runtime_provenance.provider_code
+        if any(
+            result.provider_code != expected_provider_code for result in batch.results
+        ) or any(
+            mapping.provider_code != expected_provider_code
+            for mapping in batch.mappings
+        ):
+            raise ProviderRuntimeProvenanceMismatchError(
+                "match result provider emitted data outside declared provider provenance"
+            )
     expected = set(match_ids)
     if any(result.match_id not in expected for result in batch.results):
         raise ValueError("match result provider returned a match outside the slate")
@@ -1334,6 +1537,12 @@ def _validate_evaluation_batch(
     ) or any(mapping.available_at_utc > cutoff for mapping in batch.mappings):
         raise ValueError(
             "match result provider returned data after the evaluation cutoff"
+        )
+    if data_mode is BacktestDataMode.SOURCE_TIME_RESEARCH and any(
+        result.ingested_at_utc != result.available_at_utc for result in batch.results
+    ):
+        raise ValueError(
+            "source-time match results must use the source-time ingestion boundary"
         )
 
 

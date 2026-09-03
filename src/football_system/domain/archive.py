@@ -12,6 +12,7 @@ from typing import Any, Literal, Self
 from pydantic import BaseModel, Field, model_validator
 
 from football_system.domain.common import DomainModel, Identifier, UtcDateTime
+from football_system.domain.market_reconciliation import MarketOddsReconciliationIssue
 from football_system.domain.match import (
     Competition,
     MarketOddsSnapshot,
@@ -30,6 +31,7 @@ RETROSPECTIVE_RESEARCH_LABEL = "RETROSPECTIVE_SOURCE_TIME_RESEARCH"
 class HistoricalArchiveDatasetKind(StrEnum):
     FIXTURES = "FIXTURES"
     MARKET_ODDS = "MARKET_ODDS"
+    MARKET_ODDS_ISSUES = "MARKET_ODDS_ISSUES"
     SPORTTERY_BONUS = "SPORTTERY_BONUS"
     MANUAL_QUANT = "MANUAL_QUANT"
     MATCH_RESULTS = "MATCH_RESULTS"
@@ -118,6 +120,25 @@ class MarketOddsArchiveRecord(HistoricalArchiveRecord):
             snapshot.snapshot_id,
         )
         return self
+
+
+class MarketOddsIssueArchivePayload(DomainModel):
+    record_kind: Literal["MARKET_ODDS_RECONCILIATION_ISSUE"] = (
+        "MARKET_ODDS_RECONCILIATION_ISSUE"
+    )
+    provider_code: Identifier
+    available_at_utc: UtcDateTime
+    issue: MarketOddsReconciliationIssue
+
+    @model_validator(mode="after")
+    def validate_provider(self) -> Self:
+        if self.issue.provider_code != self.provider_code:
+            raise ValueError("market odds issue archive provider is inconsistent")
+        return self
+
+
+class MarketOddsIssueArchiveRecord(HistoricalArchiveRecord):
+    payload: MarketOddsIssueArchivePayload
 
 
 class SportteryBonusArchiveRecord(HistoricalArchiveRecord):

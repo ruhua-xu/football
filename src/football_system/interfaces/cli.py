@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from importlib.metadata import PackageNotFoundError, distribution
@@ -16,6 +17,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from football_system.application.backtest import (
     WalkForwardBacktestRequest,
     WalkForwardBacktestService,
+    validate_backtest_runtime_provenance,
 )
 from football_system.application.backtest_reports import (
     BacktestReportComparison,
@@ -29,7 +31,15 @@ from football_system.application.backtest_reports import (
     render_settlement_report,
     render_settlement_result,
 )
+from football_system.application.environment import (
+    RuntimeEnvironment,
+    RuntimeEnvironmentGuard,
+    RuntimeProvenance,
+    require_provider_runtime_provenance,
+)
 from football_system.application.historical_archive import HistoricalArchiveService
+from football_system.application.identity_catalog import FixtureIngestionRequest
+from football_system.application.live_ingestion import LiveFixtureIngestionService
 from football_system.application.models import AnalysisArtifacts
 from football_system.application.ports.data_providers import (
     MatchResultQuery,
@@ -61,11 +71,15 @@ from football_system.domain.backtest import (
 )
 from football_system.domain.betting import CandidateStatus, PortfolioStatus
 from football_system.domain.common import new_id, utc_now
+from football_system.domain.match import TeamType
 from football_system.domain.prediction import FusionPolicyName
 from football_system.domain.settlement import Settlement, SettlementScope
 from football_system.infrastructure.database.historical_repositories import (
     SqlAlchemyHistoricalRepository,
     backtest_metrics_value,
+)
+from football_system.infrastructure.database.identity_repositories import (
+    SqlAlchemyMatchIdentityRepository,
 )
 from football_system.infrastructure.database.migrations import upgrade_database
 from football_system.infrastructure.database.post_review_repositories import (
@@ -80,7 +94,9 @@ from football_system.infrastructure.database.review_repositories import (
 from football_system.infrastructure.database.session import (
     create_database_engine,
     create_session_factory,
+    require_sqlite_database_url,
 )
+from football_system.infrastructure.files.raw_archive import RawDataArchive
 from football_system.infrastructure.providers.mock.dataset import MockDataset
 from football_system.infrastructure.providers.mock.fixtures import MockFixtureProvider
 from football_system.infrastructure.providers.mock.manual_quant import (
@@ -104,11 +120,25 @@ from football_system.infrastructure.files.review_bridge import (
     read_contract_file,
     write_contract_file,
 )
+from football_system.infrastructure.http.provider_client import (
+    HttpTransport,
+    ProviderHttpClient,
+)
+from football_system.infrastructure.http.urllib_transport import UrllibTransport
+from football_system.infrastructure.providers.real.sportmonks import (
+    SPORTMONKS_PROVIDER_CODE,
+    SportmonksFixtureProvider,
+)
+
+
+SPORTMONKS_BASE_URL = "https://api.sportmonks.com/v3/football/"
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     _configure_utf8_output()
     arguments = list(argv) if argv is not None else sys.argv[1:]
+    if arguments[:1] == ["live"]:
+        return _dispatch_live(arguments[1:])
     if arguments[:1] == ["historical-archive"]:
         return _dispatch_historical_archive(arguments[1:])
     if arguments[:1] == ["match-results"]:
@@ -146,6 +176,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     min_ticket_roi = _optional_decimal(args.min_ticket_roi, parser)
 
     fixture_path = settings.mock.fixture_path
+    RuntimeEnvironmentGuard(settings.runtime.environment).validate_input(
+        RuntimeProvenance(
+            environment=RuntimeEnvironment.MOCK,
+            provider_code="MOCK_ANALYSIS_BUNDLE",
+            provenance=str(fixture_path),
+            is_mock=True,
+        )
+    )
     if not fixture_path.is_absolute():
         fixture_path = _resource_root() / fixture_path
     dataset = MockDataset.from_json(fixture_path)
@@ -226,6 +264,14 @@ def _dispatch_historical_archive(arguments: Sequence[str]) -> int:
     )
 
 
+def _dispatch_live(arguments: Sequence[str]) -> int:
+    return _dispatch_command_group(
+        "live",
+        arguments,
+        {"ingest-fixtures": _ingest_live_fixtures},
+    )
+
+
 def _dispatch_match_results(arguments: Sequence[str]) -> int:
     return _dispatch_command_group(
         "match-results",
@@ -272,6 +318,91 @@ def _dispatch_command_group(
     if handler is None:
         parser.error(f"invalid command: {command}")
     return handler(arguments[1:])
+
+
+def _ingest_live_fixtures(
+    arguments: Sequence[str],
+    *,
+    transport: HttpTransport | None = None,
+    environ: Mapping[str, str] | None = None,
+    clock: Callable[[], datetime] | None = None,
+) -> int:
+    parser = argparse.ArgumentParser(
+        prog="football-system live ingest-fixtures",
+        description=(
+            "Capture current Sportmonks fixtures, archive the raw response, and "
+            "atomically persist identity and observation lineage."
+        ),
+    )
+    _add_database_arguments(parser, default_config=_live_config_path())
+    parser.add_argument("--raw-archive", type=Path, default=Path("data/raw"))
+    parser.add_argument("--kickoff-from", type=_parse_utc_datetime, required=True)
+    parser.add_argument("--kickoff-to", type=_parse_utc_datetime, required=True)
+    parser.add_argument("--league-id", required=True)
+    parser.add_argument("--provider-season-id", required=True)
+    parser.add_argument("--season", required=True)
+    parser.add_argument("--competition-type", required=True)
+    parser.add_argument("--language", default="en")
+    parser.add_argument(
+        "--team-type",
+        choices=tuple(item.value for item in TeamType),
+        required=True,
+    )
+    args = parser.parse_args(arguments)
+    try:
+        settings, database_url = _historical_settings(
+            args.config,
+            args.database_url,
+        )
+        require_sqlite_database_url(database_url)
+        RuntimeEnvironmentGuard(settings.runtime.environment).validate_input(
+            SportmonksFixtureProvider.runtime_provenance
+        )
+        request = FixtureIngestionRequest(
+            kickoff_from_utc=args.kickoff_from,
+            kickoff_to_utc=args.kickoff_to,
+            provider_competition_id=args.league_id,
+            provider_season_id=args.provider_season_id,
+            season=args.season,
+            competition_type=args.competition_type,
+            language=args.language,
+            team_type=args.team_type,
+        )
+        api_token = _required_environment_value("SPORTMONKS_KEY", environ)
+        raw_archive = RawDataArchive(args.raw_archive)
+        client = ProviderHttpClient(
+            SPORTMONKS_PROVIDER_CODE,
+            SPORTMONKS_BASE_URL,
+            transport if transport is not None else UrllibTransport(),
+            utc_now=clock,
+        )
+        provider = SportmonksFixtureProvider(client, raw_archive, api_token)
+        service = LiveFixtureIngestionService(
+            provider,
+            lambda: _open_match_identity_repository(
+                database_url,
+                clock=clock or utc_now,
+            ),
+            environment=settings.runtime.environment,
+        )
+        summary = asyncio.run(service.ingest(request))
+    except (
+        KeyError,
+        OSError,
+        RuntimeError,
+        SQLAlchemyError,
+        ValidationError,
+        ValueError,
+    ) as error:
+        parser.error(str(error))
+    print(
+        f"Fixture ingestion: {summary.ingestion_id}; "
+        f"inserted={str(summary.inserted).lower()}; "
+        f"raw_artifact={summary.raw_artifact_id}; "
+        f"competitions={summary.competition_count}; teams={summary.team_count}; "
+        f"matches={summary.match_count}; observations={summary.observation_count}"
+    )
+    return 0
 
 
 def _validate_historical_archive(arguments: Sequence[str]) -> int:
@@ -574,7 +705,7 @@ def _run_backtest(arguments: Sequence[str]) -> int:
     parser.add_argument("--quant-weight", type=_parse_probability_decimal)
     args = parser.parse_args(arguments)
     try:
-        base_settings, sessions, historical = _historical_repository(
+        base_settings, resolved_database_url = _historical_settings(
             args.config,
             args.database_url,
         )
@@ -621,6 +752,30 @@ def _run_backtest(arguments: Sequence[str]) -> int:
             provider_code,
             data_mode,
         )
+        fixture_provider = HistoricalArchiveFixtureProvider(store, provider_code)
+        market_provider = HistoricalArchiveMarketOddsProvider(
+            store,
+            provider_code,
+            bookmaker_code=fixture.market_bookmaker_code,
+            require_complete=False,
+        )
+        sporttery_provider = HistoricalArchiveSportteryProvider(store, provider_code)
+        quant_provider = HistoricalArchiveQuantProvider(store, provider_code)
+        result_provider = LocalArchiveHistoricalDataProvider(store, provider_code)
+        validate_backtest_runtime_provenance(
+            data_mode,
+            {
+                role: require_provider_runtime_provenance(provider, role)
+                for role, provider in {
+                    "fixture": fixture_provider,
+                    "market_odds": market_provider,
+                    "sporttery": sporttery_provider,
+                    "manual_quant": quant_provider,
+                    "match_result": result_provider,
+                }.items()
+            },
+        )
+        sessions, historical = _open_historical_repository(resolved_database_url)
         HistoricalArchiveService().register(
             args.archive,
             historical,
@@ -628,21 +783,16 @@ def _run_backtest(arguments: Sequence[str]) -> int:
             data_mode,
         )
         analysis = RunAnalysisService(
-            HistoricalArchiveFixtureProvider(store, provider_code),
-            HistoricalArchiveMarketOddsProvider(
-                store,
-                provider_code,
-                bookmaker_code=fixture.market_bookmaker_code,
-                require_complete=False,
-            ),
-            HistoricalArchiveSportteryProvider(store, provider_code),
-            HistoricalArchiveQuantProvider(store, provider_code),
+            fixture_provider,
+            market_provider,
+            sporttery_provider,
+            quant_provider,
             SqlAlchemyAnalysisRepository(sessions),
             settings,
         )
         service = WalkForwardBacktestService(
             analysis,
-            LocalArchiveHistoricalDataProvider(store, provider_code),
+            result_provider,
             SettlementService(settings.settlement.policy),
         )
         run_id = args.backtest_run_id or new_id()
@@ -791,7 +941,11 @@ def _export_analysis_packet(arguments: Sequence[str]) -> int:
     parser.add_argument("--analysis-run-id", required=True)
     parser.add_argument(
         "--schema-version",
-        choices=("ANALYSIS_PACKET_V1", "ANALYSIS_PACKET_V2"),
+        choices=(
+            "ANALYSIS_PACKET_V1",
+            "ANALYSIS_PACKET_V2",
+            "ANALYSIS_PACKET_V3",
+        ),
         default="ANALYSIS_PACKET_V1",
         help="Contract version; V1 remains the compatibility default.",
     )
@@ -929,6 +1083,10 @@ def _backtest_config_path() -> Path:
     return _resource_root() / "config" / "backtest.toml"
 
 
+def _live_config_path() -> Path:
+    return _resource_root() / "config" / "live.toml"
+
+
 def _historical_archive_path() -> Path:
     return _resource_root() / "data" / "fixtures" / "historical_acceptance"
 
@@ -950,6 +1108,15 @@ def _historical_repository(
     sessionmaker[Session],
     SqlAlchemyHistoricalRepository,
 ]:
+    settings, resolved_url = _historical_settings(config_path, database_url)
+    sessions, repository = _open_historical_repository(resolved_url)
+    return settings, sessions, repository
+
+
+def _historical_settings(
+    config_path: Path,
+    database_url: str | None,
+) -> tuple[AppSettings, str]:
     settings = AppSettings.from_toml(config_path)
     resolved_url = _resolve_database_url(database_url or settings.database.url)
     if database_url is not None:
@@ -958,10 +1125,44 @@ def _historical_repository(
                 "database": settings.database.model_copy(update={"url": resolved_url})
             }
         )
-    upgrade_database(resolved_url, _resource_root() / "alembic.ini")
-    engine = create_database_engine(resolved_url)
+    return settings, resolved_url
+
+
+def _open_historical_repository(
+    database_url: str,
+) -> tuple[sessionmaker[Session], SqlAlchemyHistoricalRepository]:
+    upgrade_database(database_url, _resource_root() / "alembic.ini")
+    engine = create_database_engine(database_url)
     sessions = create_session_factory(engine)
-    return settings, sessions, SqlAlchemyHistoricalRepository(sessions)
+    return sessions, SqlAlchemyHistoricalRepository(sessions)
+
+
+def _open_match_identity_repository(
+    database_url: str,
+    *,
+    clock: Callable[[], datetime] = utc_now,
+) -> SqlAlchemyMatchIdentityRepository:
+    upgrade_database(database_url, _resource_root() / "alembic.ini")
+    engine = create_database_engine(database_url)
+    return SqlAlchemyMatchIdentityRepository(
+        create_session_factory(engine),
+        clock=clock,
+    )
+
+
+def _required_environment_value(
+    name: str,
+    environ: Mapping[str, str] | None = None,
+) -> str:
+    source = os.environ if environ is None else environ
+    value = source.get(name)
+    if (
+        not isinstance(value, str)
+        or not value.strip()
+        or any(character in value for character in ("\r", "\n", "\0"))
+    ):
+        raise ValueError(f"{name} is required and must not contain control characters")
+    return value.strip()
 
 
 def _required_ticket_settlement(
@@ -1047,9 +1248,10 @@ def _backtest_archive_provenance(
         raise ValueError("backtest archive manifests use another data mode")
     if any(manifest.provider_code != provider_code for manifest in manifests):
         raise ValueError("backtest archive manifests use another provider")
-    if {manifest.dataset_kind for manifest in manifests} != set(
-        HistoricalArchiveDatasetKind
-    ):
+    required_kinds = set(HistoricalArchiveDatasetKind) - {
+        HistoricalArchiveDatasetKind.MARKET_ODDS_ISSUES
+    }
+    if not required_kinds <= {manifest.dataset_kind for manifest in manifests}:
         raise ValueError("backtest archive must cover every historical dataset kind")
     return canonical_archive_provenance(
         tuple(
@@ -1237,6 +1439,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "settlement, and walk-forward backtests."
         ),
         epilog=(
+            "Live ingestion commands: live ingest-fixtures. "
             "Historical/backtest commands: historical-archive validate; "
             "historical-archive import; match-results list; settlement create; "
             "settlement report; backtest run; backtest report; backtest compare. "

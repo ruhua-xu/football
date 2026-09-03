@@ -6,10 +6,19 @@ import json
 from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
+from inspect import getattr_static
 from pathlib import Path
 
 from pydantic import Field, model_validator
 
+from football_system.application.environment import (
+    ProviderRuntimeProvenanceMismatchError,
+    RuntimeEnvironment,
+    RuntimeProvenance,
+    is_mock_provider_code,
+    require_provider_runtime_provenance,
+    validate_analysis_provider_runtime,
+)
 from football_system.application.models import AnalysisArtifacts
 from football_system.application.ports.data_providers import (
     FixtureBatch,
@@ -31,6 +40,7 @@ from football_system.domain.analysis import (
     AnalysisRunStatus,
 )
 from football_system.domain.betting import PortfolioConstraints, SportteryRules
+from football_system.domain.archive import HistoricalDataMode
 from football_system.domain.common import (
     DomainModel,
     Identifier,
@@ -128,7 +138,32 @@ class RunAnalysisService:
         self._repository = repository
         self._settings = settings
 
+    def declared_provider_runtime_provenance(self) -> dict[str, RuntimeProvenance]:
+        return {
+            role: require_provider_runtime_provenance(provider, role)
+            for role, provider in {
+                "fixture": self._fixture_provider,
+                "market_odds": self._market_odds_provider,
+                "sporttery": self._sporttery_provider,
+                "manual_quant": self._manual_quant_provider,
+            }.items()
+        }
+
     async def run(self, request: RunAnalysisRequest) -> AnalysisArtifacts:
+        runtime_provenance = validate_analysis_provider_runtime(
+            self._settings.runtime.environment,
+            {
+                "fixture": self._fixture_provider,
+                "market_odds": self._market_odds_provider,
+                "sporttery": self._sporttery_provider,
+                "manual_quant": self._manual_quant_provider,
+            },
+        )
+        market_runtime_provenance = runtime_provenance.get("market_odds")
+        market_issue_provider_codes = _market_issue_provider_codes(
+            self._market_odds_provider,
+            market_runtime_provenance,
+        )
         started_at = request.execution_time_utc or utc_now()
         run_id = request.analysis_run_id or new_id()
         fixture_batch = await self._fixture_provider.fetch_fixtures(
@@ -142,6 +177,7 @@ class RunAnalysisService:
             fixture_batch.model_dump(mode="python", exclude_computed_fields=True)
         )
         query_matches = _validate_fixture_response(request, fixture_batch)
+        _validate_fixture_provider_output(runtime_provenance, fixture_batch)
         match_ids = tuple(match.match_id for match in query_matches)
         snapshot_query = SnapshotQuery(
             match_ids=match_ids,
@@ -160,6 +196,14 @@ class RunAnalysisService:
         )
         manual_quant_batch = ManualQuantBatch.model_validate(
             manual_quant_batch.model_dump(mode="python", exclude_computed_fields=True)
+        )
+        _validate_live_provider_outputs(
+            runtime_provenance,
+            fixture_batch,
+            odds_batch,
+            sporttery_batch,
+            manual_quant_batch,
+            market_issue_provider_codes,
         )
         selected = _select_analysis_inputs(
             request,
@@ -320,6 +364,11 @@ class RunAnalysisService:
                     "expected_match_ids": request.expected_match_ids or (),
                 }
             )
+        if runtime_provenance:
+            request_config["provider_runtime_provenance"] = {
+                role: provenance.model_dump(mode="json")
+                for role, provenance in sorted(runtime_provenance.items())
+            }
         config_json = _canonical_json(
             {
                 "settings": self._settings.model_dump(mode="json"),
@@ -426,6 +475,102 @@ def _validate_fixture_response(
     )
 
 
+def _validate_live_provider_outputs(
+    provenance_by_role: dict[str, RuntimeProvenance],
+    fixture_batch: FixtureBatch,
+    market_batch: MarketOddsBatch,
+    sporttery_batch: SportteryBatch,
+    manual_quant_batch: ManualQuantBatch,
+    market_issue_provider_codes: frozenset[str],
+) -> None:
+    if not provenance_by_role:
+        return
+    _validate_fixture_provider_output(provenance_by_role, fixture_batch)
+    expected_by_role = {
+        role: provenance.provider_code
+        for role, provenance in provenance_by_role.items()
+    }
+    if manual_quant_batch.provider_code is None:
+        raise ProviderRuntimeProvenanceMismatchError(
+            "manual_quant provider emitted a batch without provider identity"
+        )
+    actual_by_role = {
+        "fixture": {mapping.provider_code for mapping in fixture_batch.mappings},
+        "market_odds": {
+            *(snapshot.provider_code for snapshot in market_batch.snapshots),
+            *(mapping.provider_code for mapping in market_batch.mappings),
+        },
+        "sporttery": {
+            *(snapshot.provider_code for snapshot in sporttery_batch.snapshots),
+            *(mapping.provider_code for mapping in sporttery_batch.mappings),
+        },
+        "manual_quant": {manual_quant_batch.provider_code},
+    }
+    for role, actual_codes in actual_by_role.items():
+        expected_code = expected_by_role[role]
+        if any(code != expected_code for code in actual_codes):
+            raise ProviderRuntimeProvenanceMismatchError(
+                f"{role} provider emitted data outside declared provider provenance"
+            )
+    if any(
+        issue.provider_code not in market_issue_provider_codes
+        for issue in market_batch.issues
+    ):
+        raise ProviderRuntimeProvenanceMismatchError(
+            "market_odds provider emitted an issue outside declared provenance"
+        )
+    for role, snapshots in (
+        ("market_odds", market_batch.snapshots),
+        ("sporttery", sporttery_batch.snapshots),
+    ):
+        if (
+            provenance_by_role[role].data_mode
+            is not HistoricalDataMode.SOURCE_TIME_RESEARCH
+        ):
+            continue
+        if any(
+            snapshot.ingested_at_utc != snapshot.available_at_utc
+            for snapshot in snapshots
+        ):
+            raise ProviderRuntimeProvenanceMismatchError(
+                f"{role} source-time snapshots must use the source-time ingestion boundary"
+            )
+    expected_fixture_code = expected_by_role["fixture"]
+    mapped_fixture_ids = {
+        mapping.internal_match_id
+        for mapping in fixture_batch.mappings
+        if mapping.provider_code == expected_fixture_code
+    }
+    if any(match.match_id not in mapped_fixture_ids for match in fixture_batch.matches):
+        raise ProviderRuntimeProvenanceMismatchError(
+            "fixture provider emitted a match without declared provider mapping"
+        )
+
+
+def _validate_fixture_provider_output(
+    provenance_by_role: dict[str, RuntimeProvenance],
+    fixture_batch: FixtureBatch,
+) -> None:
+    if not provenance_by_role:
+        return
+    expected_code = provenance_by_role["fixture"].provider_code
+    if any(
+        mapping.provider_code != expected_code for mapping in fixture_batch.mappings
+    ):
+        raise ProviderRuntimeProvenanceMismatchError(
+            "fixture provider emitted data outside declared provider provenance"
+        )
+    mapped_match_ids = {
+        mapping.internal_match_id
+        for mapping in fixture_batch.mappings
+        if mapping.provider_code == expected_code
+    }
+    if any(match.match_id not in mapped_match_ids for match in fixture_batch.matches):
+        raise ProviderRuntimeProvenanceMismatchError(
+            "fixture provider emitted a match without declared provider mapping"
+        )
+
+
 def _select_analysis_inputs(
     request: RunAnalysisRequest,
     started_at: UtcDateTime,
@@ -437,6 +582,7 @@ def _select_analysis_inputs(
 ) -> _SelectedInputs:
     match_ids = tuple(match.match_id for match in query_matches)
     match_id_set = set(match_ids)
+    _validate_market_issue_scope(match_id_set, odds_batch)
     all_mappings = (
         fixture_batch.mappings + odds_batch.mappings + sporttery_batch.mappings
     )
@@ -469,7 +615,11 @@ def _select_analysis_inputs(
             manual_quant_batch.inputs,
         )
         if missing:
-            raise ValueError(f"required MVP inputs missing for: {', '.join(missing)}")
+            issue_text = _market_issue_text(missing, odds_batch)
+            suffix = f"; market data quality: {issue_text}" if issue_text else ""
+            raise ValueError(
+                f"required MVP inputs missing for: {', '.join(missing)}{suffix}"
+            )
         return _SelectedInputs(
             competitions=fixture_batch.competitions,
             teams=fixture_batch.teams,
@@ -613,6 +763,38 @@ def _select_analysis_inputs(
     )
 
 
+def _validate_market_issue_scope(
+    requested_match_ids: set[str],
+    batch: MarketOddsBatch,
+) -> None:
+    if any(
+        issue.requested_match_id is not None
+        and issue.requested_match_id not in requested_match_ids
+        for issue in batch.issues
+    ):
+        raise ValueError(
+            "market odds provider returned an issue outside requested matches"
+        )
+
+
+def _market_issue_text(
+    missing_match_ids: tuple[str, ...],
+    batch: MarketOddsBatch,
+) -> str:
+    missing = set(missing_match_ids)
+    relevant = tuple(
+        issue
+        for issue in batch.issues
+        if issue.requested_match_id in missing
+        or any(candidate in missing for candidate in issue.candidates)
+    )
+    return ", ".join(
+        f"{issue.requested_match_id or issue.external_match_id or 'unbound'}:"
+        f"{issue.reason.value}:{issue.code}"
+        for issue in relevant
+    )
+
+
 def _missing_required_inputs(
     matches: tuple[Match, ...],
     market_snapshots: tuple[MarketOddsSnapshot, ...],
@@ -675,14 +857,43 @@ def _snapshot_is_visible(
     snapshot: MarketOddsSnapshot | SportteryBonusSnapshot,
     cutoff: UtcDateTime,
 ) -> bool:
-    return all(
-        timestamp <= cutoff
-        for timestamp in (
-            snapshot.captured_at_utc,
-            snapshot.available_at_utc,
-            snapshot.ingested_at_utc,
+    return all(timestamp <= cutoff for timestamp in _snapshot_timestamps(snapshot))
+
+
+def _market_issue_provider_codes(
+    provider: object,
+    validated_provenance: RuntimeProvenance | None,
+) -> frozenset[str]:
+    if validated_provenance is None:
+        return frozenset()
+    expected = validated_provenance.provider_code
+    if expected is None:
+        raise ProviderRuntimeProvenanceMismatchError(
+            "market_odds provider provenance has no provider identity"
         )
-    )
+    try:
+        getattr_static(provider, "issue_provider_codes")
+    except AttributeError:
+        return frozenset({expected})
+    declared = getattr(provider, "issue_provider_codes")
+    if (
+        not isinstance(declared, tuple)
+        or not declared
+        or any(
+            not isinstance(code, str)
+            or not code.strip()
+            or code != code.strip()
+            or (
+                validated_provenance.environment is RuntimeEnvironment.LIVE
+                and is_mock_provider_code(code)
+            )
+            for code in declared
+        )
+    ):
+        raise ProviderRuntimeProvenanceMismatchError(
+            "market_odds issue provider provenance is invalid"
+        )
+    return frozenset(declared)
 
 
 def _validate_mapping_scope(
@@ -774,18 +985,24 @@ def _validate_point_in_time(
                 f"input {getattr(item, 'match_id', getattr(item, 'mapping_id', 'unknown'))} "
                 "was not available at the knowledge cutoff"
             )
-    for snapshot in (*market_snapshots, *sporttery_snapshots):
-        if any(
-            timestamp > as_of_at_utc
-            for timestamp in (
-                snapshot.captured_at_utc,
-                snapshot.available_at_utc,
-                snapshot.ingested_at_utc,
-            )
-        ):
-            raise ValueError(
-                f"snapshot {snapshot.snapshot_id} crosses the knowledge cutoff"
-            )
+    for snapshots in (market_snapshots, sporttery_snapshots):
+        for snapshot in snapshots:
+            if any(
+                timestamp > as_of_at_utc for timestamp in _snapshot_timestamps(snapshot)
+            ):
+                raise ValueError(
+                    f"snapshot {snapshot.snapshot_id} crosses the knowledge cutoff"
+                )
+
+
+def _snapshot_timestamps(
+    snapshot: MarketOddsSnapshot | SportteryBonusSnapshot,
+) -> tuple[UtcDateTime, ...]:
+    return (
+        snapshot.captured_at_utc,
+        snapshot.available_at_utc,
+        snapshot.ingested_at_utc,
+    )
 
 
 def _validate_match_scope(match_ids: tuple[str, ...], *item_groups: tuple) -> None:
@@ -815,6 +1032,26 @@ def _validate_source_payloads(
     sporttery_snapshots: tuple,
     manual_inputs: tuple,
 ) -> None:
+    mapped_sources = {
+        (mapping.provider_code, mapping.internal_match_id) for mapping in mappings
+    }
+    snapshots = (*market_snapshots, *sporttery_snapshots)
+    if any(
+        (snapshot.provider_code, snapshot.match_id) not in mapped_sources
+        for snapshot in snapshots
+    ):
+        raise ValueError("source snapshot is missing its exact provider mapping")
+    if any(
+        not (
+            snapshot.captured_at_utc
+            <= snapshot.available_at_utc
+            <= snapshot.ingested_at_utc
+        )
+        for snapshot in snapshots
+    ):
+        raise ValueError(
+            "source snapshot timestamps must follow captured, available, ingested"
+        )
     for mapping in mappings:
         _validate_decimal_storage(
             (("confidence", mapping.confidence),), 18, 12, mapping.mapping_id

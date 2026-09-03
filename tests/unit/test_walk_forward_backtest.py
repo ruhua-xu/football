@@ -13,6 +13,11 @@ from football_system.application.backtest import (
     compare_backtests,
     validate_walk_forward_backtest_result,
 )
+from football_system.application.environment import (
+    RuntimeDataModeError,
+    RuntimeEnvironment,
+    RuntimeProvenance,
+)
 from football_system.application.models import AnalysisArtifacts
 from football_system.application.ports.data_providers import (
     FixtureBatch,
@@ -30,7 +35,10 @@ from football_system.application.run_analysis import (
 )
 from football_system.config import AppSettings, PortfolioSettings
 from football_system.domain.analysis import AnalysisRunStatus
-from football_system.domain.archive import HistoricalArchiveDatasetKind
+from football_system.domain.archive import (
+    HistoricalArchiveDatasetKind,
+    HistoricalDataMode,
+)
 from football_system.domain.backtest import (
     BacktestArchiveProvenance,
     BacktestDataMode,
@@ -84,6 +92,17 @@ BONUS = ThreeWayFixedBonus(
     draw=Decimal("3.20"),
     away_win=Decimal("5.00"),
 )
+
+
+def mock_runtime_provenance(provider_code: str) -> RuntimeProvenance:
+    return RuntimeProvenance(
+        environment=RuntimeEnvironment.MOCK,
+        provider_code=provider_code,
+        is_mock=True,
+        data_mode=HistoricalDataMode.LIVE_STRICT,
+    )
+
+
 QUANT = ThreeWayProbability(
     home_win=Decimal("0.70"),
     draw=Decimal("0.20"),
@@ -273,6 +292,8 @@ def mapping(
 
 
 class FixtureStub:
+    runtime_provenance = mock_runtime_provenance("FIXTURE_TEST")
+
     def __init__(self, archive: InMemoryArchive) -> None:
         self.archive = archive
 
@@ -302,6 +323,8 @@ class FixtureStub:
 
 
 class OddsStub:
+    runtime_provenance = mock_runtime_provenance("ODDS_TEST")
+
     def __init__(self, archive: InMemoryArchive) -> None:
         self.archive = archive
         self.queries: list[SnapshotQuery] = []
@@ -342,6 +365,8 @@ class OddsStub:
 
 
 class SportteryStub:
+    runtime_provenance = mock_runtime_provenance("SPORTTERY_TEST")
+
     def __init__(self, archive: InMemoryArchive) -> None:
         self.archive = archive
 
@@ -366,18 +391,21 @@ class SportteryStub:
 
 
 class QuantStub:
+    runtime_provenance = mock_runtime_provenance("QUANT_TEST")
+
     def __init__(self, archive: InMemoryArchive) -> None:
         self.archive = archive
 
     async def fetch_manual_quant(self, query: SnapshotQuery) -> ManualQuantBatch:
         return ManualQuantBatch(
+            provider_code="QUANT_TEST",
             inputs=tuple(
                 self.archive.quant_inputs[match_id]
                 for match_id in query.match_ids
                 if match_id not in self.archive.missing_quant_inputs
                 if self.archive.quant_inputs[match_id].available_at_utc
                 <= query.as_of_at_utc
-            )
+            ),
         )
 
 
@@ -394,6 +422,8 @@ class AnalysisRepositorySpy:
 
 
 class ResultProviderSpy:
+    runtime_provenance = mock_runtime_provenance("RESULT_TEST")
+
     def __init__(
         self,
         archive: InMemoryArchive,
@@ -1143,17 +1173,109 @@ def test_frozen_analysis_request_config_must_exactly_match_walk_forward_request(
 
     relabeled_config = json.loads(json.dumps(base_config))
     request_config = relabeled_config["request"]
-    request_config["selection_ev_threshold"] = request_config.pop(
-        "min_selection_ev"
-    )
+    request_config["selection_ev_threshold"] = request_config.pop("min_selection_ev")
     _assert_frozen_config_rejected(result, relabeled_config)
+
+    null_provenance_config = json.loads(json.dumps(base_config))
+    null_provenance_config["request"]["provider_runtime_provenance"] = None
+    _assert_frozen_config_rejected(
+        result,
+        null_provenance_config,
+        expected_error="AnalysisRun provider runtime provenance",
+    )
+
+
+def test_live_provider_provenance_is_valid_frozen_backtest_config() -> None:
+    plans = (slate_plan(1),)
+    settings = AppSettings.from_toml("config/live.toml")
+    archive = InMemoryArchive(plans, matches_per_slate=2)
+    events: list[str] = []
+    repository = AnalysisRepositorySpy(events)
+    fixture_provider = FixtureStub(archive)
+    market_provider = OddsStub(archive)
+    sporttery_provider = SportteryStub(archive)
+    quant_provider = QuantStub(archive)
+    for provider, provider_code in (
+        (fixture_provider, "FIXTURE_TEST"),
+        (market_provider, "ODDS_TEST"),
+        (sporttery_provider, "SPORTTERY_TEST"),
+        (quant_provider, "QUANT_TEST"),
+    ):
+        provider.runtime_provenance = RuntimeProvenance(
+            environment=RuntimeEnvironment.LIVE,
+            provider_code=provider_code,
+            data_mode=HistoricalDataMode.LIVE_STRICT,
+        )
+    analysis = RunAnalysisService(
+        fixture_provider,
+        market_provider,
+        sporttery_provider,
+        quant_provider,
+        repository,
+        settings,
+    )
+    result_provider = ResultProviderSpy(archive, repository, events)
+    result_provider.runtime_provenance = RuntimeProvenance(
+        environment=RuntimeEnvironment.LIVE,
+        provider_code="RESULT_TEST",
+        data_mode=HistoricalDataMode.LIVE_STRICT,
+    )
+    service = WalkForwardBacktestService(analysis, result_provider)
+
+    result = asyncio.run(
+        service.run(request_for("backtest-live-provenance", plans, settings))
+    )
+    request_config = json.loads(result.analysis_artifacts[0].analysis_run.config_json)[
+        "request"
+    ]
+
+    assert set(request_config["provider_runtime_provenance"]) == {
+        "fixture",
+        "market_odds",
+        "sporttery",
+        "manual_quant",
+    }
+
+    tampered = json.loads(result.analysis_artifacts[0].analysis_run.config_json)
+    tampered["request"].pop("provider_runtime_provenance")
+    _assert_frozen_config_rejected(
+        result,
+        tampered,
+        expected_error="provider runtime provenance",
+    )
+
+
+def test_backtest_rejects_provider_data_mode_before_any_slate_io() -> None:
+    plans = (slate_plan(1),)
+    service, _, repository, result_provider, odds_provider, settings = build_service(
+        plans
+    )
+    odds_provider.runtime_provenance = RuntimeProvenance(
+        environment=RuntimeEnvironment.RESEARCH,
+        provider_code="ODDS_TEST",
+        is_mock=True,
+        data_mode=HistoricalDataMode.SOURCE_TIME_RESEARCH,
+    )
+
+    with pytest.raises(RuntimeDataModeError, match="must match"):
+        asyncio.run(
+            service.run(request_for("backtest-mode-preflight", plans, settings))
+        )
+
+    assert repository.saved == []
+    assert odds_provider.queries == []
+    assert result_provider.queries == []
 
 
 def _assert_frozen_config_rejected(
     result,
     config: dict[str, object],
+    *,
+    expected_error: str = "AnalysisRun (request|decision scope)",
 ) -> None:
-    config_json = json.dumps(config, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    config_json = json.dumps(
+        config, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+    )
     slate = result.slate_results[0]
     analysis_run = slate.analysis_artifacts.analysis_run.model_copy(
         update={
@@ -1172,7 +1294,7 @@ def _assert_frozen_config_rejected(
         }
     )
 
-    with pytest.raises(ValueError, match="AnalysisRun (request|decision scope)"):
+    with pytest.raises(ValueError, match=expected_error):
         validate_walk_forward_backtest_result(tampered)
 
 

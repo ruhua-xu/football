@@ -17,7 +17,7 @@ from typing import Sequence
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_VERSION = "0.4.0"
-EXPECTED_MIGRATION_HEAD = "f3a1c6d8e204"
+EXPECTED_MIGRATION_HEAD = "c4e8a1d7f205"
 PROVIDER_CODE = "SYNTHETIC_ACCEPTANCE_V1"
 QUANT_RUN_ID = "wheel-e2e-quant"
 BLEND_RUN_ID = "wheel-e2e-blend"
@@ -39,6 +39,7 @@ EXPECTED_RESOURCE_FILES = frozenset(
     {
         "alembic.ini",
         "config/backtest.toml",
+        "config/live.toml",
         "config/mvp.toml",
         "data/fixtures/mvp_matches.json",
         "data/fixtures/historical_acceptance/acceptance_config.toml",
@@ -63,6 +64,7 @@ EXPECTED_RESOURCE_FILES = frozenset(
         "fankui/historical_data_backtest.md",
         "fankui/llm_review_v1_contract.md",
         "fankui/llm_review_v2_contract.md",
+        "fankui/llm_review_v3_contract.md",
         "fankui/llm_strategy.md",
         "fankui/decisions/0001-market-abstraction.md",
         "fankui/decisions/0002-versioned-fusion-policies.md",
@@ -79,10 +81,11 @@ EXPECTED_RESOURCE_FILES = frozenset(
         "migrations/versions/9d4e6f1a2c70_harden_artifact_integrity.py",
         "migrations/versions/c8b7e2a4f190_add_post_review_persistence.py",
         "migrations/versions/e3754eb9a102_seal_all_analysis_artifacts.py",
-        (
-            "migrations/versions/"
-            "f3a1c6d8e204_add_historical_backtest_persistence.py"
-        ),
+        ("migrations/versions/f3a1c6d8e204_add_historical_backtest_persistence.py"),
+        "migrations/versions/d2e7a4c9b615_add_identity_persistence_schema.py",
+        "migrations/versions/a6c1f9e3b742_add_fixture_ingestion_capture.py",
+        "migrations/versions/b7d4e9f2c631_add_quant_model_lineage.py",
+        "migrations/versions/c4e8a1d7f205_add_backtest_v2_lineage.py",
     }
 )
 
@@ -425,6 +428,21 @@ print(json.dumps({
     comparison_report = work_dir / "comparison.md"
 
     _run_checked(
+        "live command help",
+        [executable, "live", "--help"],
+        cwd=work_dir,
+        environment=environment,
+        markers=("ingest-fixtures",),
+    )
+    _run_checked(
+        "live fixture ingestion help",
+        [executable, "live", "ingest-fixtures", "--help"],
+        cwd=work_dir,
+        environment=environment,
+        markers=("--league-id", "--provider-season-id", "--team-type"),
+    )
+
+    _run_checked(
         "historical-archive validate",
         [executable, "historical-archive", "validate"],
         cwd=work_dir,
@@ -708,8 +726,7 @@ print(json.dumps(state, sort_keys=True))
     _require(state.get("archive_count") == 6, f"archive persistence mismatch: {state}")
     _require(state.get("run_count") == 2, f"backtest run persistence mismatch: {state}")
     _require(
-        state.get("quant_slice_count") == 10
-        and state.get("blend_slice_count") == 10,
+        state.get("quant_slice_count") == 10 and state.get("blend_slice_count") == 10,
         f"backtest slice persistence mismatch: {state}",
     )
     _require(
@@ -754,7 +771,8 @@ print(json.dumps(state, sort_keys=True))
     )
 
     print(
-        "[wheel-e2e] SUCCESS 8 CLI paths; 2 runs x 10 slices; "
+        "[wheel-e2e] SUCCESS live help + 8 historical CLI paths; "
+        "2 runs x 10 slices; "
         f"migration head {EXPECTED_MIGRATION_HEAD}; reports verified"
     )
 
