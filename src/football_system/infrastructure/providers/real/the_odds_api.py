@@ -58,6 +58,7 @@ from football_system.infrastructure.files.raw_archive import (
     ArchivedRawArtifact,
     RawDataArchive,
 )
+from football_system.domain.raw_data import ProviderRequestAudit
 from football_system.infrastructure.http.provider_client import ProviderHttpClient
 from football_system.infrastructure.providers.real._common import (
     ProviderPayloadError,
@@ -178,12 +179,41 @@ class TheOddsApiMarketOddsProvider(MarketOddsProvider):
         )
         self._regions = _required_text(regions, "regions")
         self._last_raw_artifact: ArchivedRawArtifact | None = None
+        self._last_request_audit: ProviderRequestAudit | None = None
+        self._last_raw_payload_sha256: str | None = None
 
     @property
     def last_raw_artifact(self) -> ArchivedRawArtifact | None:
         return self._last_raw_artifact
 
+    @property
+    def last_request_audit(self) -> ProviderRequestAudit | None:
+        return self._last_request_audit
+
+    @property
+    def last_raw_artifact_id(self) -> str | None:
+        return (
+            self._last_raw_artifact.artifact_id
+            if self._last_raw_artifact is not None
+            else None
+        )
+
+    @property
+    def last_raw_artifact_path(self) -> str | None:
+        return (
+            str(self._last_raw_artifact.payload_path)
+            if self._last_raw_artifact is not None
+            else None
+        )
+
+    @property
+    def last_raw_payload_sha256(self) -> str | None:
+        return self._last_raw_payload_sha256
+
     async def fetch_market_odds(self, query: SnapshotQuery) -> MarketOddsBatch:
+        self._last_raw_artifact = None
+        self._last_request_audit = None
+        self._last_raw_payload_sha256 = None
         result = self._client.get(
             f"/v4/sports/{self._sport_key}/odds",
             query_parameters={
@@ -199,6 +229,8 @@ class TheOddsApiMarketOddsProvider(MarketOddsProvider):
             self._raw_archive,
         )
         self._last_raw_artifact = artifact
+        self._last_request_audit = result.audit
+        self._last_raw_payload_sha256 = result.to_raw_artifact_metadata().payload_sha256
         payload = decode_json_payload(self.provider_code, result.payload or b"")
         events = _current_events(payload)
         requested = set(query.match_ids)

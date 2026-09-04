@@ -55,7 +55,11 @@ from football_system.infrastructure.database.models import (
     AnalysisRunRecord,
     BookmakerRecord,
     CompetitionRecord,
+    FixtureObservationRecord,
     LLMReviewArtifactRecord,
+    LiveAnalysisPreparationMatchRecord,
+    LiveAnalysisPreparationRecord,
+    LiveAnalysisRunPreparationRecord,
     ManualQuantInputRecord,
     MarketOddsQuoteRecord,
     MarketOddsSnapshotRecord,
@@ -637,6 +641,11 @@ class SqlAlchemyReviewArtifactRepository:
             context,
             evaluation.market.canonical,
         )
+        fixture_observation = _prepared_fixture_observation(
+            session,
+            run,
+            context,
+        )
         return AnalysisPacketMatchSourceV3(
             match_id=match.internal_match_id,
             competition_id=competition.competition_id,
@@ -645,7 +654,11 @@ class SqlAlchemyReviewArtifactRepository:
             home_team_name=home_team.name,
             away_team_id=away_team.team_id,
             away_team_name=away_team.name,
-            kickoff_at_utc=match.kickoff_at_utc,
+            kickoff_at_utc=(
+                fixture_observation.kickoff_at_utc
+                if fixture_observation is not None
+                else match.kickoff_at_utc
+            ),
             market_key=evaluation.market.canonical,
             context_hash=context.context_hash,
             p_market=PacketMarketPrediction(
@@ -662,6 +675,65 @@ class SqlAlchemyReviewArtifactRepository:
             evidence_ids=tuple(item.evidence_id for item in review_context.evidence),
             review_context=review_context,
         )
+
+
+def _prepared_fixture_observation(
+    session: Session,
+    run: AnalysisRunRecord,
+    context: AnalysisRunMatchRecord,
+) -> FixtureObservationRecord | None:
+    link = session.get(LiveAnalysisRunPreparationRecord, run.analysis_run_id)
+    try:
+        context_payload = json.loads(context.context_json)
+    except json.JSONDecodeError as error:
+        raise ValueError("stored match context is not valid JSON") from error
+    fixture_observation_id = (
+        context_payload.get("fixture_observation_id")
+        if isinstance(context_payload, dict)
+        else None
+    )
+    if link is None:
+        if fixture_observation_id is not None:
+            raise ValueError("stored match context is missing preparation lineage")
+        return None
+    preparation = _required(
+        session.get(LiveAnalysisPreparationRecord, link.preparation_id),
+        "live analysis preparation",
+    )
+    prepared = _required(
+        session.get(
+            LiveAnalysisPreparationMatchRecord,
+            (link.preparation_id, context.internal_match_id),
+        ),
+        "live analysis preparation match",
+    )
+    observation = _required(
+        session.get(FixtureObservationRecord, prepared.fixture_observation_id),
+        "prepared fixture observation",
+    )
+    if (
+        preparation.status != "ANALYSIS_INPUT_READY"
+        or preparation.decision_as_of_at_utc != run.as_of_at_utc
+        or not prepared.ready
+        or fixture_observation_id != prepared.fixture_observation_id
+        or context_payload.get("match_id") != context.internal_match_id
+        or context_payload.get("market_odds_snapshot_id")
+        != prepared.market_consensus_snapshot_id
+        or context_payload.get("sporttery_bonus_snapshot_id")
+        != prepared.sporttery_bonus_snapshot_id
+        or context.market_odds_snapshot_id != prepared.market_consensus_snapshot_id
+        or context.sporttery_bonus_snapshot_id
+        != prepared.sporttery_bonus_snapshot_id
+        or observation.internal_match_id != context.internal_match_id
+        or observation.available_at_utc > run.as_of_at_utc
+        or not (
+            preparation.kickoff_from_utc
+            <= observation.kickoff_at_utc
+            <= preparation.kickoff_to_utc
+        )
+    ):
+        raise ValueError("stored prepared fixture lineage is inconsistent")
+    return observation
 
 
 def _stored_market(record: object, label: str) -> MarketKey:

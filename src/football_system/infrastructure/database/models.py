@@ -529,6 +529,572 @@ class SportteryBonusQuoteRecord(Base):
     fixed_bonus: Mapped[Decimal] = mapped_column(PriceColumn, nullable=False)
 
 
+class LiveSourceIngestionRecord(Base):
+    __tablename__ = "live_source_ingestions"
+    __table_args__ = (
+        CheckConstraint(
+            "schema_version = 'LIVE_SOURCE_INGESTION_V1'",
+            name="ck_live_source_ingestion_schema",
+        ),
+        CheckConstraint(
+            "source_kind IN ('MARKET_ODDS', 'SPORTTERRY')",
+            name="ck_live_source_ingestion_kind",
+        ),
+        CheckConstraint(
+            "data_mode = 'LIVE_STRICT'",
+            name="ck_live_source_ingestion_data_mode",
+        ),
+        CheckConstraint(
+            "status IN ('COMPLETED', 'COMPLETED_WITH_ISSUES')",
+            name="ck_live_source_ingestion_status",
+        ),
+        CheckConstraint(
+            "identity_cutoff_at_utc <= source_ingested_at_utc AND "
+            "source_ingested_at_utc <= persisted_at_utc",
+            name="ck_live_source_ingestion_timeline",
+        ),
+        CheckConstraint(
+            "json_valid(requested_match_ids_json) = 1 AND "
+            "json_type(requested_match_ids_json) = 'array' AND "
+            "json_valid(capture_json) = 1 AND json_type(capture_json) = 'object'",
+            name="ck_live_source_ingestion_json",
+        ),
+        CheckConstraint(
+            "length(capture_hash) = 64 AND capture_hash NOT GLOB '*[^0-9a-f]*'",
+            name="ck_live_source_ingestion_hash",
+        ),
+        CheckConstraint(
+            "artifact_count > 0 AND snapshot_count >= 0 AND mapping_count >= 0 "
+            "AND issue_count >= 0 AND consensus_count >= 0",
+            name="ck_live_source_ingestion_counts",
+        ),
+        UniqueConstraint("capture_hash", name="uq_live_source_ingestion_hash"),
+        Index(
+            "ix_live_source_ingestion_kind_persisted",
+            "source_kind",
+            "persisted_at_utc",
+        ),
+        Index(
+            "ix_live_source_ingestion_provider_persisted",
+            "provider_id",
+            "persisted_at_utc",
+        ),
+    )
+
+    ingestion_id: Mapped[str] = mapped_column(IdColumn, primary_key=True)
+    schema_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    source_kind: Mapped[str] = mapped_column(EnumColumn, nullable=False)
+    provider_id: Mapped[str] = mapped_column(
+        ForeignKey("providers.provider_id", ondelete="RESTRICT"), nullable=False
+    )
+    data_mode: Mapped[str] = mapped_column(EnumColumn, nullable=False)
+    status: Mapped[str] = mapped_column(EnumColumn, nullable=False)
+    identity_cutoff_at_utc: Mapped[datetime] = mapped_column(
+        UTCDateTime(), nullable=False
+    )
+    source_ingested_at_utc: Mapped[datetime] = mapped_column(
+        UTCDateTime(), nullable=False
+    )
+    persisted_at_utc: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    requested_match_ids_json: Mapped[str] = mapped_column(Text, nullable=False)
+    artifact_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    snapshot_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    mapping_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    issue_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    consensus_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    capture_json: Mapped[str] = mapped_column(Text, nullable=False)
+    capture_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class LiveSourceArtifactRecord(Base):
+    __tablename__ = "live_source_ingestion_artifacts"
+    __table_args__ = (
+        CheckConstraint("artifact_no >= 0", name="ck_live_source_artifact_no"),
+        CheckConstraint(
+            "role IN ('RAW_RESPONSE', 'MANUAL_DOCUMENT', 'SOURCE_ARTIFACT')",
+            name="ck_live_source_artifact_role",
+        ),
+        CheckConstraint(
+            "length(payload_sha256) = 64 AND payload_sha256 NOT GLOB '*[^0-9a-f]*'",
+            name="ck_live_source_artifact_hash",
+        ),
+        CheckConstraint(
+            "captured_at_utc <= available_at_utc",
+            name="ck_live_source_artifact_timeline",
+        ),
+        UniqueConstraint(
+            "ingestion_id", "artifact_no", name="uq_live_source_artifact_no"
+        ),
+    )
+
+    ingestion_id: Mapped[str] = mapped_column(
+        ForeignKey("live_source_ingestions.ingestion_id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    artifact_id: Mapped[str] = mapped_column(IdColumn, primary_key=True)
+    artifact_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    role: Mapped[str] = mapped_column(EnumColumn, nullable=False)
+    payload_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_path: Mapped[str] = mapped_column(String(4096), nullable=False)
+    captured_at_utc: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    available_at_utc: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class LiveSourceMappingRecord(Base):
+    __tablename__ = "live_source_ingestion_mappings"
+    __table_args__ = (
+        CheckConstraint("mapping_no >= 0", name="ck_live_source_mapping_no"),
+        CheckConstraint(
+            "mapping_role IN ('SOURCE', 'CONSENSUS')",
+            name="ck_live_source_mapping_role",
+        ),
+        UniqueConstraint(
+            "ingestion_id",
+            "mapping_role",
+            "mapping_no",
+            name="uq_live_source_mapping_no",
+        ),
+    )
+
+    ingestion_id: Mapped[str] = mapped_column(
+        ForeignKey("live_source_ingestions.ingestion_id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    mapping_role: Mapped[str] = mapped_column(EnumColumn, primary_key=True)
+    mapping_id: Mapped[str] = mapped_column(
+        ForeignKey("provider_match_mappings.mapping_id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    mapping_no: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class LiveSourceMarketSnapshotRecord(Base):
+    __tablename__ = "live_source_ingestion_market_snapshots"
+    __table_args__ = (
+        CheckConstraint("snapshot_no >= 0", name="ck_live_source_market_no"),
+        CheckConstraint(
+            "snapshot_role IN ('SOURCE', 'CONSENSUS')",
+            name="ck_live_source_market_role",
+        ),
+        UniqueConstraint(
+            "ingestion_id", "snapshot_id", name="uq_live_source_market_membership"
+        ),
+        UniqueConstraint(
+            "ingestion_id",
+            "snapshot_role",
+            "snapshot_no",
+            name="uq_live_source_market_no",
+        ),
+    )
+
+    ingestion_id: Mapped[str] = mapped_column(
+        ForeignKey("live_source_ingestions.ingestion_id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    snapshot_role: Mapped[str] = mapped_column(EnumColumn, primary_key=True)
+    snapshot_id: Mapped[str] = mapped_column(
+        ForeignKey("market_odds_snapshots.snapshot_id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    snapshot_no: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class LiveMarketConsensusLineageRecord(Base):
+    __tablename__ = "live_market_consensus_lineages"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["ingestion_id", "consensus_snapshot_id"],
+            [
+                "live_source_ingestion_market_snapshots.ingestion_id",
+                "live_source_ingestion_market_snapshots.snapshot_id",
+            ],
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "policy = 'MARKET_CONSENSUS_MEDIAN_V1'",
+            name="ck_live_market_consensus_policy",
+        ),
+        CheckConstraint("constituent_count > 0", name="ck_live_market_consensus_count"),
+    )
+
+    ingestion_id: Mapped[str] = mapped_column(IdColumn, primary_key=True)
+    consensus_snapshot_id: Mapped[str] = mapped_column(IdColumn, primary_key=True)
+    policy: Mapped[str] = mapped_column(String(80), nullable=False)
+    internal_match_id: Mapped[str] = mapped_column(
+        ForeignKey("matches.internal_match_id", ondelete="RESTRICT"), nullable=False
+    )
+    source_snapshot_key: Mapped[str] = mapped_column(IdColumn, nullable=False)
+    constituent_count: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class LiveMarketConsensusConstituentRecord(Base):
+    __tablename__ = "live_market_consensus_constituents"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["ingestion_id", "consensus_snapshot_id"],
+            [
+                "live_market_consensus_lineages.ingestion_id",
+                "live_market_consensus_lineages.consensus_snapshot_id",
+            ],
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["ingestion_id", "source_snapshot_id"],
+            [
+                "live_source_ingestion_market_snapshots.ingestion_id",
+                "live_source_ingestion_market_snapshots.snapshot_id",
+            ],
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint("constituent_no >= 0", name="ck_live_market_constituent_no"),
+        CheckConstraint(
+            "length(payload_hash) = 64 AND payload_hash NOT GLOB '*[^0-9a-f]*'",
+            name="ck_live_market_constituent_hash",
+        ),
+        UniqueConstraint(
+            "ingestion_id",
+            "consensus_snapshot_id",
+            "constituent_no",
+            name="uq_live_market_constituent_no",
+        ),
+    )
+
+    ingestion_id: Mapped[str] = mapped_column(IdColumn, primary_key=True)
+    consensus_snapshot_id: Mapped[str] = mapped_column(IdColumn, primary_key=True)
+    source_snapshot_id: Mapped[str] = mapped_column(IdColumn, primary_key=True)
+    constituent_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    provider_id: Mapped[str] = mapped_column(
+        ForeignKey("providers.provider_id", ondelete="RESTRICT"), nullable=False
+    )
+    bookmaker_id: Mapped[str] = mapped_column(
+        ForeignKey("bookmakers.bookmaker_id", ondelete="RESTRICT"), nullable=False
+    )
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class LiveSourceSportterySnapshotRecord(Base):
+    __tablename__ = "live_source_ingestion_sporttery_snapshots"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["ingestion_id", "manual_document_artifact_id"],
+            [
+                "live_source_ingestion_artifacts.ingestion_id",
+                "live_source_ingestion_artifacts.artifact_id",
+            ],
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["ingestion_id", "source_artifact_id"],
+            [
+                "live_source_ingestion_artifacts.ingestion_id",
+                "live_source_ingestion_artifacts.artifact_id",
+            ],
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint("snapshot_no >= 0", name="ck_live_source_sporttery_no"),
+        CheckConstraint(
+            "json_valid(provenance_json) = 1 AND json_type(provenance_json) = 'object'",
+            name="ck_live_source_sporttery_provenance_json",
+        ),
+        CheckConstraint(
+            "length(provenance_hash) = 64 AND provenance_hash NOT GLOB '*[^0-9a-f]*'",
+            name="ck_live_source_sporttery_provenance_hash",
+        ),
+        UniqueConstraint(
+            "ingestion_id", "snapshot_no", name="uq_live_source_sporttery_no"
+        ),
+    )
+
+    ingestion_id: Mapped[str] = mapped_column(
+        ForeignKey("live_source_ingestions.ingestion_id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    snapshot_id: Mapped[str] = mapped_column(
+        ForeignKey("sporttery_bonus_snapshots.snapshot_id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    snapshot_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    manual_document_artifact_id: Mapped[str] = mapped_column(IdColumn, nullable=False)
+    source_artifact_id: Mapped[str] = mapped_column(IdColumn, nullable=False)
+    provenance_json: Mapped[str] = mapped_column(Text, nullable=False)
+    provenance_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class LiveSourceIssueRecord(Base):
+    __tablename__ = "live_source_ingestion_issues"
+    __table_args__ = (
+        CheckConstraint("issue_no >= 0", name="ck_live_source_issue_no"),
+        CheckConstraint(
+            "source_kind IN ('MARKET_ODDS', 'SPORTTERRY')",
+            name="ck_live_source_issue_kind",
+        ),
+        CheckConstraint(
+            "(external_namespace IS NULL AND external_match_id IS NULL) OR "
+            "(external_namespace IS NOT NULL AND external_match_id IS NOT NULL)",
+            name="ck_live_source_issue_external_identity",
+        ),
+        CheckConstraint(
+            "json_valid(candidates_json) = 1 AND json_type(candidates_json) = 'array'",
+            name="ck_live_source_issue_candidates_json",
+        ),
+        UniqueConstraint("ingestion_id", "issue_no", name="uq_live_source_issue_no"),
+    )
+
+    ingestion_id: Mapped[str] = mapped_column(
+        ForeignKey("live_source_ingestions.ingestion_id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    issue_id: Mapped[str] = mapped_column(IdColumn, primary_key=True)
+    issue_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_kind: Mapped[str] = mapped_column(EnumColumn, nullable=False)
+    reason: Mapped[str] = mapped_column(EnumColumn, nullable=False)
+    provider_id: Mapped[str] = mapped_column(
+        ForeignKey("providers.provider_id", ondelete="RESTRICT"), nullable=False
+    )
+    external_namespace: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    external_match_id: Mapped[str | None] = mapped_column(IdColumn, nullable=True)
+    requested_match_id: Mapped[str | None] = mapped_column(IdColumn, nullable=True)
+    candidates_json: Mapped[str] = mapped_column(Text, nullable=False)
+    code: Mapped[str] = mapped_column(String(160), nullable=False)
+    detail: Mapped[str] = mapped_column(String(240), nullable=False)
+    provider_identity_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class LiveIdentityReviewRecord(Base):
+    __tablename__ = "live_identity_reviews"
+    __table_args__ = (
+        CheckConstraint(
+            "schema_version = 'LIVE_IDENTITY_REVIEW_V1'",
+            name="ck_live_identity_review_schema",
+        ),
+        CheckConstraint(
+            "reviewed_at_utc <= imported_at_utc",
+            name="ck_live_identity_review_timeline",
+        ),
+        CheckConstraint(
+            "mapping_count > 0", name="ck_live_identity_review_mapping_count"
+        ),
+        CheckConstraint(
+            "json_valid(review_json) = 1 AND json_type(review_json) = 'object'",
+            name="ck_live_identity_review_json",
+        ),
+        CheckConstraint(
+            "length(review_hash) = 64 AND review_hash NOT GLOB '*[^0-9a-f]*'",
+            name="ck_live_identity_review_hash",
+        ),
+        UniqueConstraint("review_hash", name="uq_live_identity_review_hash"),
+        UniqueConstraint(
+            "review_id",
+            "source_ingestion_id",
+            name="uq_live_identity_review_source",
+        ),
+    )
+
+    review_id: Mapped[str] = mapped_column(IdColumn, primary_key=True)
+    schema_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    source_ingestion_id: Mapped[str] = mapped_column(
+        ForeignKey("live_source_ingestions.ingestion_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    reviewed_by: Mapped[str] = mapped_column(IdColumn, nullable=False)
+    reviewed_at_utc: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    imported_at_utc: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    mapping_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    review_json: Mapped[str] = mapped_column(Text, nullable=False)
+    review_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class LiveIdentityReviewMappingRecord(Base):
+    __tablename__ = "live_identity_review_mappings"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["review_id", "source_ingestion_id"],
+            [
+                "live_identity_reviews.review_id",
+                "live_identity_reviews.source_ingestion_id",
+            ],
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["source_ingestion_id", "source_issue_id"],
+            [
+                "live_source_ingestion_issues.ingestion_id",
+                "live_source_ingestion_issues.issue_id",
+            ],
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint("mapping_no >= 0", name="ck_live_identity_review_mapping_no"),
+        UniqueConstraint(
+            "review_id",
+            "provider_id",
+            "external_namespace",
+            "external_match_id",
+            name="uq_live_identity_review_external",
+        ),
+    )
+
+    review_id: Mapped[str] = mapped_column(IdColumn, primary_key=True)
+    mapping_no: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_ingestion_id: Mapped[str] = mapped_column(IdColumn, nullable=False)
+    source_issue_id: Mapped[str] = mapped_column(IdColumn, nullable=False)
+    provider_id: Mapped[str] = mapped_column(
+        ForeignKey("providers.provider_id", ondelete="RESTRICT"), nullable=False
+    )
+    external_namespace: Mapped[str] = mapped_column(String(80), nullable=False)
+    external_match_id: Mapped[str] = mapped_column(IdColumn, nullable=False)
+    internal_match_id: Mapped[str] = mapped_column(
+        ForeignKey("matches.internal_match_id", ondelete="RESTRICT"), nullable=False
+    )
+    provider_mapping_id: Mapped[str] = mapped_column(
+        ForeignKey("provider_match_mappings.mapping_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+
+
+class LiveAnalysisPreparationRecord(Base):
+    __tablename__ = "live_analysis_preparations"
+    __table_args__ = (
+        CheckConstraint(
+            "schema_version = 'LIVE_ANALYSIS_PREPARATION_V1'",
+            name="ck_live_analysis_preparation_schema",
+        ),
+        CheckConstraint(
+            "status IN ('ANALYSIS_INPUT_READY', 'NO_ANALYSIS_INSUFFICIENT_DATA')",
+            name="ck_live_analysis_preparation_status",
+        ),
+        CheckConstraint(
+            "decision_as_of_at_utc <= created_at_utc AND "
+            "kickoff_from_utc <= kickoff_to_utc",
+            name="ck_live_analysis_preparation_timeline",
+        ),
+        CheckConstraint(
+            "policy_version = 'LIVE_ANALYSIS_INPUT_POLICY_V1' AND "
+            "maximum_odds_age_seconds > 0 AND minimum_bookmaker_count > 0",
+            name="ck_live_analysis_preparation_policy",
+        ),
+        CheckConstraint(
+            "json_valid(expected_match_ids_json) = 1 AND "
+            "json_type(expected_match_ids_json) = 'array' AND "
+            "json_valid(preparation_json) = 1 AND "
+            "json_type(preparation_json) = 'object'",
+            name="ck_live_analysis_preparation_json",
+        ),
+        CheckConstraint(
+            "match_count >= ready_match_count AND ready_match_count >= 0",
+            name="ck_live_analysis_preparation_counts",
+        ),
+        CheckConstraint(
+            "length(report_hash) = 64 AND report_hash NOT GLOB '*[^0-9a-f]*'",
+            name="ck_live_analysis_preparation_hash",
+        ),
+        UniqueConstraint("report_hash", name="uq_live_analysis_preparation_hash"),
+        Index(
+            "ix_live_analysis_preparation_scope_cutoff",
+            "competition_id",
+            "season_id",
+            "decision_as_of_at_utc",
+        ),
+    )
+
+    preparation_id: Mapped[str] = mapped_column(IdColumn, primary_key=True)
+    schema_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    status: Mapped[str] = mapped_column(EnumColumn, nullable=False)
+    decision_as_of_at_utc: Mapped[datetime] = mapped_column(
+        UTCDateTime(), nullable=False
+    )
+    kickoff_from_utc: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    kickoff_to_utc: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    competition_id: Mapped[str] = mapped_column(
+        ForeignKey("competitions.competition_id", ondelete="RESTRICT"), nullable=False
+    )
+    season_id: Mapped[str] = mapped_column(IdColumn, nullable=False)
+    allow_partial_inputs: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    policy_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    maximum_odds_age_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    minimum_bookmaker_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    expected_match_ids_json: Mapped[str] = mapped_column(Text, nullable=False)
+    match_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    ready_match_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at_utc: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    preparation_json: Mapped[str] = mapped_column(Text, nullable=False)
+    report_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class LiveAnalysisPreparationMatchRecord(Base):
+    __tablename__ = "live_analysis_preparation_matches"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["market_ingestion_id", "market_consensus_snapshot_id"],
+            [
+                "live_source_ingestion_market_snapshots.ingestion_id",
+                "live_source_ingestion_market_snapshots.snapshot_id",
+            ],
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["sporttery_ingestion_id", "sporttery_bonus_snapshot_id"],
+            [
+                "live_source_ingestion_sporttery_snapshots.ingestion_id",
+                "live_source_ingestion_sporttery_snapshots.snapshot_id",
+            ],
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint("match_no >= 0", name="ck_live_analysis_match_no"),
+        CheckConstraint(
+            "bookmaker_count >= 0 AND "
+            "(odds_age_seconds IS NULL OR odds_age_seconds >= 0)",
+            name="ck_live_analysis_match_metrics",
+        ),
+        CheckConstraint(
+            "(market_ingestion_id IS NULL AND market_consensus_snapshot_id IS NULL) "
+            "OR (market_ingestion_id IS NOT NULL AND "
+            "market_consensus_snapshot_id IS NOT NULL)",
+            name="ck_live_analysis_match_market_pair",
+        ),
+        CheckConstraint(
+            "(sporttery_ingestion_id IS NULL AND "
+            "sporttery_bonus_snapshot_id IS NULL) OR "
+            "(sporttery_ingestion_id IS NOT NULL AND "
+            "sporttery_bonus_snapshot_id IS NOT NULL)",
+            name="ck_live_analysis_match_sporttery_pair",
+        ),
+        CheckConstraint(
+            "json_valid(reason_codes_json) = 1 AND "
+            "json_type(reason_codes_json) = 'array' AND "
+            "json_valid(data_quality_json) = 1 AND "
+            "json_type(data_quality_json) = 'object'",
+            name="ck_live_analysis_match_json",
+        ),
+        UniqueConstraint(
+            "preparation_id", "match_no", name="uq_live_analysis_match_no"
+        ),
+    )
+
+    preparation_id: Mapped[str] = mapped_column(
+        ForeignKey("live_analysis_preparations.preparation_id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    internal_match_id: Mapped[str] = mapped_column(IdColumn, primary_key=True)
+    match_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    ready: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    fixture_observation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("fixture_observations.observation_id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    market_ingestion_id: Mapped[str | None] = mapped_column(IdColumn, nullable=True)
+    market_consensus_snapshot_id: Mapped[str | None] = mapped_column(
+        IdColumn, nullable=True
+    )
+    sporttery_ingestion_id: Mapped[str | None] = mapped_column(IdColumn, nullable=True)
+    sporttery_bonus_snapshot_id: Mapped[str | None] = mapped_column(
+        IdColumn, nullable=True
+    )
+    bookmaker_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    odds_age_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reason_codes_json: Mapped[str] = mapped_column(Text, nullable=False)
+    data_quality_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 class ManualQuantInputRecord(Base):
     __tablename__ = "manual_quant_inputs"
     __table_args__ = (
@@ -596,6 +1162,25 @@ class AnalysisRunRecord(Base):
     )
 
 
+class LiveAnalysisRunPreparationRecord(Base):
+    __tablename__ = "live_analysis_run_preparations"
+    __table_args__ = (
+        Index(
+            "ix_live_analysis_run_preparation_preparation",
+            "preparation_id",
+        ),
+    )
+
+    analysis_run_id: Mapped[str] = mapped_column(
+        ForeignKey("analysis_runs.analysis_run_id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    preparation_id: Mapped[str] = mapped_column(
+        ForeignKey("live_analysis_preparations.preparation_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+
+
 class QuantModelStateRecord(Base):
     __tablename__ = "quant_model_states"
     __table_args__ = (
@@ -612,13 +1197,11 @@ class QuantModelStateRecord(Base):
             name="uq_quant_model_state_version",
         ),
         CheckConstraint(
-            "length(config_hash) = 64 AND "
-            "config_hash NOT GLOB '*[^0-9a-f]*'",
+            "length(config_hash) = 64 AND config_hash NOT GLOB '*[^0-9a-f]*'",
             name="ck_quant_model_state_config_hash",
         ),
         CheckConstraint(
-            "length(state_hash) = 64 AND "
-            "state_hash NOT GLOB '*[^0-9a-f]*'",
+            "length(state_hash) = 64 AND state_hash NOT GLOB '*[^0-9a-f]*'",
             name="ck_quant_model_state_hash",
         ),
         CheckConstraint(
@@ -730,8 +1313,7 @@ class QuantModelEvaluationRecord(Base):
             name="ck_quant_model_evaluation_availability",
         ),
         CheckConstraint(
-            "length(output_hash) = 64 AND "
-            "output_hash NOT GLOB '*[^0-9a-f]*'",
+            "length(output_hash) = 64 AND output_hash NOT GLOB '*[^0-9a-f]*'",
             name="ck_quant_model_evaluation_output_hash",
         ),
         CheckConstraint(
@@ -933,7 +1515,9 @@ class QuantPredictionRecord(Base):
     )
     method: Mapped[str] = mapped_column(String(80), nullable=False)
     method_version: Mapped[str] = mapped_column(String(80), nullable=False)
-    entered_at_utc: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    entered_at_utc: Mapped[datetime | None] = mapped_column(
+        UTCDateTime(), nullable=True
+    )
     generated_at_utc: Mapped[datetime | None] = mapped_column(
         UTCDateTime(), nullable=True
     )
@@ -2423,9 +3007,7 @@ class BacktestV2SliceRecord(Base):
             "AND length(slate_snapshot_hash) = 64",
             name="ck_backtest_v2_slice_hashes",
         ),
-        UniqueConstraint(
-            "backtest_run_id", "slice_no", name="uq_backtest_v2_slice_no"
-        ),
+        UniqueConstraint("backtest_run_id", "slice_no", name="uq_backtest_v2_slice_no"),
         UniqueConstraint("slice_hash", name="uq_backtest_v2_slice_hash"),
         ForeignKeyConstraint(
             ["quant_model_state_id", "analysis_run_id"],
@@ -2589,8 +3171,7 @@ class BacktestV2ResultSourceRecord(Base):
             name="ck_backtest_v2_result_no",
         ),
         CheckConstraint(
-            "length(source_payload_hash) = 64 AND "
-            "length(archive_payload_sha256) = 64",
+            "length(source_payload_hash) = 64 AND length(archive_payload_sha256) = 64",
             name="ck_backtest_v2_result_hashes",
         ),
         UniqueConstraint(

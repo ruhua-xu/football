@@ -186,6 +186,50 @@ SOURCE_TABLES = (
     "manual_quant_input_outcomes",
 )
 
+LIVE_SOURCE_V1_INSERT_KEYS = {
+    "live_source_ingestions": (("ingestion_id",), ("capture_hash",)),
+    "live_source_ingestion_artifacts": (
+        ("ingestion_id", "artifact_id"),
+        ("ingestion_id", "artifact_no"),
+    ),
+    "live_source_ingestion_mappings": (
+        ("ingestion_id", "mapping_role", "mapping_id"),
+        ("ingestion_id", "mapping_role", "mapping_no"),
+    ),
+    "live_source_ingestion_market_snapshots": (
+        ("ingestion_id", "snapshot_id"),
+        ("ingestion_id", "snapshot_role", "snapshot_no"),
+    ),
+    "live_market_consensus_lineages": (("ingestion_id", "consensus_snapshot_id"),),
+    "live_market_consensus_constituents": (
+        ("ingestion_id", "consensus_snapshot_id", "source_snapshot_id"),
+        ("ingestion_id", "consensus_snapshot_id", "constituent_no"),
+    ),
+    "live_source_ingestion_sporttery_snapshots": (
+        ("ingestion_id", "snapshot_id"),
+        ("ingestion_id", "snapshot_no"),
+    ),
+    "live_source_ingestion_issues": (
+        ("ingestion_id", "issue_id"),
+        ("ingestion_id", "issue_no"),
+    ),
+    "live_identity_reviews": (("review_id",), ("review_hash",)),
+    "live_identity_review_mappings": (
+        ("review_id", "mapping_no"),
+        (
+            "review_id",
+            "provider_id",
+            "external_namespace",
+            "external_match_id",
+        ),
+    ),
+    "live_analysis_preparations": (("preparation_id",), ("report_hash",)),
+    "live_analysis_preparation_matches": (
+        ("preparation_id", "internal_match_id"),
+        ("preparation_id", "match_no"),
+    ),
+}
+
 SOURCE_CHILD_INSERT_LOOKUPS = {
     "market_odds_quotes": (
         "SELECT 1 FROM analysis_runs r JOIN analysis_run_matches m "
@@ -1367,6 +1411,8 @@ def install_sqlite_immutability_triggers(connection: Connection) -> None:
     _install_fixture_ingestion_lineage_trigger(connection)
     _install_historical_lineage_triggers(connection)
     install_backtest_v2_v1_triggers(connection)
+    install_live_source_v1_triggers(connection)
+    install_live_analysis_run_preparation_v1_triggers(connection)
 
 
 def _install_fixture_ingestion_lineage_trigger(connection: Connection) -> None:
@@ -1403,6 +1449,337 @@ def _install_fixture_ingestion_lineage_trigger(connection: Connection) -> None:
         )
         BEGIN
             SELECT RAISE(ABORT, 'fixture observation lineage is inconsistent');
+        END
+        """
+    )
+
+
+def install_live_source_v1_triggers(connection: Connection) -> None:
+    """Install append-only and cross-table guards for live source lineage V1."""
+
+    if connection.dialect.name != "sqlite":
+        return
+    for table_name, key_sets in LIVE_SOURCE_V1_INSERT_KEYS.items():
+        conflict_condition = " OR ".join(
+            "("
+            + " AND ".join(f"existing.{column} = NEW.{column}" for column in key_set)
+            + ")"
+            for key_set in key_sets
+        )
+        connection.exec_driver_sql(
+            f"""
+            CREATE TRIGGER IF NOT EXISTS trg_{table_name}_immutable_insert_existing
+            BEFORE INSERT ON {table_name}
+            WHEN EXISTS (
+                SELECT 1 FROM {table_name} existing
+                WHERE {conflict_condition}
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'immutable live source record already exists');
+            END
+            """
+        )
+        for action in ("UPDATE", "DELETE"):
+            connection.exec_driver_sql(
+                f"""
+                CREATE TRIGGER IF NOT EXISTS
+                  trg_{table_name}_append_only_{action.lower()}
+                BEFORE {action} ON {table_name}
+                BEGIN
+                    SELECT RAISE(ABORT, 'live source records are append-only');
+                END
+                """
+            )
+
+    lineage_guards = {
+        "live_source_ingestion_artifacts": (
+            "NOT EXISTS (SELECT 1 FROM live_source_ingestions ingestion "
+            "WHERE ingestion.ingestion_id = NEW.ingestion_id AND "
+            "((ingestion.source_kind = 'MARKET_ODDS' AND "
+            "NEW.role = 'RAW_RESPONSE') OR "
+            "(ingestion.source_kind = 'SPORTTERRY' AND "
+            "NEW.role IN ('MANUAL_DOCUMENT', 'SOURCE_ARTIFACT'))))"
+        ),
+        "live_source_ingestion_mappings": (
+            "NOT EXISTS (SELECT 1 FROM live_source_ingestions ingestion "
+            "JOIN provider_match_mappings mapping "
+            "ON mapping.mapping_id = NEW.mapping_id "
+            "WHERE ingestion.ingestion_id = NEW.ingestion_id AND "
+            "((ingestion.source_kind = 'MARKET_ODDS' AND "
+            "NEW.mapping_role IN ('SOURCE', 'CONSENSUS')) OR "
+            "(ingestion.source_kind = 'SPORTTERRY' AND "
+            "NEW.mapping_role = 'SOURCE')))"
+        ),
+        "live_source_ingestion_market_snapshots": (
+            "NOT EXISTS (SELECT 1 FROM live_source_ingestions ingestion "
+            "JOIN market_odds_snapshots snapshot "
+            "ON snapshot.snapshot_id = NEW.snapshot_id "
+            "JOIN providers provider ON provider.provider_id = snapshot.provider_id "
+            "WHERE ingestion.ingestion_id = NEW.ingestion_id "
+            "AND ingestion.source_kind = 'MARKET_ODDS' AND "
+            "((NEW.snapshot_role = 'SOURCE' AND "
+            "provider.code = (SELECT code FROM providers "
+            "WHERE provider_id = ingestion.provider_id)) OR "
+            "(NEW.snapshot_role = 'CONSENSUS' AND "
+            "provider.code = 'MARKET_CONSENSUS_MEDIAN_V1')))"
+        ),
+        "live_market_consensus_lineages": (
+            "NOT EXISTS (SELECT 1 FROM live_source_ingestion_market_snapshots edge "
+            "JOIN market_odds_snapshots snapshot "
+            "ON snapshot.snapshot_id = edge.snapshot_id "
+            "WHERE edge.ingestion_id = NEW.ingestion_id "
+            "AND edge.snapshot_id = NEW.consensus_snapshot_id "
+            "AND edge.snapshot_role = 'CONSENSUS' "
+            "AND snapshot.internal_match_id = NEW.internal_match_id "
+            "AND snapshot.source_snapshot_key = NEW.source_snapshot_key)"
+        ),
+        "live_market_consensus_constituents": (
+            "NOT EXISTS (SELECT 1 FROM live_source_ingestion_market_snapshots edge "
+            "JOIN market_odds_snapshots snapshot "
+            "ON snapshot.snapshot_id = edge.snapshot_id "
+            "WHERE edge.ingestion_id = NEW.ingestion_id "
+            "AND edge.snapshot_id = NEW.source_snapshot_id "
+            "AND edge.snapshot_role = 'SOURCE' "
+            "AND snapshot.provider_id = NEW.provider_id "
+            "AND snapshot.bookmaker_id = NEW.bookmaker_id "
+            "AND snapshot.payload_hash = NEW.payload_hash)"
+        ),
+        "live_source_ingestion_sporttery_snapshots": (
+            "NOT EXISTS (SELECT 1 FROM live_source_ingestions ingestion "
+            "JOIN live_source_ingestion_artifacts document "
+            "ON document.ingestion_id = ingestion.ingestion_id "
+            "AND document.artifact_id = NEW.manual_document_artifact_id "
+            "JOIN live_source_ingestion_artifacts source "
+            "ON source.ingestion_id = ingestion.ingestion_id "
+            "AND source.artifact_id = NEW.source_artifact_id "
+            "WHERE ingestion.ingestion_id = NEW.ingestion_id "
+            "AND ingestion.source_kind = 'SPORTTERRY' "
+            "AND document.role = 'MANUAL_DOCUMENT' "
+            "AND source.role = 'SOURCE_ARTIFACT' "
+            "AND json_extract(NEW.provenance_json, "
+            "'$.manual_document_artifact_id') = document.artifact_id "
+            "AND json_extract(NEW.provenance_json, '$.source_artifact_id') = "
+            "source.artifact_id "
+            "AND json_extract(NEW.provenance_json, "
+            "'$.source_artifact_sha256') = source.payload_sha256)"
+        ),
+        "live_source_ingestion_issues": (
+            "NOT EXISTS (SELECT 1 FROM live_source_ingestions ingestion "
+            "JOIN providers provider ON provider.provider_id = NEW.provider_id "
+            "WHERE ingestion.ingestion_id = NEW.ingestion_id "
+            "AND ingestion.source_kind = NEW.source_kind "
+            "AND ingestion.provider_id = provider.provider_id)"
+        ),
+        "live_identity_review_mappings": (
+            "NOT EXISTS (SELECT 1 FROM live_identity_reviews review "
+            "JOIN live_source_ingestion_issues issue "
+            "ON issue.ingestion_id = review.source_ingestion_id "
+            "AND issue.issue_id = NEW.source_issue_id "
+            "JOIN provider_match_mappings mapping "
+            "ON mapping.mapping_id = NEW.provider_mapping_id "
+            "WHERE review.review_id = NEW.review_id "
+            "AND review.source_ingestion_id = NEW.source_ingestion_id "
+            "AND issue.reason IN ('IDENTITY_UNRESOLVED', 'IDENTITY_AMBIGUOUS') "
+            "AND issue.provider_id = NEW.provider_id "
+            "AND issue.external_namespace = NEW.external_namespace "
+            "AND issue.external_match_id = NEW.external_match_id "
+            "AND mapping.provider_id = NEW.provider_id "
+            "AND mapping.external_namespace = NEW.external_namespace "
+            "AND mapping.external_match_id = NEW.external_match_id "
+            "AND mapping.internal_match_id = NEW.internal_match_id)"
+        ),
+        "live_analysis_preparation_matches": (
+            "(NEW.market_ingestion_id IS NOT NULL AND NOT EXISTS ("
+            "SELECT 1 FROM live_source_ingestion_market_snapshots edge "
+            "JOIN market_odds_snapshots snapshot "
+            "ON snapshot.snapshot_id = edge.snapshot_id "
+            "WHERE edge.ingestion_id = NEW.market_ingestion_id "
+            "AND edge.snapshot_id = NEW.market_consensus_snapshot_id "
+            "AND edge.snapshot_role = 'CONSENSUS' "
+            "AND snapshot.internal_match_id = NEW.internal_match_id)) OR "
+            "(NEW.sporttery_ingestion_id IS NOT NULL AND NOT EXISTS ("
+            "SELECT 1 FROM live_source_ingestion_sporttery_snapshots edge "
+            "JOIN sporttery_bonus_snapshots snapshot "
+            "ON snapshot.snapshot_id = edge.snapshot_id "
+            "WHERE edge.ingestion_id = NEW.sporttery_ingestion_id "
+            "AND edge.snapshot_id = NEW.sporttery_bonus_snapshot_id "
+            "AND snapshot.internal_match_id = NEW.internal_match_id))"
+        ),
+    }
+    for table_name, invalid_condition in lineage_guards.items():
+        connection.exec_driver_sql(
+            f"""
+            CREATE TRIGGER IF NOT EXISTS trg_{table_name}_live_lineage_insert
+            BEFORE INSERT ON {table_name}
+            WHEN {invalid_condition}
+            BEGIN
+                SELECT RAISE(ABORT, 'live source lineage is inconsistent');
+            END
+            """
+        )
+
+
+def install_live_analysis_run_preparation_v1_triggers(
+    connection: Connection,
+) -> None:
+    """Seal the exact prepared live-source graph consumed by an AnalysisRun."""
+
+    if connection.dialect.name != "sqlite":
+        return
+    table_name = "live_analysis_run_preparations"
+    connection.exec_driver_sql(
+        f"""
+        CREATE TRIGGER IF NOT EXISTS trg_{table_name}_immutable_insert_existing
+        BEFORE INSERT ON {table_name}
+        WHEN EXISTS (
+            SELECT 1 FROM {table_name} existing
+            WHERE existing.analysis_run_id = NEW.analysis_run_id
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'immutable live analysis preparation link already exists');
+        END
+        """
+    )
+    for action in ("UPDATE", "DELETE"):
+        connection.exec_driver_sql(
+            f"""
+            CREATE TRIGGER IF NOT EXISTS
+              trg_{table_name}_append_only_{action.lower()}
+            BEFORE {action} ON {table_name}
+            BEGIN
+                SELECT RAISE(ABORT, 'live analysis preparation links are append-only');
+            END
+            """
+        )
+    connection.exec_driver_sql(
+        f"""
+        CREATE TRIGGER IF NOT EXISTS trg_{table_name}_lineage_insert
+        BEFORE INSERT ON {table_name}
+        WHEN NOT EXISTS (
+            SELECT 1
+            FROM analysis_runs run
+            JOIN live_analysis_preparations preparation
+              ON preparation.preparation_id = NEW.preparation_id
+            WHERE run.analysis_run_id = NEW.analysis_run_id
+            AND run.status = 'RUNNING'
+            AND run.run_kind = 'MVP_ANALYSIS'
+            AND run.input_manifest_version = 'MVP_INPUT_MANIFEST_V3'
+            AND run.as_of_at_utc = preparation.decision_as_of_at_utc
+            AND preparation.status = 'ANALYSIS_INPUT_READY'
+            AND preparation.ready_match_count > 0
+            AND json_valid(run.config_json) = 1
+            AND json_extract(
+                run.config_json, '$.request.live_source_preparation_id'
+            ) = NEW.preparation_id
+            AND preparation.ready_match_count = (
+                SELECT COUNT(*)
+                FROM live_analysis_preparation_matches prepared
+                WHERE prepared.preparation_id = preparation.preparation_id
+                AND prepared.ready = 1
+            )
+            AND preparation.ready_match_count = (
+                SELECT COUNT(*)
+                FROM analysis_run_matches context
+                WHERE context.analysis_run_id = run.analysis_run_id
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM live_analysis_preparation_matches prepared
+                WHERE prepared.preparation_id = preparation.preparation_id
+                AND prepared.ready = 1
+                AND (
+                    NOT EXISTS (
+                        SELECT 1
+                        FROM fixture_observations observation
+                        WHERE observation.observation_id =
+                            prepared.fixture_observation_id
+                        AND observation.internal_match_id =
+                            prepared.internal_match_id
+                        AND observation.available_at_utc <=
+                            preparation.decision_as_of_at_utc
+                        AND observation.kickoff_at_utc >=
+                            preparation.kickoff_from_utc
+                        AND observation.kickoff_at_utc <=
+                            preparation.kickoff_to_utc
+                    )
+                    OR NOT EXISTS (
+                        SELECT 1
+                        FROM analysis_run_matches context
+                        WHERE context.analysis_run_id = run.analysis_run_id
+                        AND context.internal_match_id = prepared.internal_match_id
+                        AND context.market_odds_snapshot_id =
+                            prepared.market_consensus_snapshot_id
+                        AND context.sporttery_bonus_snapshot_id =
+                            prepared.sporttery_bonus_snapshot_id
+                        AND context.manual_quant_input_id IS NULL
+                        AND context.quant_model_evaluation_id IS NOT NULL
+                        AND json_valid(context.context_json) = 1
+                        AND json_extract(context.context_json, '$.match_id') =
+                            prepared.internal_match_id
+                        AND json_extract(
+                            context.context_json, '$.fixture_observation_id'
+                        ) = prepared.fixture_observation_id
+                        AND json_extract(
+                            context.context_json, '$.market_odds_snapshot_id'
+                        ) = prepared.market_consensus_snapshot_id
+                        AND json_extract(
+                            context.context_json, '$.sporttery_bonus_snapshot_id'
+                        ) = prepared.sporttery_bonus_snapshot_id
+                    )
+                )
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM analysis_run_matches context
+                WHERE context.analysis_run_id = run.analysis_run_id
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM live_analysis_preparation_matches prepared
+                    WHERE prepared.preparation_id = preparation.preparation_id
+                    AND prepared.ready = 1
+                    AND prepared.internal_match_id = context.internal_match_id
+                )
+            )
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'live analysis preparation lineage is inconsistent');
+        END
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE TRIGGER IF NOT EXISTS
+          trg_analysis_runs_completion_live_preparation
+        BEFORE UPDATE OF status ON analysis_runs
+        WHEN NEW.status = 'COMPLETED' AND OLD.status <> 'COMPLETED' AND (
+            (
+                json_extract(
+                    NEW.config_json, '$.request.live_source_preparation_id'
+                ) IS NOT NULL
+                AND NOT EXISTS (
+                    SELECT 1 FROM live_analysis_run_preparations link
+                    WHERE link.analysis_run_id = NEW.analysis_run_id
+                    AND link.preparation_id = json_extract(
+                        NEW.config_json, '$.request.live_source_preparation_id'
+                    )
+                )
+            )
+            OR (
+                EXISTS (
+                    SELECT 1 FROM analysis_run_matches context
+                    WHERE context.analysis_run_id = NEW.analysis_run_id
+                    AND json_type(
+                        context.context_json, '$.fixture_observation_id'
+                    ) IS NOT NULL
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM live_analysis_run_preparations link
+                    WHERE link.analysis_run_id = NEW.analysis_run_id
+                )
+            )
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'completed prepared AnalysisRun requires frozen preparation lineage');
         END
         """
     )

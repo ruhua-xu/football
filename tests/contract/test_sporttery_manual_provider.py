@@ -3,13 +3,14 @@ import csv
 import hashlib
 import io
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
 from football_system.application.environment import RuntimeEnvironment
+from football_system.application.live_sources import LiveSourceKind
 from football_system.application.ports.data_providers import SnapshotQuery
 from football_system.domain.archive import HistoricalDataMode
 from football_system.domain.common import stable_id
@@ -24,6 +25,7 @@ from football_system.domain.identity import (
 from football_system.infrastructure.providers.real.sporttery_manual import (
     SPORTTERY_MANUAL_PROVIDER_CODE,
     SportteryManualArchiveError,
+    SportteryManualArchiveCaptureProvider,
     SportteryManualArchiveProvider,
     SportteryManualReviewLevel,
     SportteryManualSnapshotProvenance,
@@ -512,3 +514,66 @@ def test_manual_archive_does_not_fuzzy_resolve_identity(tmp_path: Path) -> None:
             document,
             MatchIdentityResolver((), (), ()),
         )
+
+
+def test_live_manual_capture_preserves_artifacts_and_review_provenance(
+    tmp_path: Path,
+) -> None:
+    document = _write_document(
+        tmp_path,
+        review_level="SELF_REVIEWED",
+        reviewed_by="synthetic-enterer",
+    )
+    provider = SportteryManualArchiveCaptureProvider(
+        document,
+        _resolver(),
+        identity_cutoff_at_utc=REVIEWED,
+    )
+    ingested_at = datetime(2026, 9, 1, 9, 6, tzinfo=UTC)
+
+    capture = provider.capture_sporttery(ingested_at_utc=ingested_at)
+
+    assert capture.provider_code == SPORTTERY_MANUAL_PROVIDER_CODE
+    assert capture.identity_cutoff_at_utc == REVIEWED
+    assert len(capture.artifacts) == 2
+    assert {item.role.value for item in capture.artifacts} == {
+        "MANUAL_DOCUMENT",
+        "SOURCE_ARTIFACT",
+    }
+    assert len(capture.batch.snapshots) == len(capture.batch.mappings) == 1
+    assert capture.batch.snapshots[0].ingested_at_utc == ingested_at
+    assert capture.batch.mappings[0].available_at_utc == ingested_at
+    assert capture.provenance[0].review_level == "SELF_REVIEWED"
+    assert capture.provenance[0].snapshot_id == capture.batch.snapshots[0].snapshot_id
+    assert capture.issues == ()
+
+    retried = provider.capture_sporttery(
+        ingested_at_utc=ingested_at + timedelta(minutes=1)
+    )
+    assert retried.ingestion_id != capture.ingestion_id
+    assert retried.batch.snapshots[0].snapshot_id != capture.batch.snapshots[0].snapshot_id
+    assert retried.artifacts == capture.artifacts
+
+
+def test_live_manual_capture_reports_unresolved_identity_without_losing_raw_input(
+    tmp_path: Path,
+) -> None:
+    document = _write_document(tmp_path)
+    provider = SportteryManualArchiveCaptureProvider(
+        document,
+        MatchIdentityResolver((), (), ()),
+        identity_cutoff_at_utc=REVIEWED,
+    )
+
+    capture = provider.capture_sporttery(
+        ingested_at_utc=datetime(2026, 9, 1, 9, 6, tzinfo=UTC)
+    )
+
+    assert capture.batch.snapshots == capture.batch.mappings == ()
+    assert len(capture.artifacts) == 2
+    assert len(capture.issues) == 1
+    issue = capture.issues[0]
+    assert issue.source_kind is LiveSourceKind.SPORTTERRY
+    assert issue.reason.value == "IDENTITY_UNRESOLVED"
+    assert issue.external_match_id == "2026-09-01:SYN001"
+    assert issue.provider_identity_json is not None

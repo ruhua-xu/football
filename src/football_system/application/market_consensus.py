@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_EVEN
 from inspect import getattr_static
 
 from pydantic import Field, model_validator
@@ -45,6 +45,7 @@ from football_system.domain.services.probability import (
 
 MARKET_CONSENSUS_MEDIAN_V1 = "MARKET_CONSENSUS_MEDIAN_V1"
 _THREE_WAY_MARKET = MarketKey(market_type=MarketType.THREE_WAY)
+_STORAGE_ODDS_QUANTUM = Decimal("0.000001")
 
 
 class MarketConsensusError(ValueError):
@@ -564,9 +565,9 @@ def _derive_consensus(
         )
     )
     fair_odds = ThreeWayMarketOdds(
-        home_win=Decimal(1) / fair.home_win,
-        draw=Decimal(1) / fair.draw,
-        away_win=Decimal(1) / fair.away_win,
+        home_win=_storage_odds(Decimal(1) / fair.home_win),
+        draw=_storage_odds(Decimal(1) / fair.draw),
+        away_win=_storage_odds(Decimal(1) / fair.away_win),
     )
     lineage_constituents = tuple(
         sorted(
@@ -642,6 +643,15 @@ def _derive_consensus(
     return snapshot, mapping, lineage
 
 
+def derive_market_consensus(
+    match_id: str,
+    constituents: tuple[MarketOddsSnapshot, ...],
+) -> tuple[MarketOddsSnapshot, ProviderMatchMapping, ConsensusLineage]:
+    """Derive and expose the frozen consensus artifact for persistence checks."""
+
+    return _derive_consensus(match_id, constituents)
+
+
 def _median(values: list[Decimal]) -> Decimal:
     if not values:
         raise MarketConsensusError("median requires at least one value")
@@ -650,6 +660,10 @@ def _median(values: list[Decimal]) -> Decimal:
     if len(ordered) % 2:
         return ordered[middle]
     return (ordered[middle - 1] + ordered[middle]) / Decimal(2)
+
+
+def _storage_odds(value: Decimal) -> Decimal:
+    return value.quantize(_STORAGE_ODDS_QUANTUM, rounding=ROUND_HALF_EVEN)
 
 
 def _snapshot_is_visible(

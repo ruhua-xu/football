@@ -25,7 +25,7 @@ from football_system.infrastructure.database.session import (
 
 
 IDENTITY_MIGRATION_REVISION = "d2e7a4c9b615"
-CURRENT_MIGRATION_HEAD = "c4e8a1d7f205"
+CURRENT_MIGRATION_HEAD = "6e4b1a9c2d73"
 QUANT_MODEL_MIGRATION_REVISION = "b7d4e9f2c631"
 BACKTEST_V2_MIGRATION_REVISION = "c4e8a1d7f205"
 IDENTITY_TABLES = {
@@ -51,6 +51,21 @@ BACKTEST_V2_TABLES = {
     "backtest_v2_result_sources",
     "backtest_v2_slice_ticket_settlements",
     "backtest_v2_metric_snapshots",
+}
+LIVE_SOURCE_TABLES = {
+    "live_source_ingestions",
+    "live_source_ingestion_artifacts",
+    "live_source_ingestion_mappings",
+    "live_source_ingestion_market_snapshots",
+    "live_market_consensus_lineages",
+    "live_market_consensus_constituents",
+    "live_source_ingestion_sporttery_snapshots",
+    "live_source_ingestion_issues",
+    "live_identity_reviews",
+    "live_identity_review_mappings",
+    "live_analysis_preparations",
+    "live_analysis_preparation_matches",
+    "live_analysis_run_preparations",
 }
 FIXTURE_IDENTITY_ORIGIN_INDEXES = {
     "matches": "ix_matches_fixture_ingestion",
@@ -100,6 +115,7 @@ def test_schema_contains_mvp_tables_and_enables_foreign_keys() -> None:
     } <= tables
     assert QUANT_MODEL_TABLES <= tables
     assert BACKTEST_V2_TABLES <= tables
+    assert LIVE_SOURCE_TABLES <= tables
     with engine.connect() as connection:
         assert connection.scalar(text("PRAGMA foreign_keys")) == 1
         assert connection.scalar(text("PRAGMA recursive_triggers")) == 1
@@ -153,6 +169,84 @@ def test_quant_model_schema_has_exclusive_lineage_and_sealing_triggers() -> None
         assert f"trg_{table_name}_append_only_delete" in triggers
         assert f"trg_{table_name}_sealed_insert" in triggers
     engine.dispose()
+
+
+def test_live_source_migration_upgrades_backtest_head_and_empty_downgrade(
+    tmp_path,
+) -> None:
+    database_path = tmp_path / "live-source-migration.db"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config("alembic.ini")
+    config.set_main_option("sqlalchemy.url", database_url)
+
+    command.upgrade(config, BACKTEST_V2_MIGRATION_REVISION)
+    engine = create_database_engine(database_url)
+    assert not LIVE_SOURCE_TABLES & set(inspect(engine).get_table_names())
+    engine.dispose()
+
+    command.upgrade(config, CURRENT_MIGRATION_HEAD)
+    engine = create_database_engine(database_url)
+    assert LIVE_SOURCE_TABLES <= set(inspect(engine).get_table_names())
+    with engine.connect() as connection:
+        triggers = set(
+            connection.execute(
+                text("SELECT name FROM sqlite_master WHERE type = 'trigger'")
+            ).scalars()
+        )
+    for table_name in LIVE_SOURCE_TABLES:
+        assert f"trg_{table_name}_immutable_insert_existing" in triggers
+        assert f"trg_{table_name}_append_only_update" in triggers
+        assert f"trg_{table_name}_append_only_delete" in triggers
+    assert "trg_analysis_runs_completion_live_preparation" in triggers
+    engine.dispose()
+
+    command.downgrade(config, BACKTEST_V2_MIGRATION_REVISION)
+    engine = create_database_engine(database_url)
+    assert not LIVE_SOURCE_TABLES & set(inspect(engine).get_table_names())
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            BACKTEST_V2_MIGRATION_REVISION
+        )
+    engine.dispose()
+
+
+def test_live_source_migration_rejects_populated_downgrade(tmp_path) -> None:
+    database_path = tmp_path / "live-source-populated.db"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config("alembic.ini")
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, CURRENT_MIGRATION_HEAD)
+    engine = create_database_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO providers "
+                "(provider_id, code, name, provider_kind) "
+                "VALUES ('live-provider', 'LIVE_PROVIDER', "
+                "'Live Provider', 'MARKET_ODDS')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO live_source_ingestions "
+                "(ingestion_id, schema_version, source_kind, provider_id, "
+                "data_mode, status, identity_cutoff_at_utc, "
+                "source_ingested_at_utc, persisted_at_utc, "
+                "requested_match_ids_json, artifact_count, snapshot_count, "
+                "mapping_count, issue_count, consensus_count, capture_json, "
+                "capture_hash) VALUES "
+                "('live-ingestion', 'LIVE_SOURCE_INGESTION_V1', "
+                "'MARKET_ODDS', 'live-provider', 'LIVE_STRICT', 'COMPLETED', "
+                "'2026-09-01 00:00:00', '2026-09-01 00:00:01', "
+                "'2026-09-01 00:00:02', '[\"match\"]', 1, 0, 0, 0, 0, "
+                "'{}', :capture_hash)"
+            ),
+            {"capture_hash": "a" * 64},
+        )
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="immutable lineage exists"):
+        command.downgrade(config, BACKTEST_V2_MIGRATION_REVISION)
 
 
 def test_identity_schema_contains_foreign_keys_unique_lookups_and_triggers() -> None:

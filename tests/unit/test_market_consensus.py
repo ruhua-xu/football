@@ -143,13 +143,19 @@ def _expected_probability(
             else (values[middle - 1] + values[middle]) / Decimal(2)
         )
     total = sum(medians.values(), Decimal(0))
-    return quantize_three_way_probability(
+    fair = quantize_three_way_probability(
         ThreeWayProbability(
             home_win=medians[SelectionKey.HOME_WIN] / total,
             draw=medians[SelectionKey.DRAW] / total,
             away_win=medians[SelectionKey.AWAY_WIN] / total,
         )
     )
+    stored_odds = ThreeWayMarketOdds(
+        home_win=(Decimal(1) / fair.home_win).quantize(Decimal("0.000001")),
+        draw=(Decimal(1) / fair.draw).quantize(Decimal("0.000001")),
+        away_win=(Decimal(1) / fair.away_win).quantize(Decimal("0.000001")),
+    )
+    return normalized_inverse_probability(stored_odds)[0]
 
 
 def test_consensus_uses_all_bookmakers_median_is_order_independent_and_traced() -> None:

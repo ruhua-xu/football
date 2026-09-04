@@ -81,6 +81,8 @@ where = ["src"]
     "migrations/versions/a6c1f9e3b742_add_fixture_ingestion_capture.py",
     "migrations/versions/b7d4e9f2c631_add_quant_model_lineage.py",
     "migrations/versions/c4e8a1d7f205_add_backtest_v2_lineage.py",
+    "migrations/versions/3cb19bcbdd88_add_live_source_ingestion.py",
+    "migrations/versions/6e4b1a9c2d73_bind_live_analysis_preparations.py",
 ]
 
 [tool.pytest.ini_options]

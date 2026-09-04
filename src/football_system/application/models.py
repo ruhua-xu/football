@@ -61,6 +61,7 @@ class AnalysisArtifacts(DomainModel):
     portfolio_risk_reports: tuple[PortfolioRiskReport, ...]
     quant_model_states: tuple[QuantModelStateArtifact, ...] = ()
     quant_model_evaluations: tuple[QuantModelEvaluation, ...] = ()
+    live_source_preparation_id: str | None = None
 
     @model_validator(mode="after")
     def validate_lineage(self) -> AnalysisArtifacts:
@@ -189,6 +190,21 @@ class AnalysisArtifacts(DomainModel):
         )
         if has_manual_context and has_model_context:
             raise ValueError("analysis cannot mix manual and model quant contexts")
+        prepared_contexts = tuple(
+            context
+            for context in self.match_contexts
+            if isinstance(context, ModelAnalysisMatchContext)
+            and context.fixture_observation_id is not None
+        )
+        if self.live_source_preparation_id is not None:
+            if not has_model_context or len(prepared_contexts) != len(self.match_contexts):
+                raise ValueError(
+                    "prepared live analysis requires fixture lineage for every context"
+                )
+        elif prepared_contexts:
+            raise ValueError(
+                "fixture observation lineage requires a live source preparation"
+            )
         if has_model_context:
             if self.manual_quant_inputs:
                 raise ValueError(

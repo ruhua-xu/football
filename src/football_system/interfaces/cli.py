@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 import sys
 from collections.abc import Callable, Mapping, Sequence
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
@@ -40,6 +41,25 @@ from football_system.application.environment import (
 from football_system.application.historical_archive import HistoricalArchiveService
 from football_system.application.identity_catalog import FixtureIngestionRequest
 from football_system.application.live_ingestion import LiveFixtureIngestionService
+from football_system.application.live_sources import (
+    IdentityReviewDocument,
+    LiveAnalysisInputPolicy,
+    LiveMarketOddsIngestionService,
+    LiveSportteryIngestionService,
+    NoAvailableLiveTrainingHistoryProvider,
+    PrepareAnalysisRequest,
+    PrepareLiveAnalysisService,
+    PreparationStatus,
+    PreparedLiveFixtureProvider,
+    PreparedLiveMarketOddsProvider,
+    PreparedLiveSportteryProvider,
+    SourceIngestionSummary,
+)
+from football_system.application.model_analysis import (
+    PreparedFixtureObservationRef,
+    RunModelAnalysisRequest,
+    RunModelAnalysisService,
+)
 from football_system.application.models import AnalysisArtifacts
 from football_system.application.ports.data_providers import (
     MatchResultQuery,
@@ -63,6 +83,7 @@ from football_system.domain.archive import (
     HistoricalArchiveDatasetKind,
     HistoricalArchiveManifest,
     HistoricalDataMode,
+    canonical_json,
 )
 from football_system.domain.backtest import (
     BacktestArchiveProvenance,
@@ -73,6 +94,7 @@ from football_system.domain.betting import CandidateStatus, PortfolioStatus
 from football_system.domain.common import new_id, utc_now
 from football_system.domain.match import TeamType
 from football_system.domain.prediction import FusionPolicyName
+from football_system.domain.services.elo_baseline import EloBaselineConfig
 from football_system.domain.settlement import Settlement, SettlementScope
 from football_system.infrastructure.database.historical_repositories import (
     SqlAlchemyHistoricalRepository,
@@ -80,6 +102,9 @@ from football_system.infrastructure.database.historical_repositories import (
 )
 from football_system.infrastructure.database.identity_repositories import (
     SqlAlchemyMatchIdentityRepository,
+)
+from football_system.infrastructure.database.live_source_repositories import (
+    SqlAlchemyLiveSourceRepository,
 )
 from football_system.infrastructure.database.migrations import upgrade_database
 from football_system.infrastructure.database.post_review_repositories import (
@@ -129,9 +154,18 @@ from football_system.infrastructure.providers.real.sportmonks import (
     SPORTMONKS_PROVIDER_CODE,
     SportmonksFixtureProvider,
 )
+from football_system.infrastructure.providers.real.sporttery_manual import (
+    SPORTTERY_MANUAL_PROVIDER_CODE,
+    SportteryManualArchiveCaptureProvider,
+)
+from football_system.infrastructure.providers.real.the_odds_api import (
+    THE_ODDS_API_PROVIDER_CODE,
+    TheOddsApiMarketOddsProvider,
+)
 
 
 SPORTMONKS_BASE_URL = "https://api.sportmonks.com/v3/football/"
+THE_ODDS_API_BASE_URL = "https://api.the-odds-api.com/"
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -268,7 +302,15 @@ def _dispatch_live(arguments: Sequence[str]) -> int:
     return _dispatch_command_group(
         "live",
         arguments,
-        {"ingest-fixtures": _ingest_live_fixtures},
+        {
+            "ingest-fixtures": _ingest_live_fixtures,
+            "ingest-market-odds": _ingest_live_market_odds,
+            "ingest-sporttery": _ingest_live_sporttery,
+            "reconcile": _reconcile_live_sources,
+            "import-identity-review": _import_live_identity_review,
+            "prepare-analysis": _prepare_live_analysis,
+            "run-analysis": _run_live_analysis,
+        },
     )
 
 
@@ -402,6 +444,419 @@ def _ingest_live_fixtures(
         f"competitions={summary.competition_count}; teams={summary.team_count}; "
         f"matches={summary.match_count}; observations={summary.observation_count}"
     )
+    return 0
+
+
+def _ingest_live_market_odds(
+    arguments: Sequence[str],
+    *,
+    transport: HttpTransport | None = None,
+    environ: Mapping[str, str] | None = None,
+    clock: Callable[[], datetime] | None = None,
+) -> int:
+    parser = argparse.ArgumentParser(
+        prog="football-system live ingest-market-odds",
+        description=(
+            "Capture current The Odds API h2h prices, archive the raw response, "
+            "derive consensus, and atomically persist lineage."
+        ),
+    )
+    _add_database_arguments(parser, default_config=_live_config_path())
+    parser.add_argument("--raw-archive", type=Path, default=Path("data/raw"))
+    parser.add_argument("--kickoff-from", type=_parse_utc_datetime, required=True)
+    parser.add_argument("--kickoff-to", type=_parse_utc_datetime, required=True)
+    parser.add_argument("--match-id", dest="match_ids", nargs="+", required=True)
+    parser.add_argument("--sport-key", required=True)
+    parser.add_argument("--season", required=True)
+    parser.add_argument("--competition-type", required=True)
+    parser.add_argument("--regions", default="uk")
+    args = parser.parse_args(arguments)
+    command_clock = clock or utc_now
+    try:
+        settings, database_url = _live_settings(args.config, args.database_url)
+        match_ids = tuple(args.match_ids)
+        if len(match_ids) != len(set(match_ids)):
+            raise ValueError("market ingestion match IDs must be unique")
+        match_ids = tuple(sorted(match_ids))
+        RuntimeEnvironmentGuard(settings.runtime.environment).validate_input(
+            TheOddsApiMarketOddsProvider.runtime_provenance
+        )
+        api_key = _required_environment_value("ODDS_API_KEY", environ)
+        identity_cutoff = command_clock()
+        _, identity_repository, repository = _open_live_repositories(
+            database_url,
+            clock=command_clock,
+        )
+        catalog = identity_repository.load_catalog(
+            as_of_at_utc=identity_cutoff,
+            kickoff_from_utc=args.kickoff_from,
+            kickoff_to_utc=args.kickoff_to,
+            provider_codes=(THE_ODDS_API_PROVIDER_CODE,),
+        )
+        visible_match_ids = {
+            item.internal_match_id for item in catalog.canonical_matches
+        }
+        missing_match_ids = tuple(sorted(set(match_ids) - visible_match_ids))
+        if missing_match_ids:
+            raise ValueError(
+                "requested matches are not visible at the identity cutoff: "
+                + ", ".join(missing_match_ids)
+            )
+        resolver = catalog.build_resolver(
+            timedelta(seconds=settings.runtime.kickoff_tolerance_seconds)
+        )
+        client = ProviderHttpClient(
+            THE_ODDS_API_PROVIDER_CODE,
+            THE_ODDS_API_BASE_URL,
+            transport if transport is not None else UrllibTransport(),
+            utc_now=command_clock,
+        )
+        provider = TheOddsApiMarketOddsProvider(
+            client,
+            RawDataArchive(args.raw_archive),
+            resolver,
+            api_key,
+            sport_key=args.sport_key,
+            season=args.season,
+            competition_type=args.competition_type,
+            regions=args.regions,
+        )
+        summary = asyncio.run(
+            LiveMarketOddsIngestionService(
+                provider,
+                repository,
+                environment=settings.runtime.environment,
+                identity_cutoff_at_utc=identity_cutoff,
+                clock=command_clock,
+            ).ingest(match_ids)
+        )
+    except (
+        KeyError,
+        OSError,
+        RuntimeError,
+        SQLAlchemyError,
+        ValidationError,
+        ValueError,
+    ) as error:
+        parser.error(str(error))
+    _print_live_ingestion_summary(summary)
+    return 0
+
+
+def _ingest_live_sporttery(
+    arguments: Sequence[str],
+    *,
+    clock: Callable[[], datetime] | None = None,
+) -> int:
+    parser = argparse.ArgumentParser(
+        prog="football-system live ingest-sporttery",
+        description=(
+            "Normalize a reviewed SPORTTERY_MANUAL_ARCHIVE_V2 document and "
+            "atomically persist source and review lineage."
+        ),
+    )
+    _add_database_arguments(parser, default_config=_live_config_path())
+    parser.add_argument("--archive", type=Path, required=True)
+    parser.add_argument("--kickoff-from", type=_parse_utc_datetime, required=True)
+    parser.add_argument("--kickoff-to", type=_parse_utc_datetime, required=True)
+    args = parser.parse_args(arguments)
+    command_clock = clock or utc_now
+    try:
+        settings, database_url = _live_settings(args.config, args.database_url)
+        identity_cutoff = command_clock()
+        _, identity_repository, repository = _open_live_repositories(
+            database_url,
+            clock=command_clock,
+        )
+        catalog = identity_repository.load_catalog(
+            as_of_at_utc=identity_cutoff,
+            kickoff_from_utc=args.kickoff_from,
+            kickoff_to_utc=args.kickoff_to,
+            provider_codes=(SPORTTERY_MANUAL_PROVIDER_CODE,),
+        )
+        provider = SportteryManualArchiveCaptureProvider(
+            args.archive,
+            catalog.build_resolver(
+                timedelta(seconds=settings.runtime.kickoff_tolerance_seconds)
+            ),
+            identity_cutoff_at_utc=identity_cutoff,
+        )
+        summary = LiveSportteryIngestionService(
+            provider,
+            repository,
+            environment=settings.runtime.environment,
+            clock=command_clock,
+        ).ingest()
+    except (
+        KeyError,
+        OSError,
+        RuntimeError,
+        SQLAlchemyError,
+        ValidationError,
+        ValueError,
+    ) as error:
+        parser.error(str(error))
+    _print_live_ingestion_summary(summary)
+    return 0
+
+
+def _reconcile_live_sources(
+    arguments: Sequence[str],
+    *,
+    clock: Callable[[], datetime] | None = None,
+) -> int:
+    parser = argparse.ArgumentParser(
+        prog="football-system live reconcile",
+        description="Render unresolved persisted live-source identity issues as JSON.",
+    )
+    _add_database_arguments(parser, default_config=_live_config_path())
+    parser.add_argument("--ingestion-id")
+    parser.add_argument("--as-of", type=_parse_utc_datetime)
+    parser.add_argument("--output", type=Path)
+    args = parser.parse_args(arguments)
+    try:
+        _, database_url = _live_settings(args.config, args.database_url)
+        _, _, repository = _open_live_repositories(
+            database_url,
+            clock=clock or utc_now,
+        )
+        report = repository.reconciliation_report(
+            ingestion_id=args.ingestion_id,
+            generated_at_utc=args.as_of,
+        )
+        report_json = canonical_json(report)
+        if args.output is not None:
+            write_contract_file(args.output, report_json)
+    except (
+        KeyError,
+        OSError,
+        RuntimeError,
+        SQLAlchemyError,
+        ValidationError,
+        ValueError,
+    ) as error:
+        parser.error(str(error))
+    print(report_json)
+    if args.output is not None:
+        print(f"Reconciliation report written: {args.output}")
+    return 0
+
+
+def _import_live_identity_review(
+    arguments: Sequence[str],
+    *,
+    clock: Callable[[], datetime] | None = None,
+) -> int:
+    parser = argparse.ArgumentParser(
+        prog="football-system live import-identity-review",
+        description="Validate and append a reviewed live-source identity mapping.",
+    )
+    _add_database_arguments(parser, default_config=_live_config_path())
+    parser.add_argument("--review", type=Path, required=True)
+    args = parser.parse_args(arguments)
+    try:
+        _, database_url = _live_settings(args.config, args.database_url)
+        review = IdentityReviewDocument.model_validate_json(
+            read_contract_file(args.review)
+        )
+        _, _, repository = _open_live_repositories(
+            database_url,
+            clock=clock or utc_now,
+        )
+        summary = repository.import_identity_review(review)
+    except (
+        KeyError,
+        OSError,
+        RuntimeError,
+        SQLAlchemyError,
+        ValidationError,
+        ValueError,
+    ) as error:
+        parser.error(str(error))
+    print(
+        f"Identity review: {summary.review_id}; "
+        f"source_ingestion={summary.source_ingestion_id}; "
+        f"inserted={str(summary.inserted).lower()}; mappings={summary.mapping_count}"
+    )
+    return 0
+
+
+def _prepare_live_analysis(
+    arguments: Sequence[str],
+    *,
+    clock: Callable[[], datetime] | None = None,
+) -> int:
+    parser = argparse.ArgumentParser(
+        prog="football-system live prepare-analysis",
+        description=(
+            "Freeze cutoff-clean fixture, market consensus, and Sporttery inputs "
+            "using persisted data only."
+        ),
+    )
+    _add_database_arguments(parser, default_config=_live_config_path())
+    parser.add_argument("--decision-as-of", type=_parse_utc_datetime, required=True)
+    parser.add_argument("--kickoff-from", type=_parse_utc_datetime, required=True)
+    parser.add_argument("--kickoff-to", type=_parse_utc_datetime, required=True)
+    parser.add_argument("--competition-id", required=True)
+    parser.add_argument("--season-id", required=True)
+    parser.add_argument(
+        "--expected-match-id",
+        dest="expected_match_ids",
+        action="append",
+        default=[],
+    )
+    parser.add_argument("--allow-partial-inputs", action="store_true")
+    parser.add_argument(
+        "--maximum-odds-age-seconds",
+        type=_parse_positive_int,
+        required=True,
+    )
+    parser.add_argument(
+        "--minimum-bookmaker-count",
+        type=_parse_positive_int,
+        required=True,
+    )
+    parser.add_argument("--preparation-id")
+    parser.add_argument("--output", type=Path)
+    args = parser.parse_args(arguments)
+    try:
+        _, database_url = _live_settings(args.config, args.database_url)
+        expected_match_ids = tuple(args.expected_match_ids)
+        if len(expected_match_ids) != len(set(expected_match_ids)):
+            raise ValueError("preparation expected match IDs must be unique")
+        _, _, repository = _open_live_repositories(
+            database_url,
+            clock=clock or utc_now,
+        )
+        preparation = PrepareLiveAnalysisService(repository).prepare(
+            PrepareAnalysisRequest(
+                decision_as_of_at_utc=args.decision_as_of,
+                kickoff_from_utc=args.kickoff_from,
+                kickoff_to_utc=args.kickoff_to,
+                competition_id=args.competition_id,
+                season_id=args.season_id,
+                expected_match_ids=tuple(sorted(expected_match_ids)),
+                allow_partial_inputs=args.allow_partial_inputs,
+                policy=LiveAnalysisInputPolicy(
+                    maximum_odds_age_seconds=args.maximum_odds_age_seconds,
+                    minimum_bookmaker_count=args.minimum_bookmaker_count,
+                ),
+                preparation_id=args.preparation_id,
+            )
+        )
+        preparation_json = canonical_json(preparation)
+        if args.output is not None:
+            write_contract_file(args.output, preparation_json)
+    except (
+        KeyError,
+        OSError,
+        RuntimeError,
+        SQLAlchemyError,
+        ValidationError,
+        ValueError,
+    ) as error:
+        parser.error(str(error))
+    print(preparation_json)
+    if args.output is not None:
+        print(f"Analysis preparation written: {args.output}")
+    return 0
+
+
+def _run_live_analysis(
+    arguments: Sequence[str],
+    *,
+    clock: Callable[[], datetime] | None = None,
+) -> int:
+    parser = argparse.ArgumentParser(
+        prog="football-system live run-analysis",
+        description=(
+            "Run the fixed Elo baseline from one frozen persisted live-source "
+            "preparation without network access."
+        ),
+    )
+    _add_database_arguments(parser, default_config=_live_config_path())
+    preparation_selector = parser.add_mutually_exclusive_group(required=True)
+    preparation_selector.add_argument("--date", type=_parse_date)
+    preparation_selector.add_argument("--preparation-id")
+    parser.add_argument("--budget", nargs="+", required=True)
+    parser.add_argument("--analysis-run-id")
+    args = parser.parse_args(arguments)
+    try:
+        settings, database_url = _live_settings(args.config, args.database_url)
+        budgets_fen = tuple(_yuan_to_fen(value, parser) for value in args.budget)
+        if len(budgets_fen) != len(set(budgets_fen)):
+            raise ValueError("budgets must be unique")
+        sessions, _, live_repository = _open_live_repositories(
+            database_url,
+            clock=clock or utc_now,
+        )
+        preparation_id = args.preparation_id
+        if preparation_id is None:
+            preparation_ids = live_repository.find_ready_preparation_ids(args.date)
+            if not preparation_ids:
+                raise ValueError(
+                    f"no ready live analysis preparation for UTC date {args.date}"
+                )
+            if len(preparation_ids) > 1:
+                raise ValueError(
+                    "multiple ready live analysis preparations match UTC date "
+                    f"{args.date}; use --preparation-id"
+                )
+            preparation_id = preparation_ids[0]
+        bundle = live_repository.load_prepared_sources(preparation_id)
+        if bundle.preparation.status is not PreparationStatus.ANALYSIS_INPUT_READY:
+            raise ValueError("live source preparation is not analysis-input ready")
+        execution_time = (clock or utc_now)()
+        elo_config = EloBaselineConfig()
+        analysis_repository = SqlAlchemyAnalysisRepository(sessions)
+        service = RunModelAnalysisService(
+            fixture_provider=PreparedLiveFixtureProvider(bundle),
+            market_odds_provider=PreparedLiveMarketOddsProvider(bundle),
+            sporttery_provider=PreparedLiveSportteryProvider(bundle),
+            training_history_provider=NoAvailableLiveTrainingHistoryProvider(),
+            repository=analysis_repository,
+            settings=settings,
+            elo_config=elo_config,
+        )
+        artifacts = asyncio.run(
+            service.run(
+                RunModelAnalysisRequest(
+                    as_of_at_utc=bundle.preparation.decision_as_of_at_utc,
+                    kickoff_from_utc=bundle.preparation.kickoff_from_utc,
+                    kickoff_to_utc=bundle.preparation.kickoff_to_utc,
+                    budgets_fen=budgets_fen,
+                    fusion_policy=FusionPolicyName(settings.analysis.fusion_policy),
+                    analysis_run_id=args.analysis_run_id,
+                    execution_time_utc=execution_time,
+                    allow_partial_inputs=False,
+                    expected_match_ids=bundle.preparation.ready_match_ids,
+                    competition_id=bundle.competition_id,
+                    season_id=bundle.season_id,
+                    elo_config=elo_config,
+                    live_source_preparation_id=preparation_id,
+                    prepared_fixture_observations=tuple(
+                        PreparedFixtureObservationRef(
+                            match_id=item.match_id,
+                            fixture_observation_id=item.fixture_observation_id,
+                        )
+                        for item in bundle.preparation.matches
+                        if item.data_quality.ready
+                        and item.fixture_observation_id is not None
+                    ),
+                )
+            )
+        )
+    except (
+        KeyError,
+        OSError,
+        RuntimeError,
+        SQLAlchemyError,
+        ValidationError,
+        ValueError,
+    ) as error:
+        parser.error(str(error))
+    print(f"Live source preparation: {preparation_id}")
+    print(format_analysis(artifacts, analysis_repository.table_counts()))
     return 0
 
 
@@ -1128,6 +1583,17 @@ def _historical_settings(
     return settings, resolved_url
 
 
+def _live_settings(
+    config_path: Path,
+    database_url: str | None,
+) -> tuple[AppSettings, str]:
+    settings, resolved_url = _historical_settings(config_path, database_url)
+    require_sqlite_database_url(resolved_url)
+    if settings.runtime.environment is not RuntimeEnvironment.LIVE:
+        raise ValueError("live commands require live runtime configuration")
+    return settings, resolved_url
+
+
 def _open_historical_repository(
     database_url: str,
 ) -> tuple[sessionmaker[Session], SqlAlchemyHistoricalRepository]:
@@ -1147,6 +1613,35 @@ def _open_match_identity_repository(
     return SqlAlchemyMatchIdentityRepository(
         create_session_factory(engine),
         clock=clock,
+    )
+
+
+def _open_live_repositories(
+    database_url: str,
+    *,
+    clock: Callable[[], datetime] = utc_now,
+) -> tuple[
+    sessionmaker[Session],
+    SqlAlchemyMatchIdentityRepository,
+    SqlAlchemyLiveSourceRepository,
+]:
+    upgrade_database(database_url, _resource_root() / "alembic.ini")
+    engine = create_database_engine(database_url)
+    sessions = create_session_factory(engine)
+    return (
+        sessions,
+        SqlAlchemyMatchIdentityRepository(sessions, clock=clock),
+        SqlAlchemyLiveSourceRepository(sessions, clock=clock),
+    )
+
+
+def _print_live_ingestion_summary(summary: SourceIngestionSummary) -> None:
+    print(
+        f"{summary.source_kind.value} ingestion: {summary.ingestion_id}; "
+        f"status={summary.status.value}; inserted={str(summary.inserted).lower()}; "
+        f"artifacts={summary.artifact_count}; snapshots={summary.snapshot_count}; "
+        f"mappings={summary.mapping_count}; issues={summary.issue_count}; "
+        f"consensus={summary.consensus_count}"
     )
 
 
@@ -1277,6 +1772,13 @@ def _parse_utc_datetime(value: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
+def _parse_date(value: str) -> date:
+    try:
+        return date.fromisoformat(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(f"invalid ISO date: {value}") from error
+
+
 def _parse_nonnegative_decimal(value: str) -> Decimal:
     try:
         parsed = Decimal(value)
@@ -1305,6 +1807,13 @@ def _parse_nonnegative_int(value: str) -> int:
         raise argparse.ArgumentTypeError(f"invalid integer: {value}") from error
     if parsed < 0:
         raise argparse.ArgumentTypeError(f"integer must be non-negative: {value}")
+    return parsed
+
+
+def _parse_positive_int(value: str) -> int:
+    parsed = _parse_nonnegative_int(value)
+    if parsed == 0:
+        raise argparse.ArgumentTypeError(f"integer must be positive: {value}")
     return parsed
 
 
@@ -1340,6 +1849,9 @@ def format_analysis(
     market_by_match = {item.match_id: item for item in artifacts.market_predictions}
     quant_by_match = {item.match_id: item for item in artifacts.quant_predictions}
     final_by_match = {item.match_id: item for item in artifacts.final_predictions}
+    evaluation_by_match = {
+        item.match_id: item for item in artifacts.quant_model_evaluations
+    }
     risk_by_portfolio = {
         item.portfolio_id: item for item in artifacts.portfolio_risk_reports
     }
@@ -1347,22 +1859,43 @@ def format_analysis(
         "Football System MVP 研究建议（非自动下注）",
         f"AnalysisRun: {artifacts.analysis_run.analysis_run_id}",
         f"As of UTC: {artifacts.analysis_run.as_of_at_utc.isoformat()}",
-        f"FusionPolicy: {artifacts.final_predictions[0].fusion_policy.value}",
+        f"FusionPolicy: {_analysis_fusion_policy(artifacts)}",
         "",
         f"比赛与概率（{len(artifacts.matches)} 场）",
     ]
     for match in artifacts.matches:
         p_market = market_by_match[match.match_id].probabilities
-        p_quant = quant_by_match[match.match_id].probabilities
-        p_final = final_by_match[match.match_id].probabilities
+        quant = quant_by_match.get(match.match_id)
+        final = final_by_match.get(match.match_id)
         lines.extend(
             [
                 f"- {match.match_id}: {teams[match.home_team_id]} vs {teams[match.away_team_id]}",
                 f"  P_market H/D/A: {_probabilities(p_market)}",
-                f"  P_quant  H/D/A: {_probabilities(p_quant)}",
-                f"  P_final  H/D/A: {_probabilities(p_final)}",
             ]
         )
+        if quant is None:
+            evaluation = evaluation_by_match.get(match.match_id)
+            reason = (
+                evaluation.unavailable_reason
+                if evaluation is not None
+                else "MODEL_UNAVAILABLE"
+            )
+            lines.extend(
+                [
+                    f"  P_quant: UNAVAILABLE ({reason})",
+                    "  P_final: UNAVAILABLE (MODEL_UNAVAILABLE)",
+                ]
+            )
+        else:
+            lines.append(f"  P_quant  H/D/A: {_probabilities(quant.probabilities)}")
+            lines.append(
+                "  P_final  H/D/A: "
+                + (
+                    _probabilities(final.probabilities)
+                    if final is not None
+                    else "UNAVAILABLE"
+                )
+            )
 
     eligible = [
         item
@@ -1432,6 +1965,18 @@ def format_analysis(
     return "\n".join(lines)
 
 
+def _analysis_fusion_policy(artifacts: AnalysisArtifacts) -> str:
+    if artifacts.final_predictions:
+        return artifacts.final_predictions[0].fusion_policy.value
+    try:
+        payload = json.loads(artifacts.analysis_run.config_json)
+    except (json.JSONDecodeError, TypeError):
+        return "UNAVAILABLE"
+    request = payload.get("request") if isinstance(payload, dict) else None
+    value = request.get("fusion_policy") if isinstance(request, dict) else None
+    return value if isinstance(value, str) else "UNAVAILABLE"
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -1439,7 +1984,9 @@ def _build_parser() -> argparse.ArgumentParser:
             "settlement, and walk-forward backtests."
         ),
         epilog=(
-            "Live ingestion commands: live ingest-fixtures. "
+            "Live commands: live ingest-fixtures; live ingest-market-odds; "
+            "live ingest-sporttery; live reconcile; live import-identity-review; "
+            "live prepare-analysis; live run-analysis. "
             "Historical/backtest commands: historical-archive validate; "
             "historical-archive import; match-results list; settlement create; "
             "settlement report; backtest run; backtest report; backtest compare. "

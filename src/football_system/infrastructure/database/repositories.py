@@ -7,8 +7,16 @@ import json
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from football_system.application.live_sources import (
+    PreparationStatus,
+    PreparedLiveSourceBundle,
+)
 from football_system.application.models import AnalysisArtifacts, StoredInputManifest
-from football_system.domain.analysis import AnalysisMatchContext, AnalysisRunStatus
+from football_system.domain.analysis import (
+    AnalysisMatchContext,
+    AnalysisRunStatus,
+    ModelAnalysisMatchContext,
+)
 from football_system.domain.betting import SportteryRules
 from football_system.domain.common import stable_id
 from football_system.domain.market import MarketKey, MarketType, ThreeWayProbability
@@ -29,6 +37,7 @@ from football_system.infrastructure.database.models import (
     CompetitionRecord,
     FinalPredictionOutcomeRecord,
     FinalPredictionRecord,
+    LiveAnalysisRunPreparationRecord,
     ManualQuantInputOutcomeRecord,
     ManualQuantInputRecord,
     MarketOddsQuoteRecord,
@@ -60,6 +69,9 @@ from football_system.infrastructure.database.models import (
     TicketLegRecord,
     TicketRecord,
 )
+from football_system.infrastructure.database.live_source_repositories import (
+    SqlAlchemyLiveSourceRepository,
+)
 
 
 class SqlAlchemyAnalysisRepository:
@@ -76,6 +88,7 @@ class SqlAlchemyAnalysisRepository:
         self._validate_hashes(artifacts)
         self._validate_lineage(artifacts)
         self._validate_ticket_rules(artifacts, rules)
+        prepared_bundle = self._prepared_bundle(artifacts)
         with self._session_factory.begin() as session:
             run = artifacts.analysis_run
             existing_run = session.get(AnalysisRunRecord, run.analysis_run_id)
@@ -85,10 +98,12 @@ class SqlAlchemyAnalysisRepository:
                     existing_run,
                     artifacts,
                     rules,
+                    prepared_bundle,
                 )
                 return
 
-            self._persist_sources(session, artifacts)
+            if prepared_bundle is None:
+                self._persist_sources(session, artifacts)
             self._assert_model_training_sources(session, artifacts)
             run_record = AnalysisRunRecord(
                 analysis_run_id=run.analysis_run_id,
@@ -131,6 +146,15 @@ class SqlAlchemyAnalysisRepository:
                 )
                 for context in artifacts.match_contexts
             )
+            session.flush()
+            if prepared_bundle is not None:
+                session.add(
+                    LiveAnalysisRunPreparationRecord(
+                        analysis_run_id=run.analysis_run_id,
+                        preparation_id=prepared_bundle.preparation.preparation_id,
+                    )
+                )
+                session.flush()
             self._persist_predictions(session, artifacts)
             self._persist_betting(session, artifacts)
             self._persist_risk(session, artifacts)
@@ -144,6 +168,7 @@ class SqlAlchemyAnalysisRepository:
         record: AnalysisRunRecord,
         artifacts: AnalysisArtifacts,
         rules: SportteryRules,
+        prepared_bundle: PreparedLiveSourceBundle | None,
     ) -> None:
         run = artifacts.analysis_run
         if record.status != AnalysisRunStatus.COMPLETED.value:
@@ -169,9 +194,131 @@ class SqlAlchemyAnalysisRepository:
             f"AnalysisRun {run.analysis_run_id}",
         )
         self._assert_rules_match_run(artifacts, rules)
-        self._assert_sources_match(session, artifacts)
+        if prepared_bundle is None:
+            self._assert_sources_match(session, artifacts)
+        else:
+            self._assert_model_training_sources(session, artifacts)
+        self._assert_preparation_relation(session, record, prepared_bundle)
         self._assert_source_manifest_matches(artifacts)
         self._assert_run_graph_matches(session, artifacts)
+
+    def _prepared_bundle(
+        self,
+        artifacts: AnalysisArtifacts,
+    ) -> PreparedLiveSourceBundle | None:
+        preparation_id = artifacts.live_source_preparation_id
+        if preparation_id is None:
+            return None
+        bundle = SqlAlchemyLiveSourceRepository(
+            self._session_factory
+        ).load_prepared_sources(preparation_id)
+        if bundle.preparation.status is not PreparationStatus.ANALYSIS_INPUT_READY:
+            raise ValueError("live source preparation is not analysis-input ready")
+        if artifacts.analysis_run.as_of_at_utc != (
+            bundle.preparation.decision_as_of_at_utc
+        ):
+            raise ValueError("AnalysisRun cutoff conflicts with live source preparation")
+        self._assert_source_manifest_matches(artifacts)
+        _assert_domain_items_match(
+            artifacts.competitions,
+            bundle.fixtures.competitions,
+            "competition_id",
+            "prepared competitions",
+        )
+        _assert_domain_items_match(
+            artifacts.teams,
+            bundle.fixtures.teams,
+            "team_id",
+            "prepared teams",
+        )
+        _assert_domain_items_match(
+            artifacts.matches,
+            bundle.fixtures.matches,
+            "match_id",
+            "prepared matches",
+        )
+        _assert_domain_items_match(
+            artifacts.provider_mappings,
+            (
+                *bundle.fixtures.mappings,
+                *bundle.market_odds.mappings,
+                *bundle.sporttery.mappings,
+            ),
+            "mapping_id",
+            "prepared provider mappings",
+        )
+        _assert_domain_items_match(
+            artifacts.market_odds_snapshots,
+            bundle.market_odds.snapshots,
+            "snapshot_id",
+            "prepared market snapshots",
+        )
+        _assert_domain_items_match(
+            artifacts.sporttery_bonus_snapshots,
+            bundle.sporttery.snapshots,
+            "snapshot_id",
+            "prepared Sporttery snapshots",
+        )
+        prepared_by_match = {
+            item.match_id: item
+            for item in bundle.preparation.matches
+            if item.data_quality.ready
+        }
+        contexts = {
+            context.match_id: context for context in artifacts.match_contexts
+        }
+        if set(contexts) != set(prepared_by_match):
+            raise ValueError("AnalysisRun matches conflict with live source preparation")
+        for match_id, prepared in prepared_by_match.items():
+            context = contexts[match_id]
+            if not isinstance(context, ModelAnalysisMatchContext):
+                raise ValueError("prepared analysis requires model match contexts")
+            expected_context = {
+                "match_id": match_id,
+                "fixture_observation_id": prepared.fixture_observation_id,
+                "market_odds_snapshot_id": prepared.market_consensus_snapshot_id,
+                "sporttery_bonus_snapshot_id": prepared.sporttery_bonus_snapshot_id,
+            }
+            try:
+                context_payload = json.loads(context.context_json)
+            except json.JSONDecodeError as error:
+                raise ValueError("prepared match context is not valid JSON") from error
+            if (
+                context.fixture_observation_id != prepared.fixture_observation_id
+                or context.market_odds_snapshot_id
+                != prepared.market_consensus_snapshot_id
+                or context.sporttery_bonus_snapshot_id
+                != prepared.sporttery_bonus_snapshot_id
+                or not isinstance(context_payload, dict)
+                or any(
+                    context_payload.get(field) != value
+                    for field, value in expected_context.items()
+                )
+            ):
+                raise ValueError(
+                    f"prepared match context conflicts with frozen sources: {match_id}"
+                )
+        return bundle
+
+    @staticmethod
+    def _assert_preparation_relation(
+        session: Session,
+        run: AnalysisRunRecord,
+        prepared_bundle: PreparedLiveSourceBundle | None,
+    ) -> None:
+        record = session.get(LiveAnalysisRunPreparationRecord, run.analysis_run_id)
+        if prepared_bundle is None:
+            if record is not None:
+                raise ValueError(
+                    "existing AnalysisRun unexpectedly has live preparation lineage"
+                )
+            return
+        if record is None or record.preparation_id != (
+            prepared_bundle.preparation.preparation_id
+        ):
+            raise ValueError(
+                "existing AnalysisRun conflicts with live source preparation lineage"
+            )
 
     @staticmethod
     def _assert_source_manifest_matches(artifacts: AnalysisArtifacts) -> None:
@@ -2270,6 +2417,20 @@ def _unique_source_items(
             raise ValueError(f"conflicting duplicate {label}: {identity}")
         unique[identity] = item
     return tuple(unique.values())
+
+
+def _assert_domain_items_match(
+    actual: Iterable[object],
+    expected: Iterable[object],
+    identity_field: str,
+    label: str,
+) -> None:
+    actual_items = _unique_source_items(actual, identity_field, label)
+    expected_items = _unique_source_items(expected, identity_field, label)
+    actual_by_id = {getattr(item, identity_field): item for item in actual_items}
+    expected_by_id = {getattr(item, identity_field): item for item in expected_items}
+    if actual_by_id != expected_by_id:
+        raise ValueError(f"analysis artifacts conflict with {label}")
 
 
 def _quant_prediction_record_values(prediction: object) -> dict[str, object]:

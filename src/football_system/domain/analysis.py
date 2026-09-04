@@ -50,6 +50,7 @@ class AnalysisMatchContext(DomainModel):
 class ModelAnalysisMatchContext(DomainModel):
     analysis_run_id: Identifier
     match_id: Identifier
+    fixture_observation_id: Identifier | None = None
     market_odds_snapshot_id: Identifier
     sporttery_bonus_snapshot_id: Identifier
     quant_model_evaluation_id: Identifier

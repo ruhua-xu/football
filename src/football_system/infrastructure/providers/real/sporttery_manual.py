@@ -8,7 +8,7 @@ import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from pathlib import Path
@@ -20,6 +20,14 @@ from football_system.application.environment import (
     RuntimeEnvironment,
     RuntimeProvenance,
 )
+from football_system.application.live_sources import (
+    LiveSourceKind,
+    SourceArtifactRole,
+    SourceIngestionArtifact,
+    SourceReconciliationIssue,
+    SportteryIngestionCapture,
+    SportterySnapshotProvenance,
+)
 from football_system.application.ports.data_providers import (
     SnapshotQuery,
     SportteryBatch,
@@ -27,15 +35,25 @@ from football_system.application.ports.data_providers import (
 )
 from football_system.domain.archive import (
     HistoricalDataMode,
+    canonical_json,
     canonical_payload_sha256,
 )
 from football_system.domain.common import (
     DomainModel,
     Identifier,
     UtcDateTime,
+    normalize_utc,
     stable_id,
 )
-from football_system.domain.identity import MatchIdentityResolver, ProviderMatchIdentity
+from football_system.domain.identity import (
+    AmbiguousMatchMappingError,
+    MatchIdentityResolutionError,
+    MatchIdentityResolver,
+    ProviderMatchIdentity,
+)
+from football_system.domain.market_reconciliation import (
+    MarketOddsReconciliationIssueReason,
+)
 from football_system.domain.market import MarketKey, MarketType, ThreeWayFixedBonus
 from football_system.domain.match import (
     FixedBonusQuote,
@@ -338,11 +356,113 @@ class SportteryManualArchiveProvider(SportteryProvider):
         )
 
 
+class SportteryManualArchiveCaptureProvider:
+    """Normalize reviewed V2 manual archives for explicit live ingestion."""
+
+    def __init__(
+        self,
+        archive_source: str | Path,
+        identity_resolver: MatchIdentityResolver,
+        *,
+        identity_cutoff_at_utc: datetime,
+        provider_code: str = SPORTTERY_MANUAL_PROVIDER_CODE,
+    ) -> None:
+        if not isinstance(provider_code, str) or not provider_code.strip():
+            raise ValueError("manual Sporttery provider_code must be nonempty")
+        self.provider_code = provider_code.strip()
+        self._archive_source = archive_source
+        self._identity_resolver = identity_resolver
+        self._identity_cutoff_at_utc = normalize_utc(identity_cutoff_at_utc)
+        self.runtime_provenance = RuntimeProvenance(
+            environment=RuntimeEnvironment.LIVE,
+            provider_code=self.provider_code,
+            provenance=SPORTTERY_MANUAL_ARCHIVE_SCHEMA_VERSION,
+            is_mock=False,
+            data_mode=HistoricalDataMode.LIVE_STRICT,
+        )
+
+    def capture_sporttery(
+        self,
+        *,
+        ingested_at_utc: datetime,
+    ) -> SportteryIngestionCapture:
+        ingested_at = normalize_utc(ingested_at_utc)
+        if self._identity_cutoff_at_utc > ingested_at:
+            raise ValueError("Sporttery identity cutoff cannot follow ingestion")
+        issues: list[SourceReconciliationIssue] = []
+        artifacts: dict[str, SourceIngestionArtifact] = {}
+        schema_versions: set[str] = set()
+        loaded = _load_documents(
+            self._archive_source,
+            self._identity_resolver,
+            provider_code=self.provider_code,
+            ingested_at_utc=ingested_at,
+            issues=issues,
+            artifacts=artifacts,
+            schema_versions=schema_versions,
+            normalization_attempt_at_utc=ingested_at,
+        )
+        if schema_versions != {SPORTTERY_MANUAL_ARCHIVE_SCHEMA_VERSION}:
+            raise SportteryManualArchiveError(
+                "live Sporttery ingestion requires SPORTTERY_MANUAL_ARCHIVE_V2"
+            )
+        artifact_values = tuple(artifacts[key] for key in sorted(artifacts))
+        ingestion_id = stable_id(
+            "live-sporttery-ingestion",
+            canonical_payload_sha256(
+                {
+                    "artifacts": tuple(
+                        (item.artifact_id, item.payload_sha256)
+                        for item in artifact_values
+                    ),
+                    "identity_cutoff_at_utc": self._identity_cutoff_at_utc,
+                    "ingested_at_utc": ingested_at,
+                }
+            ),
+        )
+        return SportteryIngestionCapture(
+            ingestion_id=ingestion_id,
+            provider_code=self.provider_code,
+            identity_cutoff_at_utc=self._identity_cutoff_at_utc,
+            artifacts=artifact_values,
+            ingested_at_utc=ingested_at,
+            batch=SportteryBatch(
+                snapshots=tuple(item.snapshot for item in loaded),
+                mappings=tuple(
+                    {item.mapping.mapping_id: item.mapping for item in loaded}.values()
+                ),
+            ),
+            provenance=tuple(
+                SportterySnapshotProvenance.model_validate(
+                    {
+                        **item.provenance.model_dump(mode="python"),
+                        "manual_document_artifact_id": stable_id(
+                            "sporttery-manual-document",
+                            item.provenance.archive_snapshot_id,
+                        ),
+                        "source_artifact_id": stable_id(
+                            "sporttery-source-artifact",
+                            item.provenance.archive_snapshot_id,
+                            item.provenance.source_artifact_sha256,
+                        ),
+                    }
+                )
+                for item in loaded
+            ),
+            issues=tuple(sorted(issues, key=lambda item: item.issue_id)),
+        )
+
+
 def _load_documents(
     archive_source: str | Path,
     identity_resolver: MatchIdentityResolver,
     *,
     provider_code: str,
+    ingested_at_utc: datetime | None = None,
+    issues: list[SourceReconciliationIssue] | None = None,
+    artifacts: dict[str, SourceIngestionArtifact] | None = None,
+    schema_versions: set[str] | None = None,
+    normalization_attempt_at_utc: datetime | None = None,
 ) -> tuple[_LoadedSnapshot, ...]:
     paths = _document_paths(archive_source)
     loaded: list[_LoadedSnapshot] = []
@@ -350,10 +470,18 @@ def _load_documents(
     loaded_snapshot_ids: set[str] = set()
     for path in paths:
         document = _read_document(path)
+        if schema_versions is not None:
+            schema_versions.add(document.schema_version)
         if document.snapshot_id in snapshot_ids:
             raise SportteryManualArchiveError("duplicate manual snapshot_id")
         snapshot_ids.add(document.snapshot_id)
         artifact_hash = _verified_artifact_hash(path, document)
+        if ingested_at_utc is not None and ingested_at_utc < document.reviewed_at_utc:
+            raise SportteryManualArchiveError(
+                "manual Sporttery ingestion cannot predate review"
+            )
+        if artifacts is not None:
+            _append_capture_artifacts(artifacts, path, document, artifact_hash)
         for record in document.records:
             external_match_id = _external_match_id(document, record)
             provider_match = ProviderMatchIdentity(
@@ -373,7 +501,18 @@ def _load_documents(
                 away_team_language=record.away_team_language,
                 kickoff_at_utc=record.kickoff_at_utc,
             )
-            resolution = identity_resolver.resolve(provider_match)
+            try:
+                resolution = identity_resolver.resolve(provider_match)
+            except MatchIdentityResolutionError as error:
+                if issues is None:
+                    raise
+                issues.append(
+                    _sporttery_reconciliation_issue(
+                        error,
+                        provider_match,
+                    )
+                )
+                continue
             bonus = ThreeWayFixedBonus(
                 home_win=record.home_win,
                 draw=record.draw,
@@ -385,6 +524,7 @@ def _load_documents(
                 record,
                 provider_code,
                 artifact_hash,
+                normalization_attempt_at_utc=normalization_attempt_at_utc,
             )
             snapshot = SportteryBonusSnapshot(
                 snapshot_id=stable_id(
@@ -404,7 +544,7 @@ def _load_documents(
                 sale_status=record.sale_status,
                 captured_at_utc=document.captured_at_utc,
                 available_at_utc=document.reviewed_at_utc,
-                ingested_at_utc=document.reviewed_at_utc,
+                ingested_at_utc=ingested_at_utc or document.reviewed_at_utc,
                 source_snapshot_key=source_snapshot_key,
                 payload_hash=payload_hash,
             )
@@ -446,12 +586,90 @@ def _load_documents(
                         internal_match_id=resolution.internal_match_id,
                         resolution_method=resolution.resolution_method,
                         confidence=resolution.confidence,
-                        available_at_utc=document.reviewed_at_utc,
+                        available_at_utc=ingested_at_utc or document.reviewed_at_utc,
                     ),
                     provenance=provenance,
                 )
             )
     return _canonicalize_loaded_mappings(tuple(loaded))
+
+
+def _append_capture_artifacts(
+    artifacts: dict[str, SourceIngestionArtifact],
+    document_path: Path,
+    document: SportteryManualDocument,
+    source_artifact_hash: str,
+) -> None:
+    document_hash = hashlib.sha256(document_path.read_bytes()).hexdigest()
+    source_artifact_path = _resolved_artifact_path(document_path, document)
+    values = (
+        SourceIngestionArtifact(
+            artifact_id=stable_id(
+                "sporttery-manual-document",
+                document.snapshot_id,
+            ),
+            role=SourceArtifactRole.MANUAL_DOCUMENT,
+            payload_sha256=document_hash,
+            source_path=str(document_path),
+            captured_at_utc=document.captured_at_utc,
+            available_at_utc=document.reviewed_at_utc,
+        ),
+        SourceIngestionArtifact(
+            artifact_id=stable_id(
+                "sporttery-source-artifact",
+                document.snapshot_id,
+                source_artifact_hash,
+            ),
+            role=SourceArtifactRole.SOURCE_ARTIFACT,
+            payload_sha256=source_artifact_hash,
+            source_path=str(source_artifact_path),
+            captured_at_utc=document.captured_at_utc,
+            available_at_utc=document.reviewed_at_utc,
+        ),
+    )
+    for value in values:
+        previous = artifacts.get(value.artifact_id)
+        if previous is not None and previous != value:
+            raise SportteryManualArchiveError(
+                "manual Sporttery artifact identity is inconsistent"
+            )
+        artifacts[value.artifact_id] = value
+
+
+def _sporttery_reconciliation_issue(
+    error: MatchIdentityResolutionError,
+    provider_match: ProviderMatchIdentity,
+) -> SourceReconciliationIssue:
+    reason = (
+        MarketOddsReconciliationIssueReason.IDENTITY_AMBIGUOUS
+        if isinstance(error, AmbiguousMatchMappingError)
+        else MarketOddsReconciliationIssueReason.IDENTITY_UNRESOLVED
+    )
+    detail = (
+        "manual Sporttery identity matched multiple canonical candidates"
+        if reason is MarketOddsReconciliationIssueReason.IDENTITY_AMBIGUOUS
+        else "manual Sporttery identity could not be resolved"
+    )
+    return SourceReconciliationIssue(
+        issue_id=stable_id(
+            "sporttery-reconciliation-issue",
+            provider_match.provider_code,
+            provider_match.external_namespace,
+            provider_match.provider_match_id,
+            reason.value,
+            error.code,
+            canonical_payload_sha256(provider_match),
+        ),
+        source_kind=LiveSourceKind.SPORTTERRY,
+        reason=reason,
+        provider_code=provider_match.provider_code,
+        external_namespace=provider_match.external_namespace,
+        external_match_id=provider_match.provider_match_id,
+        candidates=tuple(sorted(set(error.candidates))),
+        code=error.code,
+        detail=detail,
+        provider_identity_json=canonical_json(provider_match),
+    )
 
 
 def _external_match_id(
@@ -540,34 +758,44 @@ def _source_snapshot_key(
     record: SportteryManualRecord,
     provider_code: str,
     artifact_hash: str,
+    *,
+    normalization_attempt_at_utc: datetime | None = None,
 ) -> str:
     if document.schema_version == SPORTTERY_MANUAL_ARCHIVE_SCHEMA_V1:
-        return stable_id(
+        source_key = stable_id(
             "sporttery-manual-source",
             document.snapshot_id,
             record.sporttery_match_no,
             record.match_number_date.isoformat(),
             artifact_hash,
         )
+    else:
+        source_key = stable_id(
+            "sporttery-manual-source",
+            canonical_payload_sha256(
+                {
+                    "schema_version": document.schema_version,
+                    "archive_snapshot_id": document.snapshot_id,
+                    "provider_code": provider_code,
+                    "sporttery_match_no": record.sporttery_match_no,
+                    "match_number_date": record.match_number_date.isoformat(),
+                    "captured_at_utc": document.captured_at_utc,
+                    "source_reference": document.source_reference,
+                    "source_artifact_path": document.source_artifact_path,
+                    "source_artifact_sha256": artifact_hash,
+                    "entered_by": document.entered_by,
+                    "review_level": document.review_level,
+                    "reviewed_by": document.reviewed_by,
+                    "reviewed_at_utc": document.reviewed_at_utc,
+                }
+            ),
+        )
+    if normalization_attempt_at_utc is None:
+        return source_key
     return stable_id(
-        "sporttery-manual-source",
-        canonical_payload_sha256(
-            {
-                "schema_version": document.schema_version,
-                "archive_snapshot_id": document.snapshot_id,
-                "provider_code": provider_code,
-                "sporttery_match_no": record.sporttery_match_no,
-                "match_number_date": record.match_number_date.isoformat(),
-                "captured_at_utc": document.captured_at_utc,
-                "source_reference": document.source_reference,
-                "source_artifact_path": document.source_artifact_path,
-                "source_artifact_sha256": artifact_hash,
-                "entered_by": document.entered_by,
-                "review_level": document.review_level,
-                "reviewed_by": document.reviewed_by,
-                "reviewed_at_utc": document.reviewed_at_utc,
-            }
-        ),
+        "sporttery-live-normalization",
+        source_key,
+        normalization_attempt_at_utc,
     )
 
 
@@ -684,6 +912,24 @@ def _reject_json_constant(_: str) -> object:
 
 
 def _verified_artifact_hash(path: Path, document: SportteryManualDocument) -> str:
+    artifact = _resolved_artifact_path(path, document)
+    try:
+        digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    except OSError:
+        raise SportteryManualArchiveError(
+            "manual source artifact cannot be read"
+        ) from None
+    if not hmac.compare_digest(digest, document.source_artifact_sha256):
+        raise SportteryManualArchiveError(
+            "manual source artifact SHA-256 does not match"
+        )
+    return digest
+
+
+def _resolved_artifact_path(
+    path: Path,
+    document: SportteryManualDocument,
+) -> Path:
     base = path.parent.resolve()
     requested = Path(document.source_artifact_path)
     if requested.is_absolute():
@@ -700,17 +946,7 @@ def _verified_artifact_hash(path: Path, document: SportteryManualDocument) -> st
         or not artifact.is_file()
     ):
         raise SportteryManualArchiveError("manual source artifact path is invalid")
-    try:
-        digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
-    except OSError:
-        raise SportteryManualArchiveError(
-            "manual source artifact cannot be read"
-        ) from None
-    if not hmac.compare_digest(digest, document.source_artifact_sha256):
-        raise SportteryManualArchiveError(
-            "manual source artifact SHA-256 does not match"
-        )
-    return digest
+    return artifact
 
 
 def _snapshot_is_visible(

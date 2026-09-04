@@ -52,7 +52,14 @@ from football_system.domain.analysis import (
     ModelAnalysisMatchContext,
 )
 from football_system.domain.betting import PortfolioConstraints
-from football_system.domain.common import DomainModel, UtcDateTime, new_id, stable_id, utc_now
+from football_system.domain.common import (
+    DomainModel,
+    Identifier,
+    UtcDateTime,
+    new_id,
+    stable_id,
+    utc_now,
+)
 from football_system.domain.market import MarketType, UnsupportedMarketError
 from football_system.domain.match import (
     Competition,
@@ -84,12 +91,34 @@ from football_system.domain.services.probability import normalized_inverse_proba
 from football_system.domain.services.risk import analyze_portfolio_risk
 
 
+class PreparedFixtureObservationRef(DomainModel):
+    match_id: Identifier
+    fixture_observation_id: Identifier
+
+
 class RunModelAnalysisRequest(RunAnalysisRequest):
     competition_id: str
     season_id: str
     elo_config: EloBaselineConfig
     quant_weight: Decimal | None = Field(default=None, ge=0, le=1)
     constraints: PortfolioConstraints | None = None
+    live_source_preparation_id: Identifier | None = None
+    prepared_fixture_observations: tuple[PreparedFixtureObservationRef, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_prepared_lineage(self) -> RunModelAnalysisRequest:
+        references = tuple(item.match_id for item in self.prepared_fixture_observations)
+        if len(references) != len(set(references)):
+            raise ValueError("prepared fixture observation matches must be unique")
+        if (self.live_source_preparation_id is None) != (not references):
+            raise ValueError(
+                "live source preparation and fixture observations must be supplied together"
+            )
+        if self.expected_match_ids is not None and any(
+            match_id not in self.expected_match_ids for match_id in references
+        ):
+            raise ValueError("prepared fixture observation is outside expected matches")
+        return self
 
 
 class ModelAnalysisDecision(DomainModel):
@@ -189,6 +218,16 @@ class RunModelAnalysisService:
         query_matches = _validate_fixture_response(request, fixture_batch)
         if any(match.competition_id != request.competition_id for match in query_matches):
             raise ValueError("model analysis fixtures cross the requested competition")
+        fixture_observations = {
+            item.match_id: item.fixture_observation_id
+            for item in request.prepared_fixture_observations
+        }
+        if fixture_observations and set(fixture_observations) != {
+            match.match_id for match in query_matches
+        }:
+            raise ValueError(
+                "prepared fixture observations do not match provider fixtures"
+            )
         target_match_ids = request.expected_match_ids or tuple(
             match.match_id for match in query_matches
         )
@@ -324,19 +363,22 @@ class RunModelAnalysisService:
                     )
                 )
                 quant_predictions.append(quant_prediction)
-            context_json = _canonical_json(
-                {
-                    "match_id": match.match_id,
-                    "as_of_at_utc": request.as_of_at_utc,
-                    "market_odds_snapshot_id": odds_snapshot.snapshot_id,
-                    "sporttery_bonus_snapshot_id": bonus_snapshot.snapshot_id,
-                    "quant_model_evaluation_id": evaluation.quant_model_evaluation_id,
-                }
-            )
+            context_payload = {
+                "match_id": match.match_id,
+                "as_of_at_utc": request.as_of_at_utc,
+                "market_odds_snapshot_id": odds_snapshot.snapshot_id,
+                "sporttery_bonus_snapshot_id": bonus_snapshot.snapshot_id,
+                "quant_model_evaluation_id": evaluation.quant_model_evaluation_id,
+            }
+            fixture_observation_id = fixture_observations.get(match.match_id)
+            if fixture_observation_id is not None:
+                context_payload["fixture_observation_id"] = fixture_observation_id
+            context_json = _canonical_json(context_payload)
             contexts.append(
                 ModelAnalysisMatchContext(
                     analysis_run_id=run_id,
                     match_id=match.match_id,
+                    fixture_observation_id=fixture_observation_id,
                     market_odds_snapshot_id=odds_snapshot.snapshot_id,
                     sporttery_bonus_snapshot_id=bonus_snapshot.snapshot_id,
                     quant_model_evaluation_id=evaluation.quant_model_evaluation_id,
@@ -406,6 +448,16 @@ class RunModelAnalysisService:
                 role: provenance.model_dump(mode="json")
                 for role, provenance in sorted(runtime_provenance.items())
             }
+        if request.live_source_preparation_id is not None:
+            request_config.update(
+                {
+                    "live_source_preparation_id": request.live_source_preparation_id,
+                    "prepared_fixture_observations": {
+                        match_id: fixture_observations[match_id]
+                        for match_id in sorted(fixture_observations)
+                    },
+                }
+            )
         config_json = _canonical_json(
             {
                 "settings": self._settings.model_dump(mode="json"),
@@ -455,6 +507,7 @@ class RunModelAnalysisService:
             portfolio_risk_reports=risk_reports,
             quant_model_states=(model_state,),
             quant_model_evaluations=tuple(model_evaluations),
+            live_source_preparation_id=request.live_source_preparation_id,
         )
         self._repository.save_analysis(artifacts, rules)
         return ModelAnalysisDecision(

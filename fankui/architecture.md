@@ -106,11 +106,15 @@ scope / status / pagination validation
 capture + identity + observation transaction
 ```
 
-`live ingest-fixtures` 是当前唯一显式联网入口。配置、SQLite URL、kickoff window 和 provider scope 必须在读取 secret、网络 I/O 或建库前通过校验；successful raw response 在 JSON/schema normalization 前封存，payload 错误不得打开数据库。
+`live ingest-fixtures` 与 `live ingest-market-odds` 是仅有的显式联网入口。配置、SQLite URL、kickoff window 和 provider scope 必须在读取 secret 或网络 I/O 前通过校验；fixture successful raw response 在 JSON/schema normalization 前封存，payload 错误不得打开数据库。odds 命令必须先从数据库读取命令起始 cutoff 可见的 identity catalog，因此数据库 lookup 先于 HTTP，但 source capture、consensus 和 issue 仍在完整 normalization 后原子追加。
 
 Provider receipt time 作为 fixture identity 和 observation 的 `available_at_utc`，repository clock 记录 capture 的实际 `ingested_at_utc`。只有首次由某次 capture 创建的 Match、CanonicalMatchIdentity、TeamAlias、CompetitionMapping 和 ProviderMatchMapping 才保存该 capture 的 `fixture_ingestion_id`；预先存在的普通 identity 保持 `NULL`，不会因后续 capture 被追溯重分类。
 
 Catalog 查询对 fixture-owned identity 同时执行 `available_at_utc <= cutoff` 和 owner capture `ingested_at_utc <= cutoff`，latest fixture observation 也必须通过这两个边界。新 kickoff/status、team alias 或 competition mapping 在其 capture 实际入库前不可见。identity ownership、capture 和 observation 均为 append-only；包含任何 fixture capture 的数据库禁止回退 fixture-ingestion migration，以免删除 provenance 后保留无来源 identity。
+
+Live odds 与 reviewed Sporttery 使用独立的 append-only ingestion graph。每次 capture 保存 artifact、mapping、snapshot 和结构化 reconciliation issue；market consensus 额外保存每个 constituent，Sporttery snapshot 强制绑定 manual document 与 source artifact。`live reconcile` 只报告指定 cutoff 仍未由 imported review 关闭的 issue；review mapping 在实际 import 时才进入 identity catalog，不能按 `reviewed_at_utc` 回填历史可见性。
+
+`live prepare-analysis` 不构造 provider 或 HTTP transport。它按单一 competition/season、decision cutoff 和 kickoff window，从数据库冻结 latest visible fixture observation、verified market consensus 与 verified Sporttery provenance；赔率 age、bookmaker coverage 或任一来源不合格时保存结构化 reason code。`live run-analysis` 同样完全离线，只通过 prepared providers 重放 ready graph，并以专用 `live_analysis_run_preparations` 关系将 AnalysisRun 绑定到唯一 preparation；同一 preparation 可产生多个 run。insert/completion trigger 和 repository retry 同时校验每场 fixture observation、market consensus 与 Sporttery snapshot，不能重新选择较新的来源。若 fixture 已改期，V3 packet 从该 run 冻结的 observation 投影 kickoff，而不是使用 immutable Match identity 上的首次 kickoff。
 
 ## Historical Archive 与回测流
 
@@ -358,6 +362,7 @@ Optimizer 默认在 preferred 范围内寻找方案。超出 preferred 的 Ticke
 - 固定参数三向 Elo model `P_quant`、`MVP_INPUT_MANIFEST_V3` 和 unavailable-aware analysis。
 - `BACKTEST_V2` 双 cutoff domain/application/repository、完整 SQLite lineage triggers 与 migration。
 - `ANALYSIS_PACKET_V3` / `LLM_REVIEW_V3` model-lineage 离线闭环，同时保留 V1/V2 bytes。
+- The Odds API、reviewed Sporttery、reconciliation/preparation 与 preparation-bound 离线 live AnalysisRun；无合格训练赛果时显式保存 model unavailable。
 
 `0.4.0` 不实现：
 

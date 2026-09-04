@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -7,6 +8,13 @@ import pytest
 
 from football_system.application.environment import RuntimeEnvironment
 from football_system.application.identity_catalog import FixtureIngestionRequest
+from football_system.application.live_sources import (
+    LiveMarketOddsIngestionService,
+    LiveSourceIngestionStatus,
+    LiveSourceKind,
+    MarketOddsIngestionCapture,
+    SourceIngestionSummary,
+)
 from football_system.application.ports.data_providers import (
     FixtureQuery,
     MarketOddsProvider,
@@ -491,11 +499,76 @@ def test_the_odds_api_preserves_complete_bookmakers_and_archives_raw(
     assert provider.runtime_provenance.environment is RuntimeEnvironment.LIVE
     assert provider.runtime_provenance.data_mode is HistoricalDataMode.LIVE_STRICT
     assert provider.last_raw_artifact is not None
+    assert provider.last_request_audit is not None
+    assert provider.last_request_audit.received_at_utc == RECEIVED
+    assert provider.last_raw_artifact_id == provider.last_raw_artifact.artifact_id
+    assert provider.last_raw_artifact_path == str(
+        provider.last_raw_artifact.payload_path
+    )
+    assert provider.last_raw_payload_sha256 == hashlib.sha256(payload).hexdigest()
     metadata = provider.last_raw_artifact.metadata_path.read_text(encoding="utf-8")
     assert TOKEN not in metadata
     assert TOKEN in transport.requests[0].url
     assert "apiKey" not in metadata
     assert "/historical/" not in transport.requests[0].url
+
+
+def test_live_market_ingestion_captures_raw_source_consensus_and_lineage(
+    tmp_path: Path,
+) -> None:
+    payload = (FIXTURES / "synthetic_the_odds_api/current.json").read_bytes()
+    provider = _odds_provider(
+        ScriptedTransport([HttpResponse(200, payload)]),
+        RawDataArchive(tmp_path / "raw"),
+    )
+
+    class Repository:
+        capture: MarketOddsIngestionCapture | None = None
+
+        def save_market_odds_ingestion(
+            self,
+            capture: MarketOddsIngestionCapture,
+        ) -> SourceIngestionSummary:
+            self.capture = capture
+            return SourceIngestionSummary(
+                ingestion_id=capture.ingestion_id,
+                source_kind=LiveSourceKind.MARKET_ODDS,
+                status=LiveSourceIngestionStatus.COMPLETED,
+                inserted=True,
+                artifact_count=1,
+                snapshot_count=len(capture.source_batch.snapshots),
+                mapping_count=len(capture.source_batch.mappings),
+                issue_count=len(capture.issues),
+                consensus_count=len(capture.consensus_batch.snapshots),
+            )
+
+    repository = Repository()
+    ingested_at = RECEIVED + timedelta(seconds=1)
+    service = LiveMarketOddsIngestionService(
+        provider,
+        repository,
+        environment=RuntimeEnvironment.LIVE,
+        identity_cutoff_at_utc=RECEIVED - timedelta(seconds=1),
+        clock=lambda: ingested_at,
+    )
+
+    summary = asyncio.run(service.ingest(("match-synthetic",)))
+
+    assert summary.status is LiveSourceIngestionStatus.COMPLETED
+    assert repository.capture is not None
+    capture = repository.capture
+    assert capture.request_audit == provider.last_request_audit
+    assert capture.artifact.payload_sha256 == hashlib.sha256(payload).hexdigest()
+    assert all(
+        snapshot.ingested_at_utc == ingested_at
+        for snapshot in capture.source_batch.snapshots
+    )
+    assert len(capture.source_batch.snapshots) == 2
+    assert len(capture.consensus_batch.snapshots) == 1
+    assert len(capture.consensus_lineages) == 1
+    assert {
+        item.snapshot_id for item in capture.consensus_lineages[0].constituents
+    } == {item.snapshot_id for item in capture.source_batch.snapshots}
 
 
 def test_the_odds_api_partially_normalizes_unrelated_reconciliation_failures(

@@ -11,6 +11,11 @@
 - 增加 `MVP_INPUT_MANIFEST_V3`、QuantModelState/TrainingFact/Evaluation 与 model-generated QuantPrediction lineage；Alembic revision `b7d4e9f2c631` 保持手工和模型 `P_quant` 互斥并封存完整 AnalysisRun graph。
 - 增加 `BACKTEST_V2` 双阶段 walk-forward、decision/evaluation snapshot、availability-aware metrics、archive/result/training/financial lineage，以及原子、幂等、可重验的 SQLite repository；Alembic revision `c4e8a1d7f205` 增加八张 V2 表、append-only/completion triggers 和 populated downgrade guard。
 - 增加 `ANALYSIS_PACKET_V3` / `LLM_REVIEW_V3`：保留 V2 review context，使用紧凑结构化 model lineage 表达 available/unavailable；V1/V2 输出字节和 manual-only 拒绝语义保持不变。
+- 增加显式 `live ingest-market-odds` 与 `live ingest-sporttery`：前者通过 `ODDS_API_KEY` 获取 current h2h、先封存 raw response 再派生 deterministic consensus；后者只接受 reviewed `SPORTTERY_MANUAL_ARCHIVE_V2` 和已校验 source artifact，不实现网页爬虫。
+- 增加 `live reconcile`、`live import-identity-review`、persisted-only `live prepare-analysis` 与离线 `live run-analysis`；identity issue 非致命落库，人工 mapping 仅在实际 import 后可见，preparation 按 cutoff 冻结 fixture observation、market consensus、Sporttery provenance 和数据质量 reason code，模型运行不得重新选择来源。
+- Alembic revision `3cb19bcbdd88` 增加 12 张 live ingestion/review/preparation lineage 表及 runtime/migration append-only、duplicate-insert、cross-table triggers；有 live 数据时拒绝 destructive downgrade。
+- Alembic revision `6e4b1a9c2d73` 增加 AnalysisRun 到 ready preparation 的多对一 append-only 关系；insert/completion triggers 要求 V3 model context 与冻结 fixture observation、market consensus、Sporttery snapshot 全量一致。V3 packet 对 prepared run 使用该 observation 的 kickoff，不用 immutable base Match 的旧赛程。
+- `MARKET_CONSENSUS_MEDIAN_V1` 在生成 payload hash 前将派生公平赔率确定性量化为数据库 `NUMERIC(18,6)` 精度，保证 capture、持久化、重放与模型输入完全一致。
 
 ## 0.4.0 - 2026-09-01
 
