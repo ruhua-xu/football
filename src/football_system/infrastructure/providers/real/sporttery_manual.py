@@ -278,6 +278,35 @@ class _LoadedSnapshot:
     provenance: SportteryManualSnapshotProvenance
 
 
+@dataclass(frozen=True, slots=True)
+class VerifiedSportteryManualDocument:
+    path: Path
+    document: SportteryManualDocument
+    document_sha256: str
+    source_artifact_sha256: str
+
+
+def load_verified_sporttery_manual_documents(
+    archive_source: str | Path,
+) -> tuple[VerifiedSportteryManualDocument, ...]:
+    values: list[VerifiedSportteryManualDocument] = []
+    snapshot_ids: set[str] = set()
+    for path in _document_paths(archive_source):
+        document = _read_document(path)
+        if document.snapshot_id in snapshot_ids:
+            raise SportteryManualArchiveError("duplicate manual snapshot_id")
+        snapshot_ids.add(document.snapshot_id)
+        values.append(
+            VerifiedSportteryManualDocument(
+                path=path,
+                document=document,
+                document_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+                source_artifact_sha256=_verified_artifact_hash(path, document),
+            )
+        )
+    return tuple(values)
+
+
 class SportteryManualArchiveProvider(SportteryProvider):
     """Strict, reviewed manual fixed-bonus source for offline Sporttery imports."""
 

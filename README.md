@@ -19,6 +19,7 @@
 - Historical Archive V1、MatchResult、Ticket/Portfolio Settlement、walk-forward、概率/资金/回撤/覆盖率指标和并排策略比较；`BACKTEST_V2` 额外冻结 Elo state/evaluation、双 cutoff、归档和财务结算血缘。
 - Sportmonks fixture raw capture、canonical identity、append-only observation lineage 和 SQLite 原子落库；仓库与自动化测试不包含账户响应或真实第三方数据。
 - The Odds API current h2h raw capture、全部 bookmaker 快照、`MARKET_CONSENSUS_MEDIAN_V1` lineage，以及 reviewed `SPORTTERY_MANUAL_ARCHIVE_V2` capture；unresolved/ambiguous identity 作为结构化 issue 落库，不模糊绑定。
+- provider-neutral `DAILY_SLATE_PLAN_V1`：从 reviewed Sporttery manual archive 或轻量 `SPORTTERY_DAILY_SLATE_INPUT_V1` 生成确定性 identity reconciliation 与 capture plan；只复用 cutoff 前已存在的 canonical identity，不创建比赛、不联网，也不产生 AnalysisRun。
 - append-only live reconciliation/review 与 persisted-only analysis preparation；preparation 按 decision cutoff 冻结 fixture observation、market consensus 和 Sporttery provenance，并对缺失、陈旧或覆盖不足输入给出 reason code。
 - `live run-analysis` 只重放一份 ready preparation，以固定 `ELO_THREE_WAY_BASELINE_V1` 创建 V3 model AnalysisRun；run 与 preparation 的完整 ready-match graph 由专用 append-only 关系封存。
 
@@ -35,7 +36,9 @@ football-system live ingest-fixtures --kickoff-from 2026-09-03T00:00:00Z --kicko
 其余 live source 命令形成显式 capture -> reconcile -> review -> recapture -> prepare 流程。odds 命令先按命令起始时刻加载 provider-specific identity catalog，再发起一次 current endpoint 请求；raw response 在 normalization 前封存，source snapshots 与 consensus lineage 在同一事务中追加。Sporttery 命令只接受 reviewed V2 本地文件及其 SHA-256 source artifact，不实现网页爬虫。首次无法解析的 provider event 可先落为 issue，导入人工 mapping 后再重新 capture：
 
 ```text
+football-system live plan-slate --input data/manual/sporttery.json --as-of 2026-09-02T12:00:00Z --output exchange/daily_slate_plan.json
 football-system live ingest-market-odds --kickoff-from 2026-09-03T00:00:00Z --kickoff-to 2026-09-03T23:59:59Z --match-id <internal-match-id> --sport-key soccer_epl --season 2026/27 --competition-type LEAGUE
+football-system live ingest-market-odds --plan exchange/daily_slate_plan.json --plan-request-id <request-id> --sport-key soccer_epl --season 2026/27 --competition-type LEAGUE
 football-system live ingest-sporttery --archive data/manual/sporttery.json --kickoff-from 2026-09-03T00:00:00Z --kickoff-to 2026-09-03T23:59:59Z
 football-system live reconcile --ingestion-id <ingestion-id> --output exchange/live_reconciliation.json
 football-system live import-identity-review --review exchange/live_identity_review.json
@@ -43,6 +46,8 @@ football-system live prepare-analysis --decision-as-of 2026-09-02T12:00:00Z --ki
 football-system live run-analysis --date 2026-09-03 --budget 100 200 --analysis-run-id <analysis-run-id>
 football-system analysis-packet export --config config/live.toml --analysis-run-id <analysis-run-id> --schema-version ANALYSIS_PACKET_V3 --output exchange/live_analysis_packet_v3.json
 ```
+
+`plan-slate` 输入必须带 source artifact SHA-256 和 `SELF_REVIEWED` 或 `INDEPENDENT_REVIEWED` provenance。候选只保存日期限定的竞彩编号、UTC kickoff、主客队/赛事标签和 optional `THREE_WAY` SP；同一编号可跨日期出现，同日重复会被拒绝。已有 reviewed explicit mapping 的候选标记 `IDENTITY_RESOLVED` 并进入精确 market-odds request；未解析候选只生成 reconciliation task，缺少任何 canonical candidate 时额外标记 `FIXTURE_SOURCE_REQUIRED`。空输入正常输出 `NO_SPORTTERY_CANDIDATES` 与 `NO_ANALYSIS`。plan 文件不能作为 `run-analysis` 输入，仍必须完成 source ingestion 和 persisted preparation。
 
 `reconcile`、`import-identity-review`、`prepare-analysis` 和 `run-analysis` 不读取 API key、不构造 HTTP transport。Preparation 只查询 cutoff 前已持久化的数据；缺少任一必要来源时保存 `NO_ANALYSIS_INSUFFICIENT_DATA`，不会临时联网补数。`run-analysis --date` 仅在该 UTC 日期恰好匹配一份 ready preparation 时运行；否则必须使用 `--preparation-id`。当前没有 provenance-qualified persisted 训练赛果时，Elo evaluation 明确保存 `UNAVAILABLE`，不会复制 `P_market` 或生成伪 `P_final`。以上真实 provider CLI 已实现不改变 operational `DEFER`：当前仓库仍未读取任何真实 key，也没有可声明为真实表现的数据或 packet。
 

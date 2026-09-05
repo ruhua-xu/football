@@ -434,7 +434,14 @@ print(json.dumps({
         [executable, "live", "--help"],
         cwd=work_dir,
         environment=environment,
-        markers=("ingest-fixtures",),
+        markers=("plan-slate", "ingest-fixtures"),
+    )
+    _run_checked(
+        "live daily slate planning help",
+        [executable, "live", "plan-slate", "--help"],
+        cwd=work_dir,
+        environment=environment,
+        markers=("--input", "--as-of", "--output"),
     )
     _run_checked(
         "live fixture ingestion help",

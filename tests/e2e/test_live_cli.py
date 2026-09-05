@@ -3,16 +3,19 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
 from sqlalchemy import text
 
+from football_system.application.daily_slate import PlanSportteryDailySlateService
 from football_system.application.live_sources import (
     IdentityReviewDocument,
     ReviewedIdentityMapping,
 )
 from football_system.domain.archive import canonical_json
+from football_system.domain.match import ProviderMatchMapping
 from football_system.infrastructure.database.identity_repositories import (
     SqlAlchemyMatchIdentityRepository,
 )
@@ -20,6 +23,8 @@ from football_system.infrastructure.database.session import (
     create_database_engine,
     create_session_factory,
 )
+from football_system.infrastructure.files.daily_slate import load_sporttery_daily_slate
+from football_system.infrastructure.files.review_bridge import write_contract_file
 from football_system.infrastructure.http.provider_client import (
     HttpRequest,
     HttpResponse,
@@ -29,6 +34,7 @@ from football_system.interfaces.cli import (
     _ingest_live_fixtures,
     _ingest_live_market_odds,
     _ingest_live_sporttery,
+    _plan_live_slate,
     _prepare_live_analysis,
     _reconcile_live_sources,
     _run_live_analysis,
@@ -88,6 +94,7 @@ def test_live_help_is_discoverable_and_has_no_side_effects(
     assert main(["live", "--help"]) == 0
     live_help = capsys.readouterr().out
     assert {
+        "plan-slate",
         "ingest-fixtures",
         "ingest-market-odds",
         "ingest-sporttery",
@@ -105,6 +112,144 @@ def test_live_help_is_discoverable_and_has_no_side_effects(
         main(["--help"])
     assert error.value.code == 0
     assert "live ingest-fixtures" in " ".join(capsys.readouterr().out.split())
+
+
+def test_live_plan_slate_is_append_only_and_not_an_analysis_input(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    database_path = tmp_path / "live.db"
+    plan_path = tmp_path / "daily-slate-plan.json"
+    arguments = [
+        "--config",
+        str(LIVE_CONFIG),
+        "--database-url",
+        f"sqlite:///{database_path.as_posix()}",
+        "--input",
+        str(SPORTTERY_ARCHIVE),
+        "--as-of",
+        RECEIVED.isoformat(),
+        "--output",
+        str(plan_path),
+    ]
+
+    assert _plan_live_slate(arguments, clock=lambda: RECEIVED) == 0
+    first_bytes = plan_path.read_bytes()
+    plan = json.loads(first_bytes)
+    assert plan["analysis_status"] == "NO_ANALYSIS"
+    assert plan["candidates"][0]["statuses"] == [
+        "IDENTITY_UNRESOLVED",
+        "FIXTURE_SOURCE_REQUIRED",
+        "SPORTTERY_SP_READY",
+    ]
+    capsys.readouterr()
+
+    assert _plan_live_slate(arguments, clock=lambda: RECEIVED) == 0
+    assert plan_path.read_bytes() == first_bytes
+    capsys.readouterr()
+
+    changed = list(arguments)
+    changed[changed.index("--as-of") + 1] = (
+        RECEIVED + timedelta(seconds=1)
+    ).isoformat()
+    with pytest.raises(SystemExit) as overwrite_error:
+        _plan_live_slate(changed, clock=lambda: RECEIVED + timedelta(seconds=1))
+    assert overwrite_error.value.code == 2
+    assert "refusing to overwrite different file" in capsys.readouterr().err
+
+    with pytest.raises(SystemExit) as analysis_error:
+        _run_live_analysis(
+            [
+                "--config",
+                str(LIVE_CONFIG),
+                "--database-url",
+                f"sqlite:///{database_path.as_posix()}",
+                "--preparation-id",
+                plan["plan_id"],
+                "--budget",
+                "100",
+                "--analysis-run-id",
+                "must-not-run",
+            ],
+            clock=lambda: RECEIVED + timedelta(minutes=1),
+        )
+    assert analysis_error.value.code == 2
+    assert "unknown live analysis preparation" in capsys.readouterr().err
+
+    engine = create_database_engine(f"sqlite:///{database_path.as_posix()}")
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT COUNT(*) FROM analysis_runs")) == 0
+
+
+def test_live_market_odds_accepts_exact_targets_from_daily_slate_plan(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    database_path = tmp_path / "live.db"
+    fixture_raw_path = tmp_path / "fixture-raw"
+    odds_raw_path = tmp_path / "odds-raw"
+    assert (
+        _ingest_live_fixtures(
+            _arguments(database_path, fixture_raw_path),
+            transport=ScriptedTransport([HttpResponse(200, PAYLOAD)]),
+            environ={"SPORTMONKS_KEY": TOKEN},
+            clock=lambda: RECEIVED,
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    engine = create_database_engine(f"sqlite:///{database_path.as_posix()}")
+    sessions = create_session_factory(engine)
+    catalog = SqlAlchemyMatchIdentityRepository(sessions).load_catalog(
+        as_of_at_utc=RECEIVED,
+        kickoff_from_utc=datetime.fromisoformat(KICKOFF_FROM.replace("Z", "+00:00")),
+        kickoff_to_utc=datetime.fromisoformat(KICKOFF_TO.replace("Z", "+00:00")),
+    )
+    match_id = catalog.canonical_matches[0].internal_match_id
+    slate = load_sporttery_daily_slate(SPORTTERY_ARCHIVE)
+    planning_catalog = catalog.model_copy(
+        update={
+            "explicit_mappings": (
+                *catalog.explicit_mappings,
+                ProviderMatchMapping(
+                    mapping_id="synthetic-planning-mapping",
+                    provider_code="SPORTTERY_MANUAL",
+                    external_namespace="sporttery_match",
+                    external_match_id="2026-09-01:SYN001",
+                    internal_match_id=match_id,
+                    resolution_method="REVIEWED_EXPLICIT",
+                    confidence=Decimal("1"),
+                    available_at_utc=RECEIVED,
+                ),
+            )
+        }
+    )
+    plan = PlanSportteryDailySlateService().plan(
+        slate,
+        planning_catalog,
+        planned_at_utc=RECEIVED,
+    )
+    assert plan.capture_plan.market_odds_requests[0].canonical_match_ids == (match_id,)
+    plan_path = tmp_path / "daily-slate-plan.json"
+    write_contract_file(plan_path, canonical_json(plan))
+
+    transport = ScriptedTransport([HttpResponse(200, ODDS_PAYLOAD)])
+    assert (
+        _ingest_live_market_odds(
+            _market_plan_arguments(database_path, odds_raw_path, plan_path),
+            transport=transport,
+            environ={"ODDS_API_KEY": TOKEN},
+            clock=lambda: RECEIVED + timedelta(minutes=1),
+        )
+        == 0
+    )
+
+    output = capsys.readouterr().out
+    assert "snapshots=0" in output
+    assert "issues=2" in output
+    assert TOKEN not in output
+    assert len(transport.requests) == 1
 
 
 def test_live_market_preflight_precedes_secret_raw_and_database_io(
@@ -584,6 +729,29 @@ def _market_arguments(
         KICKOFF_TO,
         "--match-id",
         match_id,
+        "--sport-key",
+        "soccer_synthetic_coastal",
+        "--season",
+        "2026/27",
+        "--competition-type",
+        "LEAGUE",
+    ]
+
+
+def _market_plan_arguments(
+    database_path: Path,
+    raw_path: Path,
+    plan_path: Path,
+) -> list[str]:
+    return [
+        "--config",
+        str(LIVE_CONFIG),
+        "--database-url",
+        f"sqlite:///{database_path.as_posix()}",
+        "--raw-archive",
+        str(raw_path),
+        "--plan",
+        str(plan_path),
         "--sport-key",
         "soccer_synthetic_coastal",
         "--season",

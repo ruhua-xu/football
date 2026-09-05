@@ -16,6 +16,7 @@
 - Alembic revision `3cb19bcbdd88` 增加 12 张 live ingestion/review/preparation lineage 表及 runtime/migration append-only、duplicate-insert、cross-table triggers；有 live 数据时拒绝 destructive downgrade。
 - Alembic revision `6e4b1a9c2d73` 增加 AnalysisRun 到 ready preparation 的多对一 append-only 关系；insert/completion triggers 要求 V3 model context 与冻结 fixture observation、market consensus、Sporttery snapshot 全量一致。V3 packet 对 prepared run 使用该 observation 的 kickoff，不用 immutable base Match 的旧赛程。
 - `MARKET_CONSENSUS_MEDIAN_V1` 在生成 payload hash 前将派生公平赔率确定性量化为数据库 `NUMERIC(18,6)` 精度，保证 capture、持久化、重放与模型输入完全一致。
+- 增加 provider-neutral、Sporttery-first 的 `live plan-slate`：严格读取 reviewed manual/lightweight slate，输出 frozen、deterministic、append-only `DAILY_SLATE_PLAN_V1` identity/reconciliation/capture work；空竞彩显式为 `NO_SPORTTERY_CANDIDATES` / `NO_ANALYSIS`，不得绕过 persisted preparation。`live ingest-market-odds --plan` 可消费 plan 中按赛事分组的精确 canonical match/window，同时保留原 `--match-id` 路径且不新增网络 Provider contract。
 
 ## 0.4.0 - 2026-09-01
 

@@ -32,6 +32,7 @@ from football_system.application.backtest_reports import (
     render_settlement_report,
     render_settlement_result,
 )
+from football_system.application.daily_slate import PlanSportteryDailySlateService
 from football_system.application.environment import (
     RuntimeEnvironment,
     RuntimeEnvironmentGuard,
@@ -39,7 +40,10 @@ from football_system.application.environment import (
     require_provider_runtime_provenance,
 )
 from football_system.application.historical_archive import HistoricalArchiveService
-from football_system.application.identity_catalog import FixtureIngestionRequest
+from football_system.application.identity_catalog import (
+    FixtureIngestionRequest,
+    MatchIdentityCatalog,
+)
 from football_system.application.live_ingestion import LiveFixtureIngestionService
 from football_system.application.live_sources import (
     IdentityReviewDocument,
@@ -92,6 +96,10 @@ from football_system.domain.backtest import (
 )
 from football_system.domain.betting import CandidateStatus, PortfolioStatus
 from football_system.domain.common import new_id, utc_now
+from football_system.domain.daily_slate import (
+    DailySlateCaptureRequest,
+    DailySlatePlan,
+)
 from football_system.domain.match import TeamType
 from football_system.domain.prediction import FusionPolicyName
 from football_system.domain.services.elo_baseline import EloBaselineConfig
@@ -120,6 +128,10 @@ from football_system.infrastructure.database.session import (
     create_database_engine,
     create_session_factory,
     require_sqlite_database_url,
+)
+from football_system.infrastructure.files.daily_slate import (
+    load_daily_slate_plan,
+    load_sporttery_daily_slate,
 )
 from football_system.infrastructure.files.raw_archive import RawDataArchive
 from football_system.infrastructure.providers.mock.dataset import MockDataset
@@ -303,6 +315,7 @@ def _dispatch_live(arguments: Sequence[str]) -> int:
         "live",
         arguments,
         {
+            "plan-slate": _plan_live_slate,
             "ingest-fixtures": _ingest_live_fixtures,
             "ingest-market-odds": _ingest_live_market_odds,
             "ingest-sporttery": _ingest_live_sporttery,
@@ -360,6 +373,71 @@ def _dispatch_command_group(
     if handler is None:
         parser.error(f"invalid command: {command}")
     return handler(arguments[1:])
+
+
+def _plan_live_slate(
+    arguments: Sequence[str],
+    *,
+    clock: Callable[[], datetime] | None = None,
+) -> int:
+    parser = argparse.ArgumentParser(
+        prog="football-system live plan-slate",
+        description=(
+            "Build a provider-neutral capture plan from one reviewed Sporttery "
+            "manual archive or lightweight daily slate file."
+        ),
+    )
+    _add_database_arguments(parser, default_config=_live_config_path())
+    parser.add_argument("--input", "--archive", dest="input", type=Path, required=True)
+    parser.add_argument("--as-of", type=_parse_utc_datetime)
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("exchange/daily_slate_plan.json"),
+    )
+    args = parser.parse_args(arguments)
+    command_clock = clock or utc_now
+    try:
+        _, database_url = _live_settings(args.config, args.database_url)
+        planned_at = args.as_of or command_clock()
+        slate = load_sporttery_daily_slate(args.input)
+        if slate.candidates:
+            kickoff_from = min(item.kickoff_at_utc for item in slate.candidates)
+            kickoff_to = max(item.kickoff_at_utc for item in slate.candidates)
+            catalog = _open_match_identity_repository(
+                database_url,
+                clock=command_clock,
+            ).load_catalog(
+                as_of_at_utc=planned_at,
+                kickoff_from_utc=kickoff_from,
+                kickoff_to_utc=kickoff_to,
+            )
+        else:
+            catalog = MatchIdentityCatalog(
+                team_identities=(),
+                competition_mappings=(),
+                canonical_matches=(),
+                explicit_mappings=(),
+            )
+        plan = PlanSportteryDailySlateService().plan(
+            slate,
+            catalog,
+            planned_at_utc=planned_at,
+        )
+        plan_json = canonical_json(plan)
+        write_contract_file(args.output, plan_json)
+    except (
+        KeyError,
+        OSError,
+        RuntimeError,
+        SQLAlchemyError,
+        ValidationError,
+        ValueError,
+    ) as error:
+        parser.error(str(error))
+    print(plan_json)
+    print(f"Daily slate plan written: {args.output}")
+    return 0
 
 
 def _ingest_live_fixtures(
@@ -463,9 +541,12 @@ def _ingest_live_market_odds(
     )
     _add_database_arguments(parser, default_config=_live_config_path())
     parser.add_argument("--raw-archive", type=Path, default=Path("data/raw"))
-    parser.add_argument("--kickoff-from", type=_parse_utc_datetime, required=True)
-    parser.add_argument("--kickoff-to", type=_parse_utc_datetime, required=True)
-    parser.add_argument("--match-id", dest="match_ids", nargs="+", required=True)
+    parser.add_argument("--kickoff-from", type=_parse_utc_datetime)
+    parser.add_argument("--kickoff-to", type=_parse_utc_datetime)
+    targets = parser.add_mutually_exclusive_group(required=True)
+    targets.add_argument("--match-id", dest="match_ids", nargs="+")
+    targets.add_argument("--plan", type=Path)
+    parser.add_argument("--plan-request-id")
     parser.add_argument("--sport-key", required=True)
     parser.add_argument("--season", required=True)
     parser.add_argument("--competition-type", required=True)
@@ -474,7 +555,28 @@ def _ingest_live_market_odds(
     command_clock = clock or utc_now
     try:
         settings, database_url = _live_settings(args.config, args.database_url)
-        match_ids = tuple(args.match_ids)
+        if args.plan is None:
+            if args.plan_request_id is not None:
+                raise ValueError("--plan-request-id requires --plan")
+            if args.kickoff_from is None or args.kickoff_to is None:
+                raise ValueError(
+                    "--kickoff-from and --kickoff-to are required with --match-id"
+                )
+            match_ids = tuple(args.match_ids)
+            kickoff_from = args.kickoff_from
+            kickoff_to = args.kickoff_to
+            source_plan = None
+        else:
+            if args.kickoff_from is not None or args.kickoff_to is not None:
+                raise ValueError("--plan supplies its exact kickoff window")
+            source_plan = load_daily_slate_plan(args.plan)
+            capture_request = _select_market_capture_request(
+                source_plan,
+                args.plan_request_id,
+            )
+            match_ids = capture_request.canonical_match_ids
+            kickoff_from = capture_request.kickoff_from_utc
+            kickoff_to = capture_request.kickoff_to_utc
         if len(match_ids) != len(set(match_ids)):
             raise ValueError("market ingestion match IDs must be unique")
         match_ids = tuple(sorted(match_ids))
@@ -483,14 +585,16 @@ def _ingest_live_market_odds(
         )
         api_key = _required_environment_value("ODDS_API_KEY", environ)
         identity_cutoff = command_clock()
+        if source_plan is not None and source_plan.planned_at_utc > identity_cutoff:
+            raise ValueError("daily slate plan is not visible at the identity cutoff")
         _, identity_repository, repository = _open_live_repositories(
             database_url,
             clock=command_clock,
         )
         catalog = identity_repository.load_catalog(
             as_of_at_utc=identity_cutoff,
-            kickoff_from_utc=args.kickoff_from,
-            kickoff_to_utc=args.kickoff_to,
+            kickoff_from_utc=kickoff_from,
+            kickoff_to_utc=kickoff_to,
             provider_codes=(THE_ODDS_API_PROVIDER_CODE,),
         )
         visible_match_ids = {
@@ -1643,6 +1747,26 @@ def _print_live_ingestion_summary(summary: SourceIngestionSummary) -> None:
         f"mappings={summary.mapping_count}; issues={summary.issue_count}; "
         f"consensus={summary.consensus_count}"
     )
+
+
+def _select_market_capture_request(
+    plan: DailySlatePlan,
+    request_id: str | None,
+) -> DailySlateCaptureRequest:
+    requests = plan.capture_plan.market_odds_requests
+    if not requests:
+        raise ValueError("daily slate plan contains no resolved market-odds targets")
+    if request_id is None:
+        if len(requests) != 1:
+            raise ValueError(
+                "daily slate plan has multiple market-odds requests; "
+                "use --plan-request-id"
+            )
+        return requests[0]
+    selected = tuple(item for item in requests if item.request_id == request_id)
+    if len(selected) != 1:
+        raise ValueError(f"unknown daily slate market-odds request: {request_id}")
+    return selected[0]
 
 
 def _required_environment_value(
