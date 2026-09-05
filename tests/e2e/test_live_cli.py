@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -32,6 +33,7 @@ from football_system.infrastructure.http.provider_client import (
 from football_system.interfaces.cli import (
     _import_live_identity_review,
     _ingest_live_fixtures,
+    _ingest_live_fixtures_manual,
     _ingest_live_market_odds,
     _ingest_live_sporttery,
     _plan_live_slate,
@@ -96,6 +98,7 @@ def test_live_help_is_discoverable_and_has_no_side_effects(
     assert {
         "plan-slate",
         "ingest-fixtures",
+        "ingest-fixtures-manual",
         "ingest-market-odds",
         "ingest-sporttery",
         "reconcile",
@@ -106,6 +109,13 @@ def test_live_help_is_discoverable_and_has_no_side_effects(
         main(["live", "ingest-fixtures", "--help"])
     assert error.value.code == 0
     assert "--kickoff-from" in capsys.readouterr().out
+
+    with pytest.raises(SystemExit) as error:
+        main(["live", "ingest-fixtures-manual", "--help"])
+    assert error.value.code == 0
+    manual_help = capsys.readouterr().out
+    assert "--archive" in manual_help
+    assert "--reconciliation-output" in manual_help
     assert not tuple(tmp_path.iterdir())
 
     with pytest.raises(SystemExit) as error:
@@ -178,6 +188,144 @@ def test_live_plan_slate_is_append_only_and_not_an_analysis_input(
 
     engine = create_database_engine(f"sqlite:///{database_path.as_posix()}")
     with engine.connect() as connection:
+        assert connection.scalar(text("SELECT COUNT(*) FROM analysis_runs")) == 0
+
+
+def test_reviewed_manual_fixture_unblocks_slate_without_network_or_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    database_path = tmp_path / "live.db"
+    raw_path = tmp_path / "fixture-raw"
+    first_plan_path = tmp_path / "before-fixture.json"
+    second_plan_path = tmp_path / "after-fixture.json"
+    fixture_document = _write_manual_fixture_archive(tmp_path / "manual-fixture")
+
+    def forbid_network() -> None:
+        raise AssertionError("manual fixture ingestion must not construct a transport")
+
+    def forbid_secret(*_: object, **__: object) -> str:
+        raise AssertionError("manual fixture ingestion must not read a secret")
+
+    monkeypatch.setattr(
+        "football_system.interfaces.cli.UrllibTransport",
+        forbid_network,
+    )
+    monkeypatch.setattr(
+        "football_system.interfaces.cli._required_environment_value",
+        forbid_secret,
+    )
+    base_plan_arguments = [
+        "--config",
+        str(LIVE_CONFIG),
+        "--database-url",
+        f"sqlite:///{database_path.as_posix()}",
+        "--input",
+        str(SPORTTERY_ARCHIVE),
+        "--as-of",
+        RECEIVED.isoformat(),
+    ]
+
+    assert (
+        _plan_live_slate(
+            [*base_plan_arguments, "--output", str(first_plan_path)],
+            clock=lambda: RECEIVED,
+        )
+        == 0
+    )
+    before = json.loads(first_plan_path.read_text(encoding="utf-8"))
+    assert before["analysis_status"] == "NO_ANALYSIS"
+    assert before["candidates"][0]["statuses"] == [
+        "IDENTITY_UNRESOLVED",
+        "FIXTURE_SOURCE_REQUIRED",
+        "SPORTTERY_SP_READY",
+    ]
+    capsys.readouterr()
+
+    manual_arguments = _manual_fixture_arguments(
+        database_path,
+        raw_path,
+        fixture_document,
+    )
+    assert (
+        _ingest_live_fixtures_manual(manual_arguments, clock=lambda: RECEIVED) == 0
+    )
+    assert "inserted=true" in capsys.readouterr().out
+    assert (
+        _ingest_live_fixtures_manual(manual_arguments, clock=lambda: RECEIVED) == 0
+    )
+    assert "inserted=false" in capsys.readouterr().out
+
+    assert (
+        _plan_live_slate(
+            [*base_plan_arguments, "--output", str(second_plan_path)],
+            clock=lambda: RECEIVED,
+        )
+        == 0
+    )
+    capsys.readouterr()
+    after = json.loads(second_plan_path.read_text(encoding="utf-8"))
+    candidate = after["candidates"][0]
+    assert after["analysis_status"] == "NO_ANALYSIS"
+    assert candidate["statuses"] == [
+        "IDENTITY_RESOLVED",
+        "MARKET_ODDS_REQUIRED",
+        "SPORTTERY_SP_READY",
+        "READY_FOR_CAPTURE",
+    ]
+    assert candidate["resolution_method"] == "EXACT_SLATE_LABEL_KICKOFF"
+    assert candidate["canonical_match_id"]
+    assert after["reconciliation_tasks"] == []
+    assert [
+        item["kind"] for item in after["capture_plan"]["requests"]
+    ] == ["MARKET_ODDS"]
+
+    metadata_files = tuple(raw_path.glob("REVIEWED_FIXTURE_MANUAL/**/*.metadata.json"))
+    payload_files = tuple(raw_path.glob("REVIEWED_FIXTURE_MANUAL/**/*.raw"))
+    assert len(metadata_files) == len(payload_files) == 1
+    assert payload_files[0].read_bytes() == fixture_document.read_bytes()
+
+    conflict_document = _write_manual_fixture_archive(
+        tmp_path / "kickoff-conflict",
+        kickoff_at_utc=datetime(2026, 9, 3, 19, 30, tzinfo=timezone.utc),
+    )
+    reconciliation_path = tmp_path / "fixture-reconciliation.json"
+    with pytest.raises(SystemExit) as conflict:
+        _ingest_live_fixtures_manual(
+            [
+                *_manual_fixture_arguments(
+                    database_path,
+                    raw_path,
+                    conflict_document,
+                ),
+                "--reconciliation-output",
+                str(reconciliation_path),
+            ],
+            clock=lambda: RECEIVED,
+        )
+    assert conflict.value.code == 2
+    assert "REVIEWED_FIXTURE_MANUAL_RECONCILIATION_REQUIRED" in (
+        capsys.readouterr().err
+    )
+    reconciliation = json.loads(reconciliation_path.read_text(encoding="utf-8"))
+    assert reconciliation["issues"][0]["reason"] == "KICKOFF_CONFLICT"
+    assert reconciliation["issues"][0]["canonical_candidate_ids"] == [
+        candidate["canonical_match_id"]
+    ]
+
+    engine = create_database_engine(f"sqlite:///{database_path.as_posix()}")
+    with engine.connect() as connection:
+        assert connection.scalar(
+            text("SELECT COUNT(*) FROM fixture_ingestion_captures")
+        ) == 1
+        assert connection.scalar(text("SELECT COUNT(*) FROM fixture_observations")) == 1
+        assert connection.scalar(
+            text(
+                "SELECT kickoff_at_utc FROM matches WHERE internal_match_id = :match_id"
+            ),
+            {"match_id": candidate["canonical_match_id"]},
+        ) == "2026-09-03 19:00:00.000000"
         assert connection.scalar(text("SELECT COUNT(*) FROM analysis_runs")) == 0
 
 
@@ -423,6 +571,7 @@ def test_live_source_cli_reconciles_reviews_and_prepares_persisted_inputs(
     database_path = tmp_path / "live.db"
     fixture_raw_path = tmp_path / "fixture-raw"
     odds_raw_path = tmp_path / "odds-raw"
+    fixture_document = _write_manual_fixture_archive(tmp_path / "manual-fixture")
 
     def forbid_default_network() -> None:
         raise AssertionError("offline live commands must not construct a transport")
@@ -432,10 +581,12 @@ def test_live_source_cli_reconciles_reviews_and_prepares_persisted_inputs(
         forbid_default_network,
     )
     assert (
-        _ingest_live_fixtures(
-            _arguments(database_path, fixture_raw_path),
-            transport=ScriptedTransport([HttpResponse(200, PAYLOAD)]),
-            environ={"SPORTMONKS_KEY": TOKEN},
+        _ingest_live_fixtures_manual(
+            _manual_fixture_arguments(
+                database_path,
+                fixture_raw_path,
+                fixture_document,
+            ),
             clock=lambda: RECEIVED,
         )
         == 0
@@ -774,6 +925,70 @@ def _sporttery_arguments(database_path: Path) -> list[str]:
         "--kickoff-to",
         KICKOFF_TO,
     ]
+
+
+def _manual_fixture_arguments(
+    database_path: Path,
+    raw_path: Path,
+    archive_path: Path,
+) -> list[str]:
+    return [
+        "--config",
+        str(LIVE_CONFIG),
+        "--database-url",
+        f"sqlite:///{database_path.as_posix()}",
+        "--archive",
+        str(archive_path),
+        "--raw-archive",
+        str(raw_path),
+    ]
+
+
+def _write_manual_fixture_archive(
+    directory: Path,
+    *,
+    kickoff_at_utc: datetime = datetime(
+        2026,
+        9,
+        3,
+        19,
+        tzinfo=timezone.utc,
+    ),
+) -> Path:
+    directory.mkdir(parents=True)
+    evidence = directory / "fixture-source.txt"
+    evidence.write_bytes(b"SYNTHETIC MANUAL FIXTURE EVIDENCE - NOT PROVIDER DATA\n")
+    document = directory / "reviewed-fixture-manual.json"
+    document.write_text(
+        json.dumps(
+            {
+                "schema_version": "REVIEWED_FIXTURE_MANUAL_ARCHIVE_V1",
+                "fixtures": [
+                    {
+                        "competition_label": "Fabricated Coastal League",
+                        "season": "2026/27",
+                        "kickoff_at_utc": kickoff_at_utc.isoformat(),
+                        "home_team_label": "Fabricated Harbour FC",
+                        "away_team_label": "Fabricated Orchard FC",
+                        "competition_type": "LEAGUE",
+                        "team_type": "CLUB",
+                        "source_reference": "synthetic://reviewed-fixture-manual",
+                        "source_artifact_path": evidence.name,
+                        "source_artifact_sha256": hashlib.sha256(
+                            evidence.read_bytes()
+                        ).hexdigest(),
+                        "captured_at_utc": "2026-09-02T11:50:00+00:00",
+                        "entered_by": "synthetic-fixture-operator",
+                        "review_level": "SELF_REVIEWED",
+                        "reviewed_by": "synthetic-fixture-operator",
+                        "reviewed_at_utc": "2026-09-02T11:55:00+00:00",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return document
 
 
 def _review_arguments(database_path: Path, review_path: Path) -> list[str]:

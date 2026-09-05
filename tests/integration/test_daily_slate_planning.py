@@ -6,7 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from football_system.application.daily_slate import PlanSportteryDailySlateService
+from football_system.application.daily_slate import (
+    EXACT_SLATE_LABEL_RESOLUTION,
+    PlanSportteryDailySlateService,
+)
 from football_system.application.identity_catalog import MatchIdentityCatalog
 from football_system.domain.daily_slate import (
     DailySlateCandidateStatus,
@@ -33,7 +36,7 @@ PLANNED = REVIEWED + timedelta(minutes=5)
 MATCH_DATE = "2026-09-05"
 
 
-def test_five_candidate_plan_resolves_three_and_reconciles_two(
+def test_five_candidate_plan_resolves_four_and_reconciles_one(
     tmp_path: Path,
 ) -> None:
     document = _write_document(tmp_path, _candidate_rows(5))
@@ -57,11 +60,11 @@ def test_five_candidate_plan_resolves_three_and_reconciles_two(
     assert sum(
         DailySlateCandidateStatus.IDENTITY_RESOLVED in item.statuses
         for item in plan.candidates
-    ) == 3
+    ) == 4
     assert sum(
         DailySlateCandidateStatus.IDENTITY_UNRESOLVED in item.statuses
         for item in plan.candidates
-    ) == 2
+    ) == 1
 
     by_number = {
         item.candidate.sporttery_match_no: item for item in plan.candidates
@@ -76,11 +79,14 @@ def test_five_candidate_plan_resolves_three_and_reconciles_two(
             DailySlateCandidateStatus.READY_FOR_CAPTURE,
         )
 
-    unresolved_with_match = by_number["SYN004"]
-    assert unresolved_with_match.canonical_candidate_ids == ("match-4",)
-    assert unresolved_with_match.statuses == (
-        DailySlateCandidateStatus.IDENTITY_UNRESOLVED,
+    resolved_by_exact_labels = by_number["SYN004"]
+    assert resolved_by_exact_labels.canonical_candidate_ids == ("match-4",)
+    assert resolved_by_exact_labels.resolution_method == EXACT_SLATE_LABEL_RESOLUTION
+    assert resolved_by_exact_labels.statuses == (
+        DailySlateCandidateStatus.IDENTITY_RESOLVED,
+        DailySlateCandidateStatus.MARKET_ODDS_REQUIRED,
         DailySlateCandidateStatus.SPORTTERY_SP_READY,
+        DailySlateCandidateStatus.READY_FOR_CAPTURE,
     )
     unresolved_without_match = by_number["SYN005"]
     assert unresolved_without_match.canonical_candidate_ids == ()
@@ -90,7 +96,7 @@ def test_five_candidate_plan_resolves_three_and_reconciles_two(
         DailySlateCandidateStatus.SPORTTERY_SP_READY,
     )
 
-    assert len(plan.reconciliation_tasks) == 2
+    assert len(plan.reconciliation_tasks) == 1
     number_by_candidate_id = {
         item.candidate.candidate_id: item.candidate.sporttery_match_no
         for item in plan.candidates
@@ -99,8 +105,6 @@ def test_five_candidate_plan_resolves_three_and_reconciles_two(
         number_by_candidate_id[task.candidate_id]: task
         for task in plan.reconciliation_tasks
     }
-    assert tasks["SYN004"].canonical_candidate_ids == ("match-4",)
-    assert tasks["SYN004"].fixture_source_required is False
     assert tasks["SYN005"].canonical_candidate_ids == ()
     assert tasks["SYN005"].fixture_source_required is True
 
@@ -114,13 +118,23 @@ def test_five_candidate_plan_resolves_three_and_reconciles_two(
         for item in plan.capture_plan.requests
         if item.kind is DailySlateCaptureKind.FIXTURE_SOURCE
     )
-    assert market_request.canonical_match_ids == ("match-1", "match-2", "match-3")
+    assert market_request.canonical_match_ids == (
+        "match-1",
+        "match-2",
+        "match-3",
+        "match-4",
+    )
     assert fixture_request.canonical_match_ids == ()
     assert fixture_request.candidate_ids == (
         by_number["SYN005"].candidate.candidate_id,
     )
     assert len(plan.capture_plan.sporttery_ingestion_candidate_ids) == 5
-    assert plan.capture_plan.ready_match_ids == ("match-1", "match-2", "match-3")
+    assert plan.capture_plan.ready_match_ids == (
+        "match-1",
+        "match-2",
+        "match-3",
+        "match-4",
+    )
 
 
 @pytest.mark.parametrize(
@@ -187,6 +201,33 @@ def test_lightweight_slate_allows_optional_sp_and_empty_candidate_sets(
     assert empty_slate.status is DailySlateStatus.NO_SPORTTERY_CANDIDATES
     assert empty_plan.analysis_status == "NO_ANALYSIS"
     assert empty_plan.capture_plan.requests == ()
+
+
+def test_unique_exact_slate_resolution_does_not_hide_ambiguity(tmp_path: Path) -> None:
+    slate = load_sporttery_daily_slate(
+        _write_document(tmp_path, _candidate_rows(4)[3:])
+    )
+    catalog = _catalog()
+    duplicate = catalog.canonical_matches[3].model_copy(
+        update={"internal_match_id": "match-4-duplicate"}
+    )
+    ambiguous_catalog = catalog.model_copy(
+        update={"canonical_matches": (*catalog.canonical_matches, duplicate)}
+    )
+
+    plan = PlanSportteryDailySlateService().plan(
+        slate,
+        ambiguous_catalog,
+        planned_at_utc=PLANNED,
+    )
+
+    result = plan.candidates[0]
+    assert result.statuses == (
+        DailySlateCandidateStatus.IDENTITY_UNRESOLVED,
+        DailySlateCandidateStatus.SPORTTERY_SP_READY,
+    )
+    assert result.canonical_candidate_ids == ("match-4", "match-4-duplicate")
+    assert plan.reconciliation_tasks[0].fixture_source_required is False
 
 
 def test_reviewed_manual_archive_is_accepted_as_a_daily_slate() -> None:

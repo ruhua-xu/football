@@ -19,11 +19,13 @@ from football_system.domain.daily_slate import (
 from football_system.domain.identity import (
     MatchIdentityResolutionError,
     ProviderMatchIdentity,
+    UnresolvedMatchMappingError,
 )
 
 
 SPORTTERY_PLANNING_PROVIDER_CODE = "SPORTTERY_MANUAL"
 SPORTTERY_MATCH_NAMESPACE = "sporttery_match"
+EXACT_SLATE_LABEL_RESOLUTION = "EXACT_SLATE_LABEL_KICKOFF"
 
 
 class PlanSportteryDailySlateService:
@@ -49,7 +51,21 @@ class PlanSportteryDailySlateService:
             exact_candidates = _exact_canonical_candidates(candidate, catalog)
             try:
                 resolution = resolver.resolve(_provider_identity(candidate))
-            except MatchIdentityResolutionError:
+            except MatchIdentityResolutionError as error:
+                if (
+                    isinstance(error, UnresolvedMatchMappingError)
+                    and len(exact_candidates) == 1
+                ):
+                    resolved_match_id = exact_candidates[0]
+                    resolution_method = EXACT_SLATE_LABEL_RESOLUTION
+                else:
+                    resolved_match_id = None
+                    resolution_method = None
+            else:
+                resolved_match_id = resolution.internal_match_id
+                resolution_method = resolution.resolution_method
+
+            if resolved_match_id is None:
                 canonical_candidates = tuple(sorted(set(exact_candidates)))
                 statuses = [DailySlateCandidateStatus.IDENTITY_UNRESOLVED]
                 if not canonical_candidates:
@@ -73,7 +89,7 @@ class PlanSportteryDailySlateService:
                 )
                 tasks.append(task)
             else:
-                if resolution.internal_match_id not in known_match_ids:
+                if resolved_match_id not in known_match_ids:
                     raise ValueError(
                         "daily slate identity mapping references an unknown canonical match"
                     )
@@ -91,9 +107,9 @@ class PlanSportteryDailySlateService:
                 result = DailySlateCandidatePlan.freeze(
                     candidate=candidate,
                     statuses=tuple(statuses),
-                    canonical_match_id=resolution.internal_match_id,
-                    resolution_method=resolution.resolution_method,
-                    canonical_candidate_ids=(resolution.internal_match_id,),
+                    canonical_match_id=resolved_match_id,
+                    resolution_method=resolution_method,
+                    canonical_candidate_ids=(resolved_match_id,),
                 )
             candidate_plans.append(result)
 

@@ -17,6 +17,7 @@
 - Alembic revision `6e4b1a9c2d73` 增加 AnalysisRun 到 ready preparation 的多对一 append-only 关系；insert/completion triggers 要求 V3 model context 与冻结 fixture observation、market consensus、Sporttery snapshot 全量一致。V3 packet 对 prepared run 使用该 observation 的 kickoff，不用 immutable base Match 的旧赛程。
 - `MARKET_CONSENSUS_MEDIAN_V1` 在生成 payload hash 前将派生公平赔率确定性量化为数据库 `NUMERIC(18,6)` 精度，保证 capture、持久化、重放与模型输入完全一致。
 - 增加 provider-neutral、Sporttery-first 的 `live plan-slate`：严格读取 reviewed manual/lightweight slate，输出 frozen、deterministic、append-only `DAILY_SLATE_PLAN_V1` identity/reconciliation/capture work；空竞彩显式为 `NO_SPORTTERY_CANDIDATES` / `NO_ANALYSIS`，不得绕过 persisted preparation。`live ingest-market-odds --plan` 可消费 plan 中按赛事分组的精确 canonical match/window，同时保留原 `--match-id` 路径且不新增网络 Provider contract。
+- 增加 provider-neutral、离线 `live ingest-fixtures-manual`：严格校验 `REVIEWED_FIXTURE_MANUAL_ARCHIVE_V1` 的 self/independent review、实际本地 screenshot/PDF/HTML/text evidence SHA-256 和单一 fixture scope，复用既有 raw audit、canonical identity、fixture observation 与原子幂等 persistence；主客、kickoff、赛事或歧义冲突输出 append-only `REVIEWED_FIXTURE_MANUAL_RECONCILIATION_V1` 而不覆盖 identity。Daily Slate re-plan 仅在赛事/主客标签与 kickoff 唯一完全一致时进入 `IDENTITY_RESOLVED` / `MARKET_ODDS_REQUIRED`，仍保持 `NO_ANALYSIS`。
 
 ## 0.4.0 - 2026-09-01
 

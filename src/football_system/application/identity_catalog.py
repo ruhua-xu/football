@@ -215,13 +215,13 @@ class FixtureIngestionRequest(DomainModel):
         if self.kickoff_from_utc > self.kickoff_to_utc:
             raise ValueError("kickoff window start cannot follow its end")
         if self.kickoff_to_utc - self.kickoff_from_utc > timedelta(days=100):
-            raise ValueError("Sportmonks fixture windows cannot exceed 100 days")
+            raise ValueError("fixture windows cannot exceed 100 days")
         if self.team_type not in {
             TeamType.CLUB,
             TeamType.NATIONAL,
             TeamType.WOMEN,
         }:
-            raise ValueError("Sportmonks fixture ingestion cannot infer this team type")
+            raise ValueError("fixture ingestion cannot infer this team type")
         return self
 
 
@@ -355,11 +355,50 @@ class FixtureIngestionSummary(DomainModel):
     observation_count: int = Field(ge=0, strict=True)
 
 
+class CanonicalFixtureAnchor(DomainModel):
+    competition: Competition
+    home_team: Team
+    away_team: Team
+    match: Match
+    identity: CanonicalMatchIdentity
+
+    @model_validator(mode="after")
+    def validate_anchor(self) -> Self:
+        if (
+            self.match.competition_id != self.competition.competition_id
+            or self.match.home_team_id != self.home_team.team_id
+            or self.match.away_team_id != self.away_team.team_id
+            or self.identity.internal_match_id != self.match.match_id
+            or self.identity.internal_competition_id != self.match.competition_id
+            or self.identity.internal_home_team_id != self.match.home_team_id
+            or self.identity.internal_away_team_id != self.match.away_team_id
+            or self.identity.kickoff_at_utc != self.match.kickoff_at_utc
+        ):
+            raise ValueError("canonical fixture anchor is inconsistent")
+        return self
+
+
 class MatchIdentityCatalog(DomainModel):
     team_identities: tuple[TeamIdentity, ...]
     competition_mappings: tuple[CompetitionMapping, ...]
     canonical_matches: tuple[CanonicalMatchIdentity, ...]
     explicit_mappings: tuple[ProviderMatchMapping, ...]
+    canonical_anchors: tuple[CanonicalFixtureAnchor, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_anchors(self) -> Self:
+        canonical_by_id = {
+            item.internal_match_id: item for item in self.canonical_matches
+        }
+        anchor_ids = tuple(item.match.match_id for item in self.canonical_anchors)
+        if len(anchor_ids) != len(set(anchor_ids)):
+            raise ValueError("canonical fixture anchor match IDs must be unique")
+        if any(
+            canonical_by_id.get(anchor.match.match_id) != anchor.identity
+            for anchor in self.canonical_anchors
+        ):
+            raise ValueError("canonical fixture anchors must belong to the catalog")
+        return self
 
     def build_resolver(self, kickoff_tolerance: timedelta) -> MatchIdentityResolver:
         return MatchIdentityResolver(

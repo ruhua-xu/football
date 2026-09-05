@@ -166,6 +166,12 @@ from football_system.infrastructure.providers.real.sportmonks import (
     SPORTMONKS_PROVIDER_CODE,
     SportmonksFixtureProvider,
 )
+from football_system.infrastructure.providers.real.fixture_manual import (
+    ReviewedFixtureManualArchiveProvider,
+    ReviewedFixtureManualReconciliationError,
+    load_reviewed_fixture_manual_archive,
+    reviewed_fixture_manual_request,
+)
 from football_system.infrastructure.providers.real.sporttery_manual import (
     SPORTTERY_MANUAL_PROVIDER_CODE,
     SportteryManualArchiveCaptureProvider,
@@ -317,6 +323,7 @@ def _dispatch_live(arguments: Sequence[str]) -> int:
         {
             "plan-slate": _plan_live_slate,
             "ingest-fixtures": _ingest_live_fixtures,
+            "ingest-fixtures-manual": _ingest_live_fixtures_manual,
             "ingest-market-odds": _ingest_live_market_odds,
             "ingest-sporttery": _ingest_live_sporttery,
             "reconcile": _reconcile_live_sources,
@@ -517,6 +524,88 @@ def _ingest_live_fixtures(
         parser.error(str(error))
     print(
         f"Fixture ingestion: {summary.ingestion_id}; "
+        f"inserted={str(summary.inserted).lower()}; "
+        f"raw_artifact={summary.raw_artifact_id}; "
+        f"competitions={summary.competition_count}; teams={summary.team_count}; "
+        f"matches={summary.match_count}; observations={summary.observation_count}"
+    )
+    return 0
+
+
+def _ingest_live_fixtures_manual(
+    arguments: Sequence[str],
+    *,
+    clock: Callable[[], datetime] | None = None,
+) -> int:
+    parser = argparse.ArgumentParser(
+        prog="football-system live ingest-fixtures-manual",
+        description=(
+            "Verify and ingest a reviewed local fixture archive without network "
+            "or secret access."
+        ),
+    )
+    _add_database_arguments(parser, default_config=_live_config_path())
+    parser.add_argument("--archive", type=Path, required=True)
+    parser.add_argument("--raw-archive", type=Path, default=Path("data/raw"))
+    parser.add_argument("--reconciliation-output", type=Path)
+    args = parser.parse_args(arguments)
+    command_clock = clock or utc_now
+    try:
+        settings, database_url = _live_settings(args.config, args.database_url)
+        RuntimeEnvironmentGuard(settings.runtime.environment).validate_input(
+            ReviewedFixtureManualArchiveProvider.runtime_provenance
+        )
+        archive = load_reviewed_fixture_manual_archive(args.archive)
+        ingested_at = command_clock()
+        latest_review = max(
+            item.reviewed_at_utc for item in archive.document.fixtures
+        )
+        if ingested_at < latest_review:
+            raise ValueError("manual fixture ingestion cannot predate review")
+        request = reviewed_fixture_manual_request(archive)
+        repository = _open_match_identity_repository(
+            database_url,
+            clock=lambda: ingested_at,
+        )
+        catalog = repository.load_catalog(
+            as_of_at_utc=ingested_at,
+            kickoff_from_utc=datetime.min.replace(tzinfo=timezone.utc),
+            kickoff_to_utc=datetime.max.replace(tzinfo=timezone.utc),
+        )
+        provider = ReviewedFixtureManualArchiveProvider(
+            archive,
+            catalog,
+            RawDataArchive(args.raw_archive),
+        )
+        summary = asyncio.run(
+            LiveFixtureIngestionService(
+                provider,
+                lambda: repository,
+                environment=settings.runtime.environment,
+            ).ingest(request)
+        )
+    except ReviewedFixtureManualReconciliationError as error:
+        report_json = canonical_json(error.report)
+        print(report_json)
+        try:
+            if args.reconciliation_output is not None:
+                write_contract_file(args.reconciliation_output, report_json)
+        except (OSError, ValueError) as output_error:
+            parser.error(str(output_error))
+        if args.reconciliation_output is not None:
+            print(f"Fixture reconciliation written: {args.reconciliation_output}")
+        parser.error(error.code)
+    except (
+        KeyError,
+        OSError,
+        RuntimeError,
+        SQLAlchemyError,
+        ValidationError,
+        ValueError,
+    ) as error:
+        parser.error(str(error))
+    print(
+        f"Manual fixture ingestion: {summary.ingestion_id}; "
         f"inserted={str(summary.inserted).lower()}; "
         f"raw_artifact={summary.raw_artifact_id}; "
         f"competitions={summary.competition_count}; teams={summary.team_count}; "
@@ -2108,7 +2197,8 @@ def _build_parser() -> argparse.ArgumentParser:
             "settlement, and walk-forward backtests."
         ),
         epilog=(
-            "Live commands: live ingest-fixtures; live ingest-market-odds; "
+            "Live commands: live plan-slate; live ingest-fixtures; "
+            "live ingest-fixtures-manual; live ingest-market-odds; "
             "live ingest-sporttery; live reconcile; live import-identity-review; "
             "live prepare-analysis; live run-analysis. "
             "Historical/backtest commands: historical-archive validate; "

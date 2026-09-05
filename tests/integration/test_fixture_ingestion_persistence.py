@@ -278,6 +278,12 @@ def test_later_capture_reuses_first_seen_identity_and_appends_observed_drift() -
         )
 
     assert repository.register_fixture_ingestion(first).inserted is False
+    catalog = repository.load_catalog(
+        as_of_at_utc=INGESTED,
+        kickoff_from_utc=later_kickoff,
+        kickoff_to_utc=later_kickoff,
+    )
+    assert catalog.canonical_anchors[0].match.status is MatchStatus.POSTPONED
 
 
 def test_fixture_ingestion_appends_team_name_drift_but_preserves_canonical_team() -> (
@@ -395,6 +401,12 @@ def test_catalog_uses_latest_visible_fixture_kickoff_for_window_and_identity() -
     assert tuple(
         item.kickoff_at_utc for item in new_window_after.canonical_matches
     ) == (rescheduled_kickoff,)
+    assert tuple(
+        item.match.kickoff_at_utc for item in new_window_after.canonical_anchors
+    ) == (rescheduled_kickoff,)
+    assert new_window_after.canonical_anchors[0].identity == (
+        new_window_after.canonical_matches[0]
+    )
 
 
 def test_catalog_hides_fixture_identities_until_capture_is_ingested() -> None:
@@ -416,10 +428,12 @@ def test_catalog_hides_fixture_identities_until_capture_is_ingested() -> None:
     assert before.team_identities == ()
     assert before.competition_mappings == ()
     assert before.explicit_mappings == ()
+    assert before.canonical_anchors == ()
     assert len(after.canonical_matches) == 1
     assert len(after.team_identities) == 2
     assert len(after.competition_mappings) == 1
     assert len(after.explicit_mappings) == 1
+    assert len(after.canonical_anchors) == 1
 
 
 def test_catalog_hides_fixture_name_drift_until_later_capture_is_ingested() -> None:

@@ -434,7 +434,7 @@ print(json.dumps({
         [executable, "live", "--help"],
         cwd=work_dir,
         environment=environment,
-        markers=("plan-slate", "ingest-fixtures"),
+        markers=("plan-slate", "ingest-fixtures", "ingest-fixtures-manual"),
     )
     _run_checked(
         "live daily slate planning help",
@@ -449,6 +449,13 @@ print(json.dumps({
         cwd=work_dir,
         environment=environment,
         markers=("--league-id", "--provider-season-id", "--team-type"),
+    )
+    _run_checked(
+        "live reviewed manual fixture ingestion help",
+        [executable, "live", "ingest-fixtures-manual", "--help"],
+        cwd=work_dir,
+        environment=environment,
+        markers=("--archive", "--raw-archive", "--reconciliation-output"),
     )
 
     _run_checked(

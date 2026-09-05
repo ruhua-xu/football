@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased, sessionmaker
 
 from football_system.application.identity_catalog import (
+    CanonicalFixtureAnchor,
     FixtureIngestionCapture,
     FixtureIngestionSummary,
     MatchIdentityCatalog,
@@ -24,7 +25,14 @@ from football_system.domain.identity import (
     CompetitionMapping,
     TeamIdentity,
 )
-from football_system.domain.match import ProviderMatchMapping, TeamType
+from football_system.domain.match import (
+    Competition,
+    Match,
+    MatchStatus,
+    ProviderMatchMapping,
+    Team,
+    TeamType,
+)
 from football_system.infrastructure.database.models import (
     CanonicalMatchIdentityRecord,
     CompetitionRecord,
@@ -189,9 +197,35 @@ class SqlAlchemyMatchIdentityRepository:
             .correlate(MatchRecord)
             .scalar_subquery()
         )
+        latest_observed_status = (
+            select(FixtureObservationRecord.status)
+            .join(
+                FixtureIngestionCaptureRecord,
+                FixtureIngestionCaptureRecord.ingestion_id
+                == FixtureObservationRecord.ingestion_id,
+            )
+            .where(
+                FixtureObservationRecord.internal_match_id
+                == MatchRecord.internal_match_id,
+                FixtureObservationRecord.available_at_utc <= cutoff,
+                FixtureIngestionCaptureRecord.ingested_at_utc <= cutoff,
+            )
+            .order_by(
+                FixtureObservationRecord.available_at_utc.desc(),
+                FixtureIngestionCaptureRecord.ingested_at_utc.desc(),
+                FixtureObservationRecord.observation_id.desc(),
+            )
+            .limit(1)
+            .correlate(MatchRecord)
+            .scalar_subquery()
+        )
         effective_kickoff = func.coalesce(
             latest_observed_kickoff,
             MatchRecord.kickoff_at_utc,
+        )
+        effective_status = func.coalesce(
+            latest_observed_status,
+            MatchRecord.status,
         )
         match_statement = (
             select(
@@ -201,6 +235,7 @@ class SqlAlchemyMatchIdentityRepository:
                 home_team,
                 away_team,
                 effective_kickoff.label("effective_kickoff_at_utc"),
+                effective_status.label("effective_status"),
             )
             .join(
                 CanonicalMatchIdentityRecord,
@@ -246,7 +281,16 @@ class SqlAlchemyMatchIdentityRepository:
             competition_scopes: set[tuple[str, str, str]] = set()
             match_ids: list[str] = []
             canonical_matches: list[CanonicalMatchIdentity] = []
-            for match, metadata, competition, home, away, kickoff_at in match_rows:
+            canonical_anchors: list[CanonicalFixtureAnchor] = []
+            for (
+                match,
+                metadata,
+                competition,
+                home,
+                away,
+                kickoff_at,
+                status,
+            ) in match_rows:
                 team_records[home.team_id] = home
                 team_records[away.team_id] = away
                 competition_ids.add(competition.competition_id)
@@ -258,15 +302,46 @@ class SqlAlchemyMatchIdentityRepository:
                     )
                 )
                 match_ids.append(match.internal_match_id)
-                canonical_matches.append(
-                    CanonicalMatchIdentity(
-                        internal_match_id=match.internal_match_id,
-                        internal_competition_id=competition.competition_id,
-                        internal_home_team_id=home.team_id,
-                        internal_away_team_id=away.team_id,
-                        season=metadata.season,
-                        competition_type=metadata.competition_type,
-                        kickoff_at_utc=kickoff_at,
+                identity = CanonicalMatchIdentity(
+                    internal_match_id=match.internal_match_id,
+                    internal_competition_id=competition.competition_id,
+                    internal_home_team_id=home.team_id,
+                    internal_away_team_id=away.team_id,
+                    season=metadata.season,
+                    competition_type=metadata.competition_type,
+                    kickoff_at_utc=kickoff_at,
+                )
+                canonical_matches.append(identity)
+                canonical_anchors.append(
+                    CanonicalFixtureAnchor(
+                        competition=Competition(
+                            competition_id=competition.competition_id,
+                            canonical_key=competition.canonical_key,
+                            name=competition.name,
+                            country_code=competition.country_code,
+                        ),
+                        home_team=Team(
+                            team_id=home.team_id,
+                            canonical_key=home.canonical_key,
+                            name=home.name,
+                            team_type=TeamType(home.team_type),
+                        ),
+                        away_team=Team(
+                            team_id=away.team_id,
+                            canonical_key=away.canonical_key,
+                            name=away.name,
+                            team_type=TeamType(away.team_type),
+                        ),
+                        match=Match(
+                            match_id=match.internal_match_id,
+                            competition_id=competition.competition_id,
+                            home_team_id=home.team_id,
+                            away_team_id=away.team_id,
+                            kickoff_at_utc=kickoff_at,
+                            status=MatchStatus(status),
+                            available_at_utc=match.available_at_utc,
+                        ),
+                        identity=identity,
                     )
                 )
 
@@ -420,6 +495,7 @@ class SqlAlchemyMatchIdentityRepository:
             competition_mappings=competition_mappings,
             canonical_matches=tuple(canonical_matches),
             explicit_mappings=explicit_mappings,
+            canonical_anchors=tuple(canonical_anchors),
         )
 
 
