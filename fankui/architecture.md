@@ -168,6 +168,115 @@ archived MatchResult + exact archive provenance
 
 `BACKTEST_V2` 在每个 slice 中先完成并封存上述 decision graph，再在更晚的 evaluation cutoff 读取 target result。V2 run、archive、slice、training source、evaluation ref、result source、ticket-settlement link 和 metric snapshot 使用独立八表持久化；run 只能由 `RUNNING` 经完整性 trigger 一次转换为 `COMPLETED`。Repository 在一个事务中保存整图，exact retry 不增加行，读取时重算 canonical hashes、概率、结算和 metrics。Alembic revision `c4e8a1d7f205` 与 runtime schema/trigger signature 完全对齐，并只允许空 V2 lineage 数据库回退。
 
+## 0.6 Production Quant Bootstrap 提案
+
+ADR-0008 当前为 `Proposed`，本节只描述待外部审查的架构，不代表已实现或已授权真实数据导入。`0.5.0` 的 live guard 和 `MODEL_UNAVAILABLE` 行为在 ADR accepted 前保持不变。
+
+提案将 source provenance 与 production-training eligibility 拆为正交维度，但不把 research provider 放进 live AnalysisRun：
+
+```text
+HistoricalDataMode                 TrainingUseClass
+├── LIVE_STRICT                    └── APPROVED_TRAINING_HISTORY
+└── SOURCE_TIME_RESEARCH
+```
+
+`APPROVED_TRAINING_HISTORY` 不是第三种 data mode。它只授权一个 content-addressed、人工审批的 `SOURCE_TIME_RESEARCH` 事实集合构建指定 model/config 的 production model release；每条事实继续保留 `retrospective=true`、source available time 和实际 local import/register time。普通或 approved research provider 都不直接进入 live，`LIVE_STRICT` 也不成为这组历史的别名。
+
+```text
+SOURCE_RIGHTS_ADMISSION_V1
+        |
+        v
+SOURCE_TIME_RESEARCH archives
+        |
+        v
+precommitted point-in-time Bundesliga pilot
+        |
+        v
+TRAINING_HISTORY_MANIFEST_V1
+        |
+        v
+TRAINING_HISTORY_APPROVAL_V1 event
+        |
+        v
+offline PRODUCTION_QUANT_MODEL_RELEASE_V1
+        |
+        v
+current LIVE_STRICT target
+        |
+        v
+AVAILABLE run state -> ANALYSIS_PACKET_V3 + mandatory audit sidecar
+```
+
+Source rights 使用两阶段门禁。`SOURCE_RIGHTS_ADMISSION_V1` 必须在 acquisition/import/pilot 前结构化证明 source identity、terms/authority hashes、research/storage uses、effective/expiry time、retention/deletion rule 和 public repository boundary。采集后的 `TRAINING_FACT_ADMISSION_V1` 再原子绑定 normalized result、status、season 和 source records；它不能追溯替代 rights admission。Pilot 后的 production approval 单独证明 training、inference、derived-state retention 和 audit-hash retention。该机制是内部授权审计，不是软件作出的法律判断；rights 与 append-only 最低保留要求冲突时 source 不准入。
+
+常规时间完成状态和真实 season 不能由比分或复制字段自行证明。每个 approved fact 必须绑定 exact fixture source、`MATCH_SEASON_MEMBERSHIP_V1` 和 `MATCH_RESULT_ADMISSION_V1`。Result admission 保存 provider raw status、mapping version、regular-time score、finalized/source times、raw/full-record hashes 和 reviewer/adapter identity；season membership 必须绑定原始 bytes 中明确的 provider competition/season/fixture 关系、fixture/mapping IDs 和 canonical season。三者与 normalized MatchResult 在持久化、hash-sealed `TRAINING_FACT_ADMISSION_V1` transaction 中原子物化；裸 `match_results` row 不具备 production-training 资格。
+
+建议 additive persistence graph 为：
+
+```text
+source_rights_admissions
+
+training_fact_admissions
+├── training_fact_fixture_sources
+├── match_season_memberships
+└── match_result_admissions
+
+training_history_manifests
+├── training_history_fixture_sources
+├── training_history_mapping_sources
+├── training_history_result_sources
+├── training_history_seasons
+└── training_history_facts
+
+training_history_approval_events
+└── training_history_revocation_events
+
+production_quant_pilot_attempts
+└── production_quant_pilot_summaries
+    └── production_quant_pilot_attestations
+
+production_quant_model_releases
+└── production_quant_model_release_facts
+
+production_target_acceptance_plans
+└── analysis_run_target_acceptance_plans
+
+quant_model_states
+└── quant_model_state_production_releases
+```
+
+Manifest、approval/revocation event、pilot attempt/summary/attestation、model release 和 state binding 均 append-only。Typed source table 使用真实 FK，避免 polymorphic ID。Canonical roots 分别冻结 source graph、ordered `WARMUP`/`PILOT_TARGET`/`PRODUCTION_TARGET` seasons、full approved facts、existing Elo `training_data_hash`、pilot plan/attempt-root/report、rights evidence、build recipe/code revision 和实际 approval/build/persisted time。现有 Elo hash 继续封存数学输入；新增 `approved_facts_hash` 另行覆盖 fixture/mapping/result source、season、actual import/register 和 status admission，二者不能互相替代。Child hash 排除尚未生成的 parent manifest ID，以 pilot scope 和 source hashes 建 root，避免循环。
+
+Training fact 只允许已完成的 regular-time result 和最小 identity lineage。每场必须保存真实 `season_id`，并逐项要求 fixture、mapping/season 和 result source visibility 早于 cutoff；三者最大值是 effective availability，但不能替代逐项验证。Source rights/fact admission、actual import/register、pilot、approval 和 model release persistence 也必须在 production decision cutoff 前完成。未来 fixture/result/odds/table state 不得进入 Elo facts；target exclusion 按每个 walk-forward slice 执行，较早 target 只能在结果进入后续 cutoff 后成为训练事实。
+
+现有 archive Elo provider 的单一构造参数 `season_id` 会把全部结果投影到同一 season，不能用于本提案。实现阶段必须改为 explicit per-season source membership；query target season 只触发最终 season transition，不能覆盖历史事实。单赛季兼容路径也必须通过逐场 season assignment，而不是复用统一 label。
+
+Elo 数学保持 `ELO_THREE_WAY_BASELINE_V1` version `1`：
+
+```text
+initial_rating = 1500
+k_factor = 20
+home_advantage = 100
+season_regression_factor = 0.75
+draw_probability = 0.25
+minimum_prior_matches = 5
+config_hash = c98d595d3afb03fe629e776fa9a0e70f24e31fcd49884be3ff11e9c979ca78e4
+```
+
+Bundesliga pilot 至少覆盖一个完整已结束赛季，必要时加入紧邻前一赛季作为 warm-up。首次读取 target result 前必须封存 `PRODUCTION_QUANT_PILOT_PLAN_V1`，固定 source/archive roots、cohort、per-slice cutoffs/exclusions、odds snapshot/bookmaker/consensus/de-vig policy、season window、Elo/fusion config、metrics、build recipe 和 code revision。连续 attempt ledger/root 永久保留全部尝试；terminal attestation 将其与 source/fact roots、state core 和 report hash 绑定，后续 approval/release 的 recipe/revision 必须完全相同。
+
+每个 slice 只读取 decision cutoff 前的 fixture、`THREE_WAY` odds 和 training correction，target result 只在更晚 evaluation cutoff 后评分。Probability-only pilot 不调用 optimizer、Ticket、Portfolio 或 Settlement，也不伪造 Sporttery。报告分别列出 `P_market`、固定 Elo `P_quant` 和 frozen fusion `P_final` 的 Brier、LogLoss、10-bin Calibration/ECE、分母，以及全 cohort 的 MODEL availability 和 unavailable reasons；不得用投注 ROI 或任何概率指标手工/自动调参、重选 cohort 或挑选“正式”尝试。
+
+若没有可信 source-time availability 或完整 point-in-time odds，pilot 必须停止，不得以下载时间、closing odds 或未来 snapshot 回填。Pilot 是 `RETROSPECTIVE_SOURCE_TIME_RESEARCH`，不是历史 live performance；production approval 发生在实际 import、pilot 和人工 rights review 之后，只能用于其后 cutoff 的当前/未来预测。
+
+Production model release 封存 cutoff-independent state core，包括 ratings、prior counts、真实 seasons、ordered facts 和 training roots。Live run 在当前 cutoff 只从该 core 确定性重建 run-scoped state；去除 run ID/cutoff/generated time/state hash 后必须重得相同 core hash。Release 必须在 decision cutoff 前已持久化，因此 V3 要求的 state cutoff 和 run timing 可以满足，同时不能改变 release 的模型内容。
+
+第一场 production acceptance 必须是 model release 后的新未来 Bundesliga 比赛，不得改写 `0.5.0` 已封存 handshake。`PRODUCTION_TARGET_ACCEPTANCE_PLAN_V1` 在任何 candidate evaluation/review 前冻结 exact target、cutoff、selection rule 和 release hash，并由 AnalysisRun/sidecar 绑定。当前 fixture、market odds 和 reviewed Sporttery 仍走 `LIVE_STRICT`；live run 不查询 research archive 或隐式选择“最新”模型。该 run 至少产生一个 `AVAILABLE` `P_quant` 和 base `P_final`。
+
+`MVP_INPUT_MANIFEST_V3`、`ANALYSIS_PACKET_V3`、`LLM_REVIEW_V3` wire bytes 保持不变。每个 approved-history run 必须另有 `APPROVED_TRAINING_HISTORY_AUDIT_V1` sidecar，以 run/packet/state/training hashes 绑定 target plan、model release、approval、manifest 和 per-season sources，并显式声明 decision mode、training source mode/use class 和 retrospective presence；V3 单独存在不证明 approval。Model build 只检查 active approval，AnalysisRun 及 packet export、review import、FusionRun、PortfolioRevision 检查更强的 active release/sidecar predicate。网页 GPT 仍只接收 V3 packet；`NO_BET` 仍是合法结果。
+
+在上述 AVAILABLE handshake 完成前不进入 `0.7`。完整 provenance、schema、pilot 和 revocation 决策见 [ADR-0008](decisions/0008-approved-training-history.md)。
+
 ## Market 抽象
 
 系统使用 `MarketKey` 标识一个可定价市场，而不是在核心接口中默认所有数据都是胜平负。
