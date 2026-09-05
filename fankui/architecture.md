@@ -2,14 +2,14 @@
 
 ## 状态
 
-- 状态：已发布 package metadata 为 `0.4.0`；`0.5.0` 真实数据工作为 `Unreleased`
+- 状态：已发布 package metadata 为 `0.5.0`
 - 架构形态：Python 3.12+ 模块化单体
 - 边界模式：六边形架构
 - 存储边界：SQLite-only
 - 入口：CLI
 - 历史策略：Append-only Source Fact、Analysis Snapshot、Settlement 与 Backtest Artifact
 
-`0.4.0` 在既有概率、融合、投注、风险与离线 Review 图之外，增加本地只读历史归档、赛果评估、结算和严格时间序列回测图。当前 `Unreleased` 工作继续保持模块化单体和六边形边界，增加显式 Sportmonks fixture capture、raw archive 与数据库 identity lineage。
+`0.4.0` 在既有概率、融合、投注、风险与离线 Review 图之外，增加本地只读历史归档、赛果评估、结算和严格时间序列回测图。`0.5.0` 继续保持模块化单体和六边形边界，正式增加显式 Sportmonks fixture capture、raw archive 与数据库 identity lineage。
 
 ## 系统边界
 
@@ -23,7 +23,7 @@ PortfolioRecommendation | NO_BET
 
 ## SQLite-only 边界
 
-`0.4.0` 只支持 SQLite。运行时 Engine、`create_schema()`、迁移 helper 和直接 Alembic 环境都会先校验 backend，非 SQLite URL 在加载对应数据库驱动前失败。SQLAlchemy 模型不是 PostgreSQL/MySQL 兼容性承诺；外键 PRAGMA、partial index、append-only/lineage trigger 和 `INSERT OR REPLACE` 防护均属于当前正确性边界。
+`0.5.0` 只支持 SQLite。运行时 Engine、`create_schema()`、迁移 helper 和直接 Alembic 环境都会先校验 backend，非 SQLite URL 在加载对应数据库驱动前失败。SQLAlchemy 模型不是 PostgreSQL/MySQL 兼容性承诺；外键 PRAGMA、partial index、append-only/lineage trigger 和 `INSERT OR REPLACE` 防护均属于当前正确性边界。
 
 ## 模块边界
 
@@ -148,7 +148,7 @@ walk-forward V1 使用 `DAILY_FIXED_CUTOFF_V1`，每个 slate 共享一个 decis
 
 ## Elo model quant 与 Backtest V2
 
-`Unreleased` model path 使用固定标识 `ELO_THREE_WAY_BASELINE_V1`、版本 `1` 和校准标签 `BASELINE_UNCALIBRATED`。它只读取显式 season 中同时满足 `available_at_utc <= cutoff` 与 `ingested_at_utc <= cutoff` 的常规时间 MatchResult，按 supersession chain 选择 cutoff 时最新可见 correction，并无条件排除本次 target match IDs。训练不足时保存 `QuantModelEvaluation(status=UNAVAILABLE)`，不创建 QuantPrediction/FinalPrediction，不复制 `P_market`。
+`0.5.0` model path 使用固定标识 `ELO_THREE_WAY_BASELINE_V1`、版本 `1` 和校准标签 `BASELINE_UNCALIBRATED`。它只读取显式 season 中同时满足 `available_at_utc <= cutoff` 与 `ingested_at_utc <= cutoff` 的常规时间 MatchResult，按 supersession chain 选择 cutoff 时最新可见 correction，并无条件排除本次 target match IDs。训练不足时保存 `QuantModelEvaluation(status=UNAVAILABLE)`，不创建 QuantPrediction/FinalPrediction，不复制 `P_market`。
 
 ```text
 archived MatchResult + exact archive provenance
@@ -343,7 +343,7 @@ Optimizer 默认在 preferred 范围内寻找方案。超出 preferred 的 Ticke
 
 ## 当前范围
 
-`0.4.0` 实现：
+`0.5.0` 正式发布包含以下既有能力：
 
 - Mock Fixture、国际市场赔率和竞彩固定奖金。
 - `THREE_WAY` 市场计算。
@@ -356,7 +356,7 @@ Optimizer 默认在 preferred 范围内寻找方案。超出 preferred 的 Ticke
 - append-only MatchResult、`BACKTEST`/`THREE_WAY`/简单2串1 Ticket Settlement 与 Portfolio Settlement。
 - 固定 slate walk-forward、BacktestRun/Slice、概率/资金/覆盖率/回撤/风险指标、报告与并排策略比较。
 
-当前 `Unreleased` 另已实现：
+`0.5.0` 另已实现：
 
 - Sportmonks fixture raw capture、canonical identity、双时间可见性与 append-only observation。
 - 固定参数三向 Elo model `P_quant`、`MVP_INPUT_MANIFEST_V3` 和 unavailable-aware analysis。
@@ -364,7 +364,9 @@ Optimizer 默认在 preferred 范围内寻找方案。超出 preferred 的 Ticke
 - `ANALYSIS_PACKET_V3` / `LLM_REVIEW_V3` model-lineage 离线闭环，同时保留 V1/V2 bytes。
 - The Odds API、reviewed Sporttery、reconciliation/preparation 与 preparation-bound 离线 live AnalysisRun；无合格训练赛果时显式保存 model unavailable。
 
-`0.4.0` 不实现：
+`0.5.0` 的 release boundary 保持不变：live Elo 缺少合格 `LIVE_STRICT` history 时允许 `MODEL_UNAVAILABLE`；ADR-0007 不修改，`SOURCE_TIME_RESEARCH` 不得混入 live；正式选择市场仍仅为 `THREE_WAY`，正式 pass type 仍仅为简单 `2X1`；不执行自动下注。历史 Elo bootstrap 留待下一阶段。
+
+`0.5.0` 不实现：
 
 - 让球胜平负的概率和计奖计算。
 - 真实 Evidence Collector 和真实 LLM 调用。

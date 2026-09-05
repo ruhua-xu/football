@@ -57,7 +57,7 @@ def _require_sqlite_backend(backend: str) -> None:
     if backend != "sqlite":
         raise ValueError(
             f"Unsupported database backend '{backend}'; "
-            "football-system v0.4.0 supports SQLite only."
+            "football-system v0.5.0 supports SQLite only."
         )
 
 

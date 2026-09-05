@@ -5,8 +5,8 @@
 ## 发布状态
 
 - `v0.1.0` 固定在提交 `fceb945d07218290dc85b465e885a47ae9912c3f`，保留原始 MVP 行为。
-- 当前已发布 package metadata 保持 `0.4.0`；`0.5.0` 真实数据工作仍为 `Unreleased`，且不改变既有概率、EV、计奖、风险、离线 Review、FusionRun、PortfolioRevision 和不可变 AnalysisRun 合同。
-- `0.4.0` 仅支持 SQLite。运行时建库、Schema 创建和 Alembic 迁移都会在加载其他数据库驱动前拒绝非 SQLite URL。
+- 当前正式发布 package metadata 为 `0.5.0`；该版本增加真实数据闭环，但不改变既有概率、EV、计奖、风险、离线 Review、FusionRun、PortfolioRevision 和不可变 AnalysisRun 合同。
+- `0.5.0` 仅支持 SQLite。运行时建库、Schema 创建和 Alembic 迁移都会在加载其他数据库驱动前拒绝非 SQLite URL。
 - 只有显式执行 `live ingest-fixtures` 或 `live ingest-market-odds` 才会分别读取 `SPORTMONKS_KEY` 或 `ODDS_API_KEY` 并访问网络；`ingest-fixtures-manual`、Sporttery、reconcile、review import、prepare-analysis 和 run-analysis 均为本地 I/O。项目不连接真实 LLM API，不执行自动下注。
 
 ## 当前能力
@@ -31,7 +31,7 @@
 football-system live ingest-fixtures --kickoff-from 2026-09-03T00:00:00Z --kickoff-to 2026-09-03T23:59:59Z --league-id 501 --provider-season-id 23690 --season 2026/27 --competition-type LEAGUE --team-type CLUB
 ```
 
-每次成功响应使用本地 receipt time 作为 availability，并单独保存数据库 ingestion time；首次由 capture 创建的 identity row 显式绑定 `fixture_ingestion_id`，catalog 只有在 availability 和对应 ingestion 均不晚于 cutoff 时才可见。既有普通 identity 不会被后来 capture 重新分类；后续 status/kickoff 变化追加到 `fixture_observations`，名称漂移追加新 alias/mapping。当前 vertical slice 要求一个经过 league filter 的完整单页响应；若 terminal pagination metadata 不一致或 `pagination.has_more=true`，会拒绝落库并要求缩小 kickoff window，绝不把截断页当作完整数据。实际账户调用在核对 token entitlement、目标联赛、字段和限流 metadata 前仍处于 operational `DEFER`；自动化验收仅使用 scripted transport 和自造 payload，不访问外网。
+每次成功响应使用本地 receipt time 作为 availability，并单独保存数据库 ingestion time；首次由 capture 创建的 identity row 显式绑定 `fixture_ingestion_id`，catalog 只有在 availability 和对应 ingestion 均不晚于 cutoff 时才可见。既有普通 identity 不会被后来 capture 重新分类；后续 status/kickoff 变化追加到 `fixture_observations`，名称漂移追加新 alias/mapping。当前 vertical slice 要求一个经过 league filter 的完整单页响应；若 terminal pagination metadata 不一致或 `pagination.has_more=true`，会拒绝落库并要求缩小 kickoff window，绝不把截断页当作完整数据。真实账户调用必须先核对 token entitlement、目标联赛、字段和限流 metadata；自动化测试仍只使用 scripted transport 和自造 payload，不访问外网。第一次真实 V3 handshake 的无版权摘要见 `fankui/phase_5_implementation_report.md`，raw payload、Sporttery evidence 和 secret 不进入仓库。
 
 `live ingest-fixtures-manual` 是受控的离线替代入口。每份 JSON 只接受一个 competition/season/type/team-type scope；每条 fixture 只保存赛事、赛季、UTC kickoff、主客队标签、赛事/球队类型、source reference/path/SHA-256，以及 capture/entry/review provenance。输入必须为 `SELF_REVIEWED` 或 `INDEPENDENT_REVIEWED`，并提供位于 JSON 同目录内、SHA-256 匹配的 PNG/JPEG/WebP screenshot、PDF、HTML 或 text evidence；不得放入赔率、预测、概率或 EV。第三方版权 evidence 保留在本地，不应提交到公共仓库。
 
@@ -58,7 +58,7 @@ football-system analysis-packet export --config config/live.toml --analysis-run-
 
 `plan-slate` 输入必须带 source artifact SHA-256 和 `SELF_REVIEWED` 或 `INDEPENDENT_REVIEWED` provenance。候选只保存日期限定的竞彩编号、UTC kickoff、主客队/赛事标签和 optional `THREE_WAY` SP；同一编号可跨日期出现，同日重复会被拒绝。已有 reviewed explicit mapping，或唯一完全一致的 canonical competition/home/away label 与 kickoff 的候选标记 `IDENTITY_RESOLVED` 并进入精确 market-odds request；零候选时额外标记 `FIXTURE_SOURCE_REQUIRED`，多个精确候选仍保持 unresolved，绝不模糊绑定。空输入正常输出 `NO_SPORTTERY_CANDIDATES` 与 `NO_ANALYSIS`。DailySlate 本身不创建 canonical fixture，plan 文件也不能作为 `run-analysis` 输入；仍必须先走正式 fixture/source ingestion 和 persisted preparation。
 
-`reconcile`、`import-identity-review`、`prepare-analysis` 和 `run-analysis` 不读取 API key、不构造 HTTP transport。Preparation 只查询 cutoff 前已持久化的数据；缺少任一必要来源时保存 `NO_ANALYSIS_INSUFFICIENT_DATA`，不会临时联网补数。`run-analysis --date` 仅在该 UTC 日期恰好匹配一份 ready preparation 时运行；否则必须使用 `--preparation-id`。当前没有 provenance-qualified persisted 训练赛果时，Elo evaluation 明确保存 `UNAVAILABLE`，不会复制 `P_market` 或生成伪 `P_final`。以上真实 provider CLI 已实现不改变 operational `DEFER`：当前仓库仍未读取任何真实 key，也没有可声明为真实表现的数据或 packet。
+`reconcile`、`import-identity-review`、`prepare-analysis` 和 `run-analysis` 不读取 API key、不构造 HTTP transport。Preparation 只查询 cutoff 前已持久化的数据；缺少任一必要来源时保存 `NO_ANALYSIS_INSUFFICIENT_DATA`，不会临时联网补数。`run-analysis --date` 仅在该 UTC 日期恰好匹配一份 ready preparation 时运行；否则必须使用 `--preparation-id`。当前没有 provenance-qualified persisted 训练赛果时，Elo evaluation 明确保存 `UNAVAILABLE`，不会复制 `P_market` 或生成伪 `P_final`。真实 provider CLI 已通过单场 real positive acceptance；仓库仍不包含真实 key、raw payload 或可声明为模型表现的数据。
 
 ## Historical Archive V1
 
@@ -152,8 +152,13 @@ NOT REAL HISTORICAL PERFORMANCE
 
 外部协作者只处理已封存 AnalysisRun 导出的白名单 Packet，并返回绝对 `P_llm`；本地严格校验、追加导入，再创建 FusionRun 和独立 PortfolioRevision。导入不会更新原 AnalysisRun、`P_final`、候选、Ticket 或 Portfolio。V1/V2 只接受手工 `P_quant` lineage；V3 增加 `started_at_utc`、结构化 model state/evaluation hashes、紧凑训练 match/result ID lineage，以及有预测/无预测两种显式状态。model-unavailable 比赛必须返回 `MODEL_UNAVAILABLE`，不会伪造概率；若整次运行没有任何可用 base prediction，则拒绝创建 FusionRun。合同见 `fankui/llm_review_v1_contract.md`、`fankui/llm_review_v2_contract.md` 与 `fankui/llm_review_v3_contract.md`。
 
-## 范围边界
+## 0.5.0 已知限制
 
-不支持真实历史数据或生产抓取、真实 LLM 调用、网页 GPT 历史回测、自动调参、机器学习 `P_quant`、3串4、4串11、复式、Web、调度器或自动下注。结算不支持取消、腰斩、`VOID`、退款、加时、点球或串关降级；这些情况只能显式记录为 `UNSUPPORTED_SETTLEMENT_CASE`，不能猜测返还规则。
+- 当前 live Elo 可能因缺少合格 `LIVE_STRICT` history 而明确返回 `MODEL_UNAVAILABLE`；不复制 `P_market`，也不生成伪 `P_quant` / `P_final`。
+- ADR-0007 保持不变，`SOURCE_TIME_RESEARCH` 不允许重标或混入 live。历史 Elo bootstrap 属于下一阶段，本版本不处理。
+- 当前正式选择市场仍只支持 `THREE_WAY`；正式 pass type 仍只支持简单 `2X1`，不支持3串4、4串11或复式。
+- 不连接真实 LLM API，不执行自动下注、账户登录、支付或出票。
+- 不支持真实历史数据或生产抓取、网页 GPT 历史回测、自动调参、机器学习 `P_quant`、Web 或调度器。
+- 结算不支持取消、腰斩、`VOID`、退款、加时、点球或串关降级；这些情况只能显式记录为 `UNSUPPORTED_SETTLEMENT_CASE`，不能猜测返还规则。
 
 历史回测规范见 `fankui/backtest_v1_contract.md`；设计沿革见 `fankui/historical_data_backtest.md`，架构与模型资料见 `fankui/architecture.md` 和 `fankui/data_model.md`。

@@ -13,6 +13,7 @@ data/*.db-*
 data/raw/
 data/live/
 data/research/
+exchange/live_acceptance/
 !data/fixtures/
 !data/fixtures/**
 .playwright-mcp/

@@ -31,7 +31,7 @@ def test_setuptools_data_files_are_explicit_complete_and_scoped() -> None:
         source for sources in data_files.values() for source in sources
     }
 
-    assert project["project"]["version"] == "0.4.0"
+    assert project["project"]["version"] == "0.5.0"
     assert _installed_resource_paths(data_files) == set(
         wheel_e2e.EXPECTED_RESOURCE_FILES
     )
@@ -85,7 +85,7 @@ def test_historical_default_paths_are_optional_and_warn_in_help(
 
 
 def test_wheel_script_reports_missing_wheel_without_building(tmp_path, capsys) -> None:
-    missing = tmp_path / "football_system-0.4.0-py3-none-any.whl"
+    missing = tmp_path / "football_system-0.5.0-py3-none-any.whl"
     assert wheel_e2e.main([str(missing)]) == 1
     assert "wheel does not exist" in capsys.readouterr().err
 
@@ -96,10 +96,10 @@ def test_wheel_discovery_requires_exactly_one_candidate(tmp_path) -> None:
     with pytest.raises(wheel_e2e.WheelE2EError, match="found 0"):
         wheel_e2e._resolve_wheel(None, tmp_path)
 
-    first = dist / "football_system-0.4.0-py3-none-any.whl"
+    first = dist / "football_system-0.5.0-py3-none-any.whl"
     first.write_bytes(b"not opened by discovery")
     assert wheel_e2e._resolve_wheel(None, tmp_path) == first.resolve()
 
-    (dist / "football_system-0.4.0-2-py3-none-any.whl").write_bytes(b"second")
+    (dist / "football_system-0.5.0-2-py3-none-any.whl").write_bytes(b"second")
     with pytest.raises(wheel_e2e.WheelE2EError, match="found 2"):
         wheel_e2e._resolve_wheel(None, tmp_path)

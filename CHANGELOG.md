@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 - 2026-09-05
 
 - 增加显式 `live ingest-fixtures` vertical slice：仅在执行命令时从 `SPORTMONKS_KEY` 读取凭据，通过受审计的 Sportmonks HTTP client 获取指定 league/season/kickoff scope，并在规范化前封存 raw response。
 - 增加 deterministic Team、Competition、Match identity persistence、`fixture_ingestion_captures` 和 `fixture_observations`，由 Alembic revision `a6c1f9e3b742` 原子落库并以 SQLite append-only/lineage trigger 防止改写。
