@@ -178,4 +178,6 @@ def test_model_input_manifest_v3_is_stable_and_excludes_manual_contract() -> Non
     assert payload["version"] == MVP_INPUT_MANIFEST_V3
     assert payload["quant_model_states"][0]["state_hash"] == state.state_hash
     assert "manual_quant_inputs" not in payload
-    assert len(hashlib.sha256(first.encode("utf-8")).hexdigest()) == 64
+    assert hashlib.sha256(first.encode("utf-8")).hexdigest() == (
+        "d5404810bb6ec124383417847d64428f21bf2c4f760c51f3c9e6340598061dc4"
+    )

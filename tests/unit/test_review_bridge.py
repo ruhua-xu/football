@@ -6,6 +6,7 @@ from decimal import Decimal
 import pytest
 
 from football_system.application.review_bridge import (
+    VALIDATOR_VERSION_V3,
     ExportAnalysisPacketService,
     ImportLLMReviewService,
     build_analysis_packet,
@@ -39,11 +40,13 @@ from football_system.domain.review import (
     AnalysisPacketSourceV2,
     AnalysisPacketMatchSourceV3,
     AnalysisPacketSourceV3,
+    LLMReviewFailureCode,
     MatchReviewContext,
     PacketDataQuality,
     PacketDataQualityStatus,
     PacketEvidence,
     PacketInternationalOdds,
+    PacketManualQuantLineageV3,
     PacketMarketPrediction,
     PacketModelQuantLineageV3,
     PacketQuantModelEvaluationV3,
@@ -313,10 +316,67 @@ def _source_v3(*, available: bool = True) -> AnalysisPacketSourceV3:
     )
 
 
+def _source_v3_with_training_lineage() -> AnalysisPacketSourceV3:
+    source = _source_v3()
+    state_payload = source.quant_model_states[0].model_dump(mode="python")
+    state_payload.update(
+        {
+            "training_fact_count": 2,
+            "training_match_ids": ("training-match-2", "training-match-1"),
+            "training_result_ids": ("training-result-2", "training-result-1"),
+        }
+    )
+    state = PacketQuantModelStateV3.model_validate(state_payload)
+    return AnalysisPacketSourceV3(
+        analysis_run=source.analysis_run,
+        quant_model_states=(state,),
+        matches=source.matches,
+    )
+
+
+def _manual_source_v3() -> AnalysisPacketSourceV3:
+    source = _source_v3()
+    match_payload = source.matches[0].model_dump(mode="python")
+    match_payload.update(
+        {
+            "p_quant": PacketManualQuantLineageV3(
+                prediction=_source_v2().matches[0].p_quant,
+            )
+        }
+    )
+    match = AnalysisPacketMatchSourceV3.model_validate(match_payload)
+    return AnalysisPacketSourceV3(
+        analysis_run=source.analysis_run,
+        quant_model_states=(),
+        matches=(match,),
+    )
+
+
 def _review_v3(packet, **match_updates) -> dict:
     review = _review_v2(packet, **match_updates)
     review["schema_version"] = "LLM_REVIEW_V3"
     return review
+
+
+def _model_unavailable_review_v3(packet) -> dict:
+    match = packet.matches[0]
+    return {
+        "schema_version": "LLM_REVIEW_V3",
+        "analysis_run_id": packet.analysis_run.analysis_run_id,
+        "packet_id": packet.packet_id,
+        "packet_hash": packet.packet_hash,
+        "match_reviews": [
+            {
+                "status": "UNAVAILABLE",
+                "match_id": match.match_id,
+                "market_key": match.market_key,
+                "failure_code": "MODEL_UNAVAILABLE",
+                "limitations": ["Model P_quant is unavailable."],
+                "review_context_id": match.review_context_id,
+                "review_context_hash": match.review_context_hash,
+            }
+        ],
+    }
 
 
 def _packet_bytes(packet) -> bytes:
@@ -424,6 +484,101 @@ def test_analysis_packet_v3_preserves_model_lineage_and_unavailability(
         assert lineage.evaluation.unavailable_reason == "INSUFFICIENT_PRIOR_MATCHES"
 
 
+@pytest.mark.parametrize(
+    ("available", "packet_hash", "serialized_hash"),
+    (
+        (
+            True,
+            "51cb0de739ac1ee54b3d268e323477fc8e58081a94be2dd55b88eae82285cd82",
+            "d1eae241e497c0a24720f645069f36edbaafe21dd3afc15f1a0aa8ce3dfeb878",
+        ),
+        (
+            False,
+            "075231a7693e9e394470a713e9c60c950cfa1c4b7124938a7ce7bf5ccced3e0e",
+            "d2e29de758d5c13dbeb395935de3afe0d59b361f0fb264103099d76a40971689",
+        ),
+    ),
+)
+def test_analysis_packet_v3_canonical_bytes_remain_frozen(
+    available: bool,
+    packet_hash: str,
+    serialized_hash: str,
+) -> None:
+    packet = build_analysis_packet_v3(_source_v3(available=available), NOW)
+
+    assert packet.packet_id == "c2355e51-693c-573d-ad01-c46686e062fb"
+    assert packet.packet_hash == packet_hash
+    assert hashlib.sha256(_packet_bytes(packet)).hexdigest() == serialized_hash
+
+
+@pytest.mark.parametrize(
+    ("source_factory", "packet_hash", "serialized_hash"),
+    (
+        (
+            _source_v3_with_training_lineage,
+            "975cb37bb040b977b62cf48336ab548f71e24948e37f48bc9ca8b033af21cc21",
+            "6880d33dbbbfd28dbf91b47146da718c86b5ae5c75cedfb789c0975286f29c5d",
+        ),
+        (
+            _manual_source_v3,
+            "ece9eb3fb2d83057d9fa4b16965a61c32a2587f785b8342d160ae79bec8ca685",
+            "33a58ac06c95a9d6c66acb7987e18d886ca9a02a829b4617b088a86f75aee6f8",
+        ),
+    ),
+)
+def test_analysis_packet_v3_additional_lineage_bytes_remain_frozen(
+    source_factory,
+    packet_hash: str,
+    serialized_hash: str,
+) -> None:
+    packet = build_analysis_packet_v3(source_factory(), NOW)
+
+    assert packet.packet_id == "c2355e51-693c-573d-ad01-c46686e062fb"
+    assert packet.packet_hash == packet_hash
+    assert hashlib.sha256(_packet_bytes(packet)).hexdigest() == serialized_hash
+
+
+@pytest.mark.parametrize(
+    ("available", "serialized_hash"),
+    (
+        (
+            True,
+            "037790c9c61bc179d94cf37499e0ad3d19bcb577e40ffc2eea4faa29512448dd",
+        ),
+        (
+            False,
+            "e91e771d80fb210668fd3fb28bf8da42a8f55c2efe70161f550ca0fecc966340",
+        ),
+    ),
+)
+def test_llm_review_v3_canonical_bytes_and_validator_semantics_remain_frozen(
+    available: bool,
+    serialized_hash: str,
+) -> None:
+    packet = build_analysis_packet_v3(_source_v3(available=available), NOW)
+    payload = (
+        _review_v3(packet)
+        if available
+        else _model_unavailable_review_v3(packet)
+    )
+    review_bytes = canonical_json(payload).encode("utf-8")
+
+    _, submission, normalized = validate_review_files(
+        _packet_bytes(packet),
+        review_bytes,
+    )
+
+    assert hashlib.sha256(review_bytes).hexdigest() == serialized_hash
+    assert VALIDATOR_VERSION_V3 == "OFFLINE_REVIEW_VALIDATOR_V3"
+    assert normalized.encode("utf-8") == review_bytes
+    match_review = submission.match_reviews[0]
+    if available:
+        assert match_review.status == "VALID"
+    else:
+        assert match_review.status == "UNAVAILABLE"
+        assert match_review.failure_code is LLMReviewFailureCode.MODEL_UNAVAILABLE
+
+
 def test_review_v3_binds_context_and_rejects_older_review_schema() -> None:
     packet = build_analysis_packet_v3(_source_v3(), NOW)
     packet_bytes = _packet_bytes(packet)
@@ -448,6 +603,14 @@ def test_review_v3_binds_context_and_rejects_older_review_schema() -> None:
         validate_review_files(
             _packet_bytes(unavailable_packet),
             canonical_json(_review_v3(unavailable_packet)).encode("utf-8"),
+        )
+
+    wrong_failure = _model_unavailable_review_v3(unavailable_packet)
+    wrong_failure["match_reviews"][0]["failure_code"] = "INSUFFICIENT_EVIDENCE"
+    with pytest.raises(ValueError, match="preserve model unavailability"):
+        validate_review_files(
+            _packet_bytes(unavailable_packet),
+            canonical_json(wrong_failure).encode("utf-8"),
         )
 
 
