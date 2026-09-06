@@ -2,9 +2,9 @@
 
 ## 状态
 
-Proposed
+Accepted
 
-本提案尚未授权任何运行时代码、数据库迁移、真实数据导入或 package 版本变更。外部架构审查通过并将状态改为 `Accepted` 前，`0.5.0` 的 `LIVE_STRICT` guard、`MODEL_UNAVAILABLE` 行为和 ADR-0007 全部保持不变。
+外部架构审查对 commit `34638a3dee17c58631942da8c7a690869ff4daf5` 的结论为 `APPROVE WITH MINOR CHANGES`，无 blocker；本修订纳入全部要求后接受该架构。接受 ADR 不等于本次开始实现：本次仍不授权运行时代码、数据库迁移、真实数据导入或 package 版本变更；在后续独立实施前，`0.5.0` 的 `LIVE_STRICT` guard、`MODEL_UNAVAILABLE` 行为和 ADR-0007 全部保持不变。
 
 ## 与 ADR-0007 的关系
 
@@ -53,7 +53,8 @@ Production bootstrap 必须解决这些缺口，同时保持 Elo 算法、现有
 | `SOURCE_TIME_RESEARCH` + active `APPROVED_TRAINING_HISTORY` | Pilot 仍是 retrospective research | 只允许构建绑定精确 approval 的 model release | 禁止直接读取；live 只消费派生 release | 当前生产预测使用经审批的回溯训练历史；不得称为 `LIVE_STRICT` training |
 | 未知 source availability | 禁止严格 point-in-time | 禁止 | 禁止 | Approval 不能补造时间 |
 | `SYNTHETIC_ACCEPTANCE_DATA` | 仅合同测试 | 禁止 | 禁止 | 不构成真实历史或生产证据 |
-| Approval/release 过期、撤销、stale 或 hash 不匹配 | 已封存研究不改写 | 禁止新 build | 禁止新 run/downstream artifact | 明确 fail closed |
+| Training grant 过期、撤销、stale 或 hash 不匹配 | 已封存研究不改写 | 禁止新 build | 不替代独立 inference predicate | 对 build fail closed |
+| Inference/retention grant 或 release 过期、撤销、stale 或 hash 不匹配 | 已封存研究不改写 | 不替代独立 build predicate | 禁止新 run/downstream artifact | 对 inference fail closed |
 
 `TRAINING_HISTORY_APPROVAL_V1` 只解决 retrospective `SOURCE_TIME_RESEARCH` bootstrap，并赋予 `training_use_class=APPROVED_TRAINING_HISTORY`。它不取代、收紧或放宽普通 `LIVE_STRICT` path。一个 history manifest 只能使用一种 source mode；V1 固定为 `SOURCE_TIME_RESEARCH` 和 `source_classification=REAL_SOURCE_DATA`。`REAL_SOURCE_DATA` 仅表示非 synthetic 且通过 source rights/fact admission，不表示 `LIVE_STRICT` 或自动获得 production 权利。
 
@@ -62,11 +63,13 @@ Production bootstrap 必须解决这些缺口，同时保持 Elo 算法、现有
 ```text
 SOURCE_RIGHTS_ADMISSION_V1
   -> SOURCE_TIME_RESEARCH archives
-  -> PRODUCTION_QUANT_PILOT_PLAN_V1
-  -> point-in-time research pilot/report
+  -> mandatory PRODUCTION_QUANT_INTEGRITY_PILOT
   -> TRAINING_HISTORY_MANIFEST_V1
   -> TRAINING_HISTORY_APPROVAL_V1 event
   -> offline PRODUCTION_QUANT_MODEL_RELEASE_V1 build
+
+PRODUCTION_QUANT_INTEGRITY_PILOT
+  -> optional, non-blocking MARKET_FUSION_BENCHMARK
 
 LIVE_STRICT current decision facts
   + pinned PRODUCTION_QUANT_MODEL_RELEASE_V1
@@ -106,9 +109,9 @@ public_repository_boundary
 recorded_at_utc
 ```
 
-`SOURCE_RIGHTS_ADMISSION_V1` 使用与 training approval 相同的两级 envelope：reviewer 先签署排除 signature/ID/hash 的 rights payload hash，admission hash 再覆盖 payload hash、signature metadata 和 signature evidence SHA-256。
+`SOURCE_RIGHTS_ADMISSION_V1` 使用与 training approval 相同的两级 envelope：本地 reviewer attestation 先绑定排除 attestation/ID/hash 的 rights payload hash，admission hash 再覆盖 payload hash、reviewer/authority metadata、evidence reference 和 evidence SHA-256。V1 的 hash-sealed attestation/evidence 即为充分的内部审查证据，不要求数字签名。
 
-Research/storage rights 不自动包含 production rights。Pilot 完成后，独立 approval event 必须另外确认：
+Research/storage rights 不自动包含 production rights。Mandatory quant integrity pilot 完成后，独立 approval event 必须另外确认：
 
 ```text
 PRODUCTION_MODEL_TRAINING
@@ -117,7 +120,9 @@ DERIVED_MODEL_STATE_RETENTION
 AUDIT_HASH_RETENTION
 ```
 
-Approval 必须绑定 exact source rights admission、terms hash、history manifest hash、pilot plan/attempt-root/attestation/report hashes、model/config、build recipe/code revision 和 season scope，并保存 approver authority、effective/expiry time 及签名或等价不可抵赖 evidence 的 reference/hash。签名覆盖独立的 `approval_payload_hash`；approval event hash 再覆盖 payload hash、signature algorithm、signer key ID 和 signature evidence SHA-256，签名字节和 event ID/hash 不进入被签 payload，避免循环。
+Approval 必须绑定 exact source rights admission、terms hash、history manifest hash、quant integrity pilot plan/attempt-root/attestation/report hashes、model/config、build recipe/code revision 和 season scope，并保存 approver、authority reference/hash、reviewed time、evidence reference/hash，以及每项 grant 各自的 effective/expiry time。`PRODUCTION_MODEL_TRAINING` 和 `PRODUCTION_MODEL_INFERENCE` 使用各自有效期；`DERIVED_MODEL_STATE_RETENTION` 和 `AUDIT_HASH_RETENTION` 还必须分别保存 retention rule 及有界的 `retain_until_at_utc` 或明确的 indefinite policy。Approval event hash 覆盖独立的 `approval_payload_hash` 与本地 reviewer attestation/evidence metadata；attestation/evidence 原始 bytes、approval ID 和 final hash 不进入 payload，避免循环。Market/Fusion benchmark 的状态或结果不属于 training approval/model release 的必要条件。
+
+`0.6` V1 不实现 PKI、CA、remote signer 或 key-management subsystem。若以后需要 cryptographic signing，必须以新的 schema/evidence mechanism version 扩展，不能静默改变 V1 canonical payload 或 hash 语义。
 
 若条款要求删除的内容与 append-only training fact、model lineage 或 audit hash 的最低保留要求冲突，该 source 不具备本路径资格。Terms 过期、权限不明、授权主体不匹配或 retention 不兼容均 fail closed。Raw rights/evidence 保留在本地受控路径，不进入 public Git。
 
@@ -164,13 +169,13 @@ mapping_policy_version / reviewed_by / reviewed_at_utc
 
 每场 `season_id` 必须来自该 membership，且与 canonical identity、provider season scope、fixture record 以及原始 bytes 中明确的 provider competition/season/fixture 关系一致。仅复制 season 字段或 hash 一个不含 season 的 fixture record 不构成证据。不能从 target season、文件夹名称、比赛日期启发式规则或 provider 构造参数批量覆盖。
 
-采集后的 `TRAINING_FACT_ADMISSION_V1` 是持久化、hash-sealed parent artifact，不只是事务名称。它保存 admission ID/hash、source rights admission ID/hash、source mode/classification、actual started/completed/persisted times 和 admitted fact count/root；typed child rows 分别绑定 fixture source、season membership、MatchResult admission 与 normalized MatchResult。该 transaction 原子验证 archive/record hash、物化或幂等复用 normalized MatchResult，并写入全部关系。它与采集前的 `SOURCE_RIGHTS_ADMISSION_V1` 是不同事件，前者不能追溯替代后者；它必须在 pilot plan sealed 前完成。裸 `match_results` row 没有 data mode 或 approval 资格，任何 production builder 都不得绕过这些关系直接查询它。
+采集后的 `TRAINING_FACT_ADMISSION_V1` 是持久化、hash-sealed parent artifact，不只是事务名称。它保存 admission ID/hash、source rights admission ID/hash、source mode/classification、actual started/completed/persisted times 和 admitted fact count/root；typed child rows 分别绑定 fixture source、season membership、MatchResult admission 与 normalized MatchResult。该 transaction 原子验证 archive/record hash、物化或幂等复用 normalized MatchResult，并写入全部关系。它与采集前的 `SOURCE_RIGHTS_ADMISSION_V1` 是不同事件，前者不能追溯替代后者；它必须在 integrity pilot plan sealed 前完成。裸 `match_results` row 没有 data mode 或 approval 资格，任何 production builder 都不得绕过这些关系直接查询它。
 
 ### 4. 时间合同与未来数据隔离
 
 所有 persisted time 均为真实 UTC。`decision_as_of_at_utc` / `evaluation_as_of_at_utc` 仍只是知识 cutoff，不能替代实际 import、plan、run、approval 或 build time。
 
-对 retrospective pilot 中某个 slice，必须同时满足：
+对 retrospective quant integrity pilot 中某个 slice，必须同时满足：
 
 ```text
 training kickoff
@@ -181,8 +186,8 @@ training kickoff
   < target kickoff
   < target result source_available
   <= slice evaluation_as_of
-  <= pilot actual_started
-  <= pilot actual_completed
+  <= integrity pilot actual_started
+  <= integrity pilot actual_completed
 ```
 
 以及独立的实际 possession chain：
@@ -192,21 +197,22 @@ source rights admission recorded
   <= local imported
   <= source archive created
   <= database archive registered
-  <= pilot plan sealed
-  <= pilot actual_started
+  <= integrity pilot plan sealed
+  <= integrity pilot actual_started
 ```
 
-`local_imported_at_utc` 晚于历史 decision/evaluation cutoff 是合法且必须披露的 retrospective 事实。它不能被改写为 source time，也不能让 pilot 被描述成历史 live performance。
+`local_imported_at_utc` 晚于历史 decision/evaluation cutoff 是合法且必须披露的 retrospective 事实。它不能被改写为 source time，也不能让 integrity pilot 被描述成历史 live performance。
 
 对当前 production target，必须满足：
 
 ```text
-all approved training kickoff/result/effective_source_available < production decision_as_of
-pilot actual_completed
-  <= pilot attestation persisted
+all release facts effective_source_available_at_utc <= training_cutoff_at_utc
+integrity pilot actual_completed
+  <= integrity pilot attestation persisted
   <= training history manifest created
   <= approval event approved_at
   <= approval event persisted_at
+  <= training_cutoff_at_utc
   < model release build started
   <= model release build completed
   <= model release persisted
@@ -217,11 +223,11 @@ pilot actual_completed
   < target kickoff
 ```
 
-Source rights admission、actual local import、fact admission 和 database registration 也必须不晚于 manifest creation。每个 fact 的 fixture record、mapping/season membership 和 result admission 都必须独立满足 source visibility cutoff；`effective_source_available_at_utc` 是三者 source availability 的最大值，只用于汇总检查，不能替代逐项校验。相等只允许系统在同一真实时刻有明确顺序的事务事件；approval/release persisted 与 production decision 必须严格分离，不能在 cutoff 后补批。
+Source rights admission、actual local import、fact admission 和 database registration 也必须不晚于 manifest creation。每个 release fact 的 fixture record、mapping/season membership 和 result admission 都必须独立满足 `source_available_at_utc <= training_cutoff_at_utc`；`effective_source_available_at_utc` 是三者 source availability 的最大值，只用于汇总检查，不能替代逐项校验。`training_cutoff_at_utc` 是 release training knowledge 的单一权威 cutoff，必须严格早于 `build_started_at_utc`；相等只允许其他系统事件在同一真实时刻有明确顺序。Approval/release persisted 与 production decision 必须严格分离，不能在 cutoff 后补批。
 
 Training fact 无条件排除当前 slice/production run 的全部 target match IDs。Walk-forward 的 exclusion 是 per-slice：较早 target 只有在其 result source availability 进入后续 decision cutoff 后，才可作为后续 slice 的训练事实。
 
-Elo V1 training allowlist 仅为 exact match identity、home/away team、kickoff、真实 season 和 regular-time final score。赔率、竞彩、未来 fixture、未来 result、league table、排名、伤停或其他状态不能进入 training facts。Pilot 的 `P_market` 赔率是独立 decision input，必须按每个 slice 的 cutoff 选择。
+Elo V1 training allowlist 仅为 exact match identity、home/away team、kickoff、真实 season 和 regular-time final score。赔率、竞彩、未来 fixture、未来 result、league table、排名、伤停或其他状态不能进入 training facts。只有独立 Market/Fusion benchmark 的 `P_market` 赔率是 decision input，并必须按每个 slice 的 cutoff 选择；quant integrity pilot 不读取它。
 
 ### 5. 固定 Elo 合同
 
@@ -237,57 +243,50 @@ minimum_prior_matches = 5
 config_hash = c98d595d3afb03fe629e776fa9a0e70f24e31fcd49884be3ff11e9c979ca78e4
 ```
 
-赛季窗口另以 `ELO_TRAINING_WINDOW_V1` 版本化，只描述 competition、按时间排序的 season IDs、各赛季角色、history cutoff 和 target exclusion。它不是可拟合参数。
+赛季窗口另以 `ELO_TRAINING_WINDOW_V1` 版本化，只描述 competition、按时间排序的 season IDs、各赛季角色和 target exclusion。它既不是可拟合参数，也不定义或复制 release 的权威 `training_cutoff_at_utc`。
 
-Pilot 前冻结现有受支持的 fusion policy/config。任何人或程序都不得根据 pilot 的 Brier、LogLoss、Calibration、availability、ROI、网页 GPT review 或单场结果修改 Elo 参数、season window、cohort、cutoff、odds selection、fusion policy 或 weight。任何变更必须创建新 plan 并披露全部尝试，不得替换既有结果；本阶段不以这些变更申请 approval。
+Quant integrity pilot 前冻结 Elo config、season window、cohort 和 cutoffs；Market/Fusion benchmark 前另行冻结现有受支持的 odds/fusion policy/config。任何人或程序都不得根据 pilot/benchmark 的 Brier、LogLoss、Calibration、availability、ROI、网页 GPT review 或单场结果修改 Elo 参数、season window、cohort、cutoff、odds selection、fusion policy 或 weight。任何变更必须创建新 plan 并披露全部尝试，不得替换既有结果；本阶段不以这些变更申请 approval。
 
-### 6. Precommitted Bundesliga pilot
+### 6. Mandatory quant integrity pilot 与独立 Market/Fusion benchmark
 
-第一条 pilot lane 固定为 Bundesliga，target historical season 至少是一个完整已结束赛季，优先 `2025/2026`；如需 warm-up，则加入紧邻的 `2024/2025`。最终 provider season IDs 和 expected match count 必须由 source evidence 确认，不能仅凭标签推断。标准18队完整赛季通常为306场；延期、取消、缺失或 provider scope 差异必须在 plan 中逐场列出。
+第一条 mandatory `PRODUCTION_QUANT_INTEGRITY_PILOT` lane 固定为 Bundesliga，target historical season 至少是一个完整已结束赛季，优先 `2025/2026`；如需 warm-up，则加入紧邻的 `2024/2025`。最终 provider season IDs 和 expected match count 必须由 source evidence 确认，不能仅凭标签推断。标准18队完整赛季通常为306场；延期、取消、缺失或 provider scope 差异必须在 plan 中逐场列出。
 
-首次查询 target result 或计算 metric 前，必须 append-only 保存 `PRODUCTION_QUANT_PILOT_PLAN_V1`。Plan 至少冻结：
+首次查询 target result 或计算 metric 前，必须 append-only 保存 `PRODUCTION_QUANT_INTEGRITY_PILOT_PLAN_V1`。Integrity plan 只依赖合格 training facts，不依赖历史 odds、Sporttery 或 fusion inputs，并至少冻结：
 
 ```text
-plan_id / schema_version / plan_hash / sealed_at_utc
+integrity_plan_id / schema_version / plan_hash / sealed_at_utc
 source rights/fact admission IDs and hashes
-fixture/result/odds archive IDs and payload hashes
+fixture/result archive IDs and payload hashes
 competition and ordered real season IDs
 predeclared cohort match IDs and completeness rules
 per-slice decision/evaluation cutoffs
 per-slice target exclusions
-odds snapshot selection policy/version
-eligible bookmaker set/rules
-market consensus policy = MARKET_CONSENSUS_MEDIAN_V1
-de-vig method/version
 Elo name/version/config hash
 training window policy/version
-fusion policy/config hash
 metric epsilon and 10-bin calibration definition
 implementation code revision
 model build recipe ID/hash
 NO_PARAMETER_TUNING / NO_ROI_MODEL_SELECTION
 ```
 
-每个 plan、attempt、run 和 report 都 append-only 保存。`production_quant_pilot_attempts` 对同一 pilot scope 使用连续 attempt sequence，逐项保存 plan/run/report ID/hash、status 和实际时间；`PRODUCTION_QUANT_PILOT_SUMMARY_V1` 保存 attempt count/root。失败或不利结果不能删除、覆盖或从汇总中隐藏。Retrospective outcomes 已经公开，因此 pilot 只构成重放、完整性和可用性证据，不声称独立 out-of-sample validation。
+每个 integrity plan、attempt、run 和 report 都 append-only 保存。`production_quant_integrity_pilot_attempts` 对同一 pilot scope 使用连续 attempt sequence，逐项保存 plan/run/report ID/hash、status 和实际时间；`PRODUCTION_QUANT_INTEGRITY_PILOT_SUMMARY_V1` 保存 attempt count/root。失败或不利结果不能删除、覆盖或从汇总中隐藏。Retrospective outcomes 已经公开，因此 integrity pilot 只构成重放、完整性和可用性证据，不声称独立 out-of-sample validation。
 
-Pilot 使用 probability-only `PRODUCTION_QUANT_PILOT_V1`，不调用 optimizer、Selection、Ticket、Portfolio 或 Settlement，也不以缺少历史 Sporttery 为由伪造输入。它可复用现有 probability/fusion/metric service，但缺少完整投注输入时不得冒充完整 `BACKTEST_V2`。
+Integrity pilot 使用 probability-only `PRODUCTION_QUANT_INTEGRITY_PILOT_V1`，只消费通过 source rights/fact admission、season/status 和 point-in-time cutoff 校验的 training facts。它不读取 odds，不调用 fusion、optimizer、Selection、Ticket、Portfolio 或 Settlement，也不得冒充完整 `BACKTEST_V2`。
 
-若没有可信 source-time availability 或完整 point-in-time `THREE_WAY` odds，pilot 停止并报告 `NO_ADMISSIBLE_POINT_IN_TIME_ODDS_ARCHIVE`。Closing odds、未来 snapshot、事后 bookmaker selection 和推测 timestamp 均不得替代。
+Mandatory integrity report 必须给出固定 Elo `P_quant` 的 MODEL availability count/rate、每个 unavailable reason 和 unavailable slices，以及 multiclass Brier、LogLoss、10-bin Calibration/ECE、bin counts、分母和 deterministic replay 结果。它生成 `PRODUCTION_QUANT_INTEGRITY_PILOT_ATTESTATION_V1`，绑定 plan hash、attempt count/root、source/season/approved-fact roots、terminal state core hash、build recipe hash、code revision 和 summary/report hash，并可作为 training approval 与 model release 的技术证据。Approval 是 source/integrity/use gate，不是表现达标奖励。
 
-Pilot report 必须分别给出：
+`MARKET_FUSION_BENCHMARK` 是独立、非阻塞 lane。其 plan 另行冻结 exact integrity cohort/output hash、point-in-time odds archive、snapshot selection、eligible bookmaker、`MARKET_CONSENSUS_MEDIAN_V1`、de-vig 和 fusion policy/config。若没有合格 point-in-time historical odds，仍须生成 benchmark status：
 
-- `P_market` 的 multiclass Brier、LogLoss、10-bin Calibration/ECE、bin counts 和分母。
-- 固定 Elo `P_quant` 的同组指标。
-- 预先冻结 fusion 下 `P_final` 的同组指标；若为 `QUANT_ONLY_V1`，明确报告 `P_final = P_quant`。
-- 全 cohort 的 MODEL availability count/rate、每个 unavailable reason 和 unavailable slices。
-- 三种概率共同 available cohort 的配对指标，且不能用 coverage 差异暗示公平排名。
-- Source mode、`RETROSPECTIVE_SOURCE_TIME_RESEARCH` banner、plan/source/state/config/report hashes 和 deterministic replay 结果。
+```text
+status = UNAVAILABLE
+reason = NO_ADMISSIBLE_POINT_IN_TIME_ODDS_ARCHIVE
+```
 
-Pilot 不报告投注 ROI，也不使用 ROI、概率指标、是否优于 `P_market` 或人工偏好来调参、重选 season/cohort 或决定哪个尝试成为“正式结果”。Pilot 完成后生成 `PRODUCTION_QUANT_PILOT_ATTESTATION_V1`，绑定 plan hash、attempt count/root、source/season/approved-fact roots、terminal state core hash、build recipe hash、code revision 和 summary/report hash。Approval 是 source/integrity/use gate，不是表现达标奖励。
+该状态不得阻塞已通过 integrity pilot 的合格 Elo model release。Closing odds、未来 snapshot、事后 bookmaker selection 和推测 timestamp 均不得替代合法 archive。有合法 odds 时，benchmark 才报告三种概率共同 available cohort 上 `P_market` / `P_quant` / `P_final` 的 paired Brier、LogLoss、10-bin Calibration/ECE、bin counts 和分母；若为 `QUANT_ONLY_V1`，明确报告 `P_final = P_quant`。Integrity report 与 benchmark 都必须包含 source mode、`RETROSPECTIVE_SOURCE_TIME_RESEARCH` banner 及各自 plan/source/state/config/report hashes，且不报告投注 ROI，不得用结果调参、重选 cohort 或挑选“正式”尝试。
 
 ### 7. Training manifest、approval event 与 hash roots
 
-Pilot 完成后生成 immutable `TRAINING_HISTORY_MANIFEST_V1`。Manifest canonical JSON 是 source/season/fact graph 的权威记录；关系 child rows 是同一内容的受约束投影。Approval event 最后插入并重新验证完整 graph，因此不需要对 manifest 使用可变 `BUILDING -> APPROVED` 状态。
+Quant integrity pilot 完成后生成 immutable `TRAINING_HISTORY_MANIFEST_V1`。Manifest canonical JSON 是 source/season/fact graph 的权威记录；关系 child rows 是同一内容的受约束投影。Approval event 最后插入并重新验证完整 graph，因此不需要对 manifest 使用可变 `BUILDING -> APPROVED` 状态。
 
 建议 additive persistence graph：
 
@@ -309,9 +308,12 @@ training_history_manifests
 training_history_approval_events
 └── training_history_revocation_events
 
-production_quant_pilot_attempts
-└── production_quant_pilot_summaries
-    └── production_quant_pilot_attestations
+production_quant_integrity_pilot_attempts
+└── production_quant_integrity_pilot_summaries
+    └── production_quant_integrity_pilot_attestations
+
+market_fusion_benchmark_plans
+└── market_fusion_benchmark_reports
 
 production_quant_model_releases
 └── production_quant_model_release_facts
@@ -323,7 +325,7 @@ quant_model_states
 └── quant_model_state_production_releases
 ```
 
-`training_history_manifests` 至少保存 schema、source mode/classification、competition、`pilot_target_season_id`、`production_target_season_id`、model/config、`ELO_TRAINING_WINDOW_V1`、history as-of、typed source/season/fact counts and roots、pilot attestation/attempt-root/report hashes、actual created/persisted times、canonical `manifest_json` 和 `manifest_hash`。
+`training_history_manifests` 至少保存 schema、source mode/classification、competition、`pilot_target_season_id`、`production_target_season_id`、model/config、`ELO_TRAINING_WINDOW_V1`、`max_effective_source_available_at_utc`、typed source/season/fact counts and roots、quant integrity pilot attestation/attempt-root/report hashes、actual created/persisted times、canonical `manifest_json` 和 `manifest_hash`。该 maximum 是 manifest facts 的汇总事实，不是另一个 cutoff；release core 的 `training_cutoff_at_utc` 仍是唯一权威 training boundary。Market/Fusion benchmark ref/status 可独立保存，但不进入 manifest/approval/release 的必要资格判断。
 
 三个 typed history-source table 分别引用 fixture source row、mapping/season membership row 和 result admission row，并保存各自连续 sequence、season sequence、provider、archive/admission ID、payload/record/admission hash、source observed/available time、actual local import/register time 和 source rights admission ID/hash。`training_history_facts` 使用三个 typed composite FK 绑定它们；不使用 SQLite 无法强制的 polymorphic `kind + arbitrary ID` 关系。
 
@@ -357,11 +359,11 @@ SHA256("APPROVED_TRAINING_FACT_V1\0" + canonical_json(fact_without_hash))
 SHA256("TRAINING_HISTORY_MANIFEST_V1\0" + canonical_json(manifest_payload))
 ```
 
-每个 artifact 必须定义独立 schema tag 和 `content_payload`。Payload 排除该 artifact 自身的 ID、content hash、serialized JSON 副本和 signature bytes，但包括所有业务时间、parent content hashes、counts、roots 和 supersession refs；ID 由 `(schema_version, content_hash)` 稳定派生。数据库 FK 可以存在于 relational projection，但 child source/season/fact hash payload 明确排除尚未生成的 parent manifest ID，改为绑定 pilot scope、source/admission hashes 和自身 sequence。这样 source/season/fact roots 可先生成，manifest 再包含这些 roots，不形成 `manifest_hash -> manifest_id -> child_hash` 循环。
+每个 artifact 必须定义独立 schema tag 和 `content_payload`。Payload 排除该 artifact 自身的 ID、content hash、serialized JSON 副本和 attestation/evidence 原始 bytes，但包括所有业务时间、parent content hashes、counts、roots 和 supersession refs；ID 由 `(schema_version, content_hash)` 稳定派生。数据库 FK 可以存在于 relational projection，但 child source/season/fact hash payload 明确排除尚未生成的 parent manifest ID，改为绑定 integrity pilot scope、source/admission hashes 和自身 sequence。这样 source/season/fact roots 可先生成，manifest 再包含这些 roots，不形成 `manifest_hash -> manifest_id -> child_hash` 循环。
 
 Manifest payload 明确排除 `training_history_manifest_id`、`manifest_json` 和 `manifest_hash`。Plan、attempt、summary、attestation、manifest、release、revocation、target plan 和 audit sidecar 都必须在各自 schema 中列出同样的 include/exclude envelope，禁止依赖实现默认序列化。
 
-`TRAINING_HISTORY_APPROVAL_V1` 先计算包含 manifest hash、pilot attestation/attempt root、source rights admission、approver、authority、effective/expiry time、actual approved/persisted time 和 supersession lineage 的 `approval_payload_hash`。Approver 对该 payload hash 签名；`training_history_approval_hash` 再覆盖 payload hash、signature algorithm、signer key ID 和 signature evidence SHA-256。Signature bytes、approval ID 和 final hash 不进入被签 payload。Approval、manifest 或 build recipe/code revision 与 pilot attestation 不完全一致时禁止 activation；任何 covered input、correction 或 implementation 变化都需要新 plan/attempt/attestation，再创建新 manifest/approval/release。
+`TRAINING_HISTORY_APPROVAL_V1` 先计算包含 manifest hash、quant integrity pilot attestation/attempt root、source rights admission、approver、authority、per-grant effective/expiry/retention semantics、actual approved/persisted time 和 supersession lineage 的 `approval_payload_hash`。本地 reviewer attestation 绑定该 payload hash；`training_history_approval_hash` 再覆盖 payload hash、reviewer/authority metadata、evidence reference 和 evidence SHA-256。Attestation/evidence 原始 bytes、approval ID 和 final hash 不进入 payload。Approval、manifest 或 build recipe/code revision 与 integrity pilot attestation 不完全一致时禁止 activation；任何 covered input、correction 或 implementation 变化都需要新 integrity plan/attempt/attestation，再创建新 manifest/approval/release。
 
 ### 8. Model release 与持久化桥
 
@@ -373,26 +375,26 @@ training_history_approval_id / training_history_approval_hash
 training_history_manifest_id / manifest_hash
 source_data_mode = SOURCE_TIME_RESEARCH
 model_name / model_version / config_hash
-production_target_season_id / training_window_hash
+production_target_season_id / training_window_hash / training_cutoff_at_utc
 training_data_hash / approved_facts_hash
 released_state_core_json / released_state_core_hash
 ordered release fact refs
-pilot attestation ID/hash / build recipe ID/hash
+quant integrity pilot attestation ID/hash / build recipe ID/hash
 implementation code revision
 build_started_at_utc / build_completed_at_utc / persisted_at_utc
 ```
 
-Build operation 使用 mode-homogeneous research provider；它不是 live AnalysisRun。`released_state_core_json` 是 cutoff-independent canonical payload，完整封存 model identity/config、production target season、ratings、prior-match counts、ordered training facts、training data hash 和 approved facts hash，但排除 release/run ID、run cutoff、generated time 和 run-scoped state hash。
+Build operation 使用 mode-homogeneous research provider；它不是 live AnalysisRun。`released_state_core_json` 是 run-cutoff-independent、training-cutoff-frozen 的 canonical payload，完整封存唯一权威 `training_cutoff_at_utc`、model identity/config、production target season、ratings、prior-match counts、ordered training facts、training data hash 和 approved facts hash，但排除 release/run ID、run cutoff、generated time 和 run-scoped state hash。Release row 的 `training_cutoff_at_utc` 只是该 core 字段的受约束等值投影，不是第二个权威值；不存在“无 training cutoff”的 release。
 
 Live AnalysisRun pin 一个在 decision cutoff 前已持久化的 exact model release，只从 released core 的 ordered facts 确定性重建当前 cutoff 的 run-scoped `EloBaselineState` 和 `QuantModelStateArtifact`。规范投影只允许加入 run ID、`cutoff_at_utc=AnalysisRun.as_of_at_utc`、run 内 generated time 及由完整 payload 重算的 state/artifact IDs/hashes；移除这些 run-scoped 字段后重算的 core hash 必须等于 `released_state_core_hash`。因此新 cutoff 可以产生新的 state hash，但 ratings、counts、facts、season、config 和 training hash 不能漂移。Live 过程不查询 research archive、不联网补 training facts，也不选择“最新 release”。
 
-`TRAINING_FACT_ADMISSION_V1` transaction 必须先物化现有 `quant_model_training_facts.match_result_id` FK 所需的 normalized MatchResult，同时写入不可分离的 source-mode/admission 关系。Production release builder 只能从这些关系和 active approval 读取，不能查询裸 MatchResult。Release 必须满足 `build_completed_at_utc <= persisted_at_utc < production decision_as_of_at_utc`，live run 必须 pin 该预先存在的 row。AnalysisRun completion transaction 要求每个含 approved retrospective facts 的 state 恰好绑定一个 `quant_model_state_production_releases` row，并逐 fact 对齐 release sequence、season、result ID、`elo_fact_hash`、training data hash、approved facts hash 和 released state core hash。
+`TRAINING_FACT_ADMISSION_V1` transaction 必须先物化现有 `quant_model_training_facts.match_result_id` FK 所需的 normalized MatchResult，同时写入不可分离的 source-mode/admission 关系。Production release builder 只能从这些关系和 active approval 读取，不能查询裸 MatchResult。每个 ordered release fact 必须满足 `effective_source_available_at_utc <= training_cutoff_at_utc < build_started_at_utc`，release 还必须满足 `build_completed_at_utc <= persisted_at_utc < production decision_as_of_at_utc`；live run 必须 pin 该预先存在的 row。AnalysisRun completion transaction 要求每个含 approved retrospective facts 的 state 恰好绑定一个 `quant_model_state_production_releases` row，并逐 fact 对齐 release sequence、season、result ID、`elo_fact_hash`、training data hash、approved facts hash、training cutoff 和 released state core hash。
 
 Release replay 需要 exact training manifest、normalized archives/admissions、Elo config、training window 和 implementation revision。完整 production prediction replay 还必须 pin target AnalysisRun input manifest、code revision、current source snapshots 和 model release；仅有 training archives 不足以声称重放了 prediction。
 
 ### 9. 真正的多赛季 training provider
 
-实现阶段新增只用于 build/pilot 的 `ApprovedTrainingHistoryEloProvider`，并把 archive research path 扩展为真正的 multi-season provider。二者共享 per-fact season projection：
+实现阶段新增只用于 build/integrity pilot 的 `ApprovedTrainingHistoryEloProvider`，并把 archive research path 扩展为真正的 multi-season provider。二者共享 per-fact season projection：
 
 ```text
 explicit season membership
@@ -407,33 +409,42 @@ Provider 必须校验 competition、ordered seasons、model/config、source mode
 
 ### 10. Active approval/release、correction 与 revocation
 
-首次 model build 只检查 `approval_active_for_build(t)`，不要求尚未创建的 release：
+首次 model build 只检查 `approval_active_for_build(t)`，不要求尚未创建的 release。该 predicate 在 build start 与 completion 分别求值，并只授权 build：
 
 ```text
-approval persisted_at <= approval effective_at <= t < expires_at (when present)
-source rights admission and production-use grant cover exact source/model/scope at t
-no revocation with recorded_at <= t and effective_at <= t
-no same-scope successor with persisted_at <= effective_at <= t
+approval persisted_at <= t
+PRODUCTION_MODEL_TRAINING effective_at <= t < expires_at (when present)
+source rights admission and training grant cover exact source/model/scope at t
+no PRODUCTION_MODEL_TRAINING revocation with recorded_at <= t and effective_at <= t
+no same-scope training-grant successor with persisted_at <= effective_at <= t
 manifest/source/approval hashes still validate
-pilot attestation, terminal attempt count/root, build recipe and code revision match
-no attempt exists after the terminal attestation for the same pilot series
+integrity pilot attestation, terminal attempt count/root, build recipe and code revision match
+no attempt exists after the terminal attestation for the same integrity pilot series
 no newer fixture/mapping/season/status/result correction is both source-visible and locally registered by t
 ```
 
-数据库在 terminal attestation 插入后禁止向同一 `pilot_series_id` 增加 attempt。任何后续尝试必须创建新 series/plan/summary/attestation，旧 approval 不得引用它。每次 build 还要重算截至 `t` 的连续 attempt count/root，并与 summary、attestation 和 approval 相等。
+数据库在 terminal attestation 插入后禁止向同一 `integrity_pilot_series_id` 增加 attempt。任何后续尝试必须创建新 series/plan/summary/attestation，旧 approval 不得引用它。每次 build 还要重算截至 `t` 的连续 attempt count/root，并与 summary、attestation 和 approval 相等。
 
-AnalysisRun 及后续 artifact 使用更强的 `release_active_for_operation(t)`：
+Live AnalysisRun 及后续 artifact 独立检查 `release_active_for_inference(t)`，不得调用或用 `approval_active_for_build(t)` 代替。该 predicate 证明 release 构建时的 training authorization 已被封存，但在当前 operation start 与 completion 分别检查 inference 和两类 retention 权限：
 
 ```text
-approval_active_for_build(t)
 model release build_completed_at <= release persisted_at < t
 release hash and released state core hash validate
+release records approval_active_for_build(build start and completion)
+linked approval/manifest/source scope and immutable hashes still validate
+PRODUCTION_MODEL_INFERENCE effective_at <= t < expires_at (when present)
+DERIVED_MODEL_STATE_RETENTION is effective at t and covers the declared state retention horizon
+AUDIT_HASH_RETENTION is effective at t and covers the declared audit retention horizon
+no recorded/effective revocation or successor invalidates inference or either retention grant at t
+no newer fixture/mapping/season/status/result correction is both source-visible and locally registered by t
 target acceptance plan was sealed before evaluation and pins this exact release
 ```
 
-Superseding approval 必须具有相同 competition/model/config/training-window scope，每个 approval 最多一个直接 successor，禁止 fork。Successor 必须满足 `persisted_at <= effective_at`；只有 persisted/effective 均不晚于 operation time 才影响该 operation，禁止后来写入的 backdated successor 追溯改变旧判断。Correction 是否影响 operation 同时取决于其 source visibility 和实际 local registration；后来下载但携带旧 source timestamp 的 correction 不得追溯改写已封存 run，却会使其 registration 后的新 build/run fail closed，直到新 pilot attestation/manifest/approval/release 完成。
+Training grant 过期会禁止新 build，但不能替代上述 inference 判断，也不因自身过期自动否定一个已合法构建的 release；反之，training grant 仍 active 也不能补足过期、撤销或 retention horizon 不足的 inference/retention grant。`DERIVED_MODEL_STATE_RETENTION` 必须覆盖 released core、run-scoped state 和下游派生状态的声明保留期；`AUDIT_HASH_RETENTION` 必须覆盖 manifest/approval/release/sidecar hashes 的声明审计保留期。任一项不满足均 fail closed。
 
-Revocation event 保存 event ID/hash、approval/release ID、actor、authority、reason、recorded/effective time。Model build 在 start/completion 检查 approval predicate；AnalysisRun、packet export、review import、FusionRun 和 PortfolioRevision 在各自 start/completion 检查 release predicate。中途生效的 revocation 使尚未提交的 operation 失败。已经完成的 immutable artifact 不删除、不改写，但禁止其后继续派生新 artifact。
+Superseding approval 必须具有相同 competition/model/config/training-window scope，每个 approval 最多一个直接 successor，禁止 fork。Successor 必须满足 `persisted_at <= effective_at`；只有 persisted/effective 均不晚于 operation time 才影响该 operation，禁止后来写入的 backdated successor 追溯改变旧判断。Correction 是否影响 operation 同时取决于其 source visibility 和实际 local registration；后来下载但携带旧 source timestamp 的 correction 不得追溯改写已封存 run，却会使其 registration 后的新 build/run fail closed，直到新 integrity pilot attestation/manifest/approval/release 完成。
+
+Revocation event 保存 event ID/hash、approval/release ID、受影响的 grant、actor、authority、reason、recorded/effective time。Model build 在 start/completion 检查 `approval_active_for_build`；AnalysisRun、packet export、review import、FusionRun 和 PortfolioRevision 在各自 start/completion 检查 `release_active_for_inference`。中途生效的相关 revocation 使尚未提交的 operation 失败。已经完成的 immutable artifact 不删除、不改写，但禁止其后继续派生新 artifact。
 
 ### 11. 保持 V3 wire contract，强制 approval audit bundle
 
@@ -453,7 +464,7 @@ quant_model_state_id / state_hash / state_payload_hash / training_data_hash
 production_model_release_id / release_hash / released_state_core_hash
 training_history_approval_id / training_history_approval_hash
 training_history_manifest_id / manifest_hash / approved_facts_hash
-pilot_attestation_id / pilot_attempt_root
+quant_integrity_pilot_attestation_id / integrity_pilot_attempt_root
 ordered season/source summaries
 audit_artifact_id / generated_at_utc / audit_hash
 ```
@@ -462,7 +473,7 @@ Packet 与 sidecar 通过一个完整性校验 bundle 导出和保存。网页 G
 
 ### 12. 当前真实比赛 acceptance
 
-Pilot、source/rights review、approval 和 model release 全部完成后，选择一个新的未来 Bundesliga target。不得重跑或改写 `0.5.0` 已封存的 Leverkusen 对 Union Berlin acceptance。`PRODUCTION_TARGET_ACCEPTANCE_PLAN_V1` 必须在任何 candidate model evaluation、packet export 或 review 前持久化，按 kickoff window、输入完整性和 minimum-prior-match 条件冻结 exact target IDs、decision cutoff、release ID/hash 和 selection rule，并由 AnalysisRun/audit sidecar 绑定其 hash。不得根据预测方向、EV 或结果挑选。
+Quant integrity pilot、source/rights review、approval 和 model release 全部完成后，选择一个新的未来 Bundesliga target。不得重跑或改写 `0.5.0` 已封存的 Leverkusen 对 Union Berlin acceptance。`PRODUCTION_TARGET_ACCEPTANCE_PLAN_V1` 必须在任何 candidate model evaluation、packet export 或 review 前持久化，按 kickoff window、输入完整性和 minimum-prior-match 条件冻结 exact target IDs、decision cutoff、release ID/hash 和 selection rule，并由 AnalysisRun/audit sidecar 绑定其 hash。不得根据预测方向、EV 或结果挑选。
 
 Current acceptance 必须满足：
 
@@ -477,14 +488,14 @@ Current acceptance 必须满足：
 
 ## 分阶段门禁
 
-本次提交只允许 Architecture/ADR proposal。ADR 仍为 `Proposed` 时禁止新增 migration、provider、CLI、真实 adapter 或版本号变更。
+本次 `Accepted` 修订只允许 Architecture/ADR 文档变更，不开始 implementation，禁止新增 migration、provider、CLI、真实 adapter 或版本号变更。后续实现必须由独立指令启动。
 
-外部架构审查通过后，`0.6` 实现顺序为：
+后续经独立指令启动的 `0.6` 实现顺序为：
 
 1. V3 golden freeze、source/rights/status/season admission contracts；
 2. additive schema、append-only triggers、materialization bridge 和 repository integrity；
 3. multi-season research/build provider；
-4. precommitted Bundesliga point-in-time probability pilot；
+4. mandatory Bundesliga quant integrity pilot，以及独立、非阻塞的 Market/Fusion benchmark；
 5. training manifest、approval event、model release 和 deterministic replay；
 6. 新未来比赛的 AVAILABLE V3 Review -> FusionRun -> PortfolioRevision handshake。
 
@@ -498,6 +509,7 @@ Current acceptance 必须满足：
 - 不改变 Elo 参数，不进行自动或人工调参，不训练机器学习模型。
 - 不用 ROI、命中率、概率指标、GPT opinion 或单场结果反向选择模型。
 - 不修改 V1/V2/V3 packet bytes，不增加 V4。
+- `0.6` V1 不实现 PKI、CA、remote signer 或 key-management subsystem；rights/approval 使用本地 hash-sealed reviewer attestation/evidence。
 - 不连接真实 LLM API，不自动下注、登录、支付或出票。
 
 ## 结果
@@ -506,7 +518,7 @@ Current acceptance 必须满足：
 - `LIVE_STRICT` 继续只表示系统当时真实取得；approval 不能制造历史持有事实。
 - Research provider 与 live AnalysisRun 保持隔离；普通 `SOURCE_TIME_RESEARCH` 永远不能直接进入 live。
 - 多赛季 Elo state 可审计每场真实 season，并继续使用完全冻结的 `.75` season regression。
-- Pilot、approval、model build、current run 和 V3 review 各有独立、append-only、hash-sealed evidence chain。
+- Quant integrity pilot、独立 Market/Fusion benchmark、approval、model build、current run 和 V3 review 各有 append-only、hash-sealed evidence chain；缺少合格 odds 只使 benchmark unavailable，不阻塞 Elo release。
 
 ## 被否决方案
 
@@ -517,4 +529,4 @@ Current acceptance 必须满足：
 - 只保存 opaque Elo state：无法证明事实、season、correction、rights 和 source provenance。
 - 只使用现有 `training_data_hash`：它不覆盖 approval-only provenance。
 - 修改 `ANALYSIS_PACKET_V3` 或新增 V4：本阶段无必要，并会破坏已接受合同。
-- 根据 pilot metric 或投注 ROI 人工/自动调参：把验收变成 in-sample optimization，不符合 frozen baseline。
+- 根据 integrity pilot/benchmark metric 或投注 ROI 人工/自动调参：把验收变成 in-sample optimization，不符合 frozen baseline。
