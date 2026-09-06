@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from typing import Protocol
 
 from football_system.domain.post_review import (
@@ -11,6 +12,8 @@ from football_system.domain.post_review import (
 
 
 class PostReviewRepository(Protocol):
+    def audit_operation(self, **scope) -> AbstractContextManager: ...
+
     def load_fusion_source(self, review_artifact_id: str) -> FusionSource: ...
 
     def find_fusion_run(self, fusion_run_id: str) -> FusionRun | None: ...

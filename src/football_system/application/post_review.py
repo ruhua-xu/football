@@ -4,6 +4,7 @@ import hashlib
 from decimal import Decimal
 
 from football_system.application.ports.post_review import PostReviewRepository
+from football_system.application.ports.review_artifacts import repository_operation
 from football_system.application.review_bridge import (
     canonical_json,
     sha256_text,
@@ -54,6 +55,12 @@ class CreateFusionRunService:
         self._settings = settings
 
     def create(self, review_artifact_id: str) -> FusionRun:
+        with repository_operation(
+            self._repository, review_artifact_id=review_artifact_id
+        ):
+            return self._create(review_artifact_id)
+
+    def _create(self, review_artifact_id: str) -> FusionRun:
         source = self._repository.load_fusion_source(review_artifact_id)
         fusion_settings = self._settings.review_fusion
         policy = FusionPolicyName(fusion_settings.policy)
@@ -161,6 +168,10 @@ class CreatePortfolioRevisionService:
         self._settings = settings
 
     def create(self, fusion_run_id: str) -> PortfolioRevision:
+        with repository_operation(self._repository, fusion_run_id=fusion_run_id):
+            return self._create(fusion_run_id)
+
+    def _create(self, fusion_run_id: str) -> PortfolioRevision:
         source = self._repository.load_portfolio_revision_source(fusion_run_id)
         config_json = canonical_json(
             {

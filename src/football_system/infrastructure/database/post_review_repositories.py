@@ -57,14 +57,27 @@ from football_system.infrastructure.database.models import (
     SportteryBonusQuoteRecord,
     SportteryBonusSnapshotRecord,
 )
+from football_system.infrastructure.database.production_audit_repository import (
+    ProductionAuditGuard,
+    SqlAlchemyProductionAuditRepository,
+)
 
 
 class SqlAlchemyPostReviewRepository:
-    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+    def __init__(
+        self,
+        session_factory: sessionmaker[Session],
+        *,
+        audit_repository: SqlAlchemyProductionAuditRepository | None = None,
+    ) -> None:
         self._session_factory = session_factory
+        self._audit = ProductionAuditGuard(session_factory, audit_repository)
+
+    def audit_operation(self, **scope):
+        return self._audit.operation(**scope)
 
     def load_fusion_source(self, review_artifact_id: str) -> FusionSource:
-        with self._session_factory() as session:
+        with self._audit.operation(review_artifact_id=review_artifact_id) as session:
             artifact_record = session.get(LLMReviewArtifactRecord, review_artifact_id)
             if artifact_record is None:
                 raise KeyError(f"unknown LLMReviewArtifact: {review_artifact_id}")
@@ -106,14 +119,19 @@ class SqlAlchemyPostReviewRepository:
             )
 
     def find_fusion_run(self, fusion_run_id: str) -> FusionRun | None:
-        with self._session_factory() as session:
+        with self._audit.transaction() as session:
             record = session.get(FusionRunRecord, fusion_run_id)
+            if record is not None:
+                self._audit.require(session, record.parent_analysis_run_id)
             return _fusion_run(session, record) if record is not None else None
 
     def save_fusion_run(self, fusion_run: FusionRun) -> FusionRun:
         _validate_fusion_for_save(fusion_run)
         try:
-            with self._session_factory.begin() as session:
+            with self._audit.operation(
+                analysis_run_id=fusion_run.parent_analysis_run_id,
+                review_artifact_id=fusion_run.llm_review_artifact_id,
+            ) as session:
                 existing = _find_fusion_record(session, fusion_run)
                 if existing is not None:
                     return _matching_fusion_run(session, existing, fusion_run)
@@ -135,7 +153,10 @@ class SqlAlchemyPostReviewRepository:
                 session.flush()
                 return _matching_fusion_run(session, record, fusion_run)
         except IntegrityError:
-            with self._session_factory() as session:
+            with self._audit.operation(
+                analysis_run_id=fusion_run.parent_analysis_run_id,
+                review_artifact_id=fusion_run.llm_review_artifact_id,
+            ) as session:
                 existing = _find_fusion_record(session, fusion_run)
                 if existing is not None:
                     return _matching_fusion_run(session, existing, fusion_run)
@@ -145,7 +166,7 @@ class SqlAlchemyPostReviewRepository:
         self,
         fusion_run_id: str,
     ) -> PortfolioRevisionSource:
-        with self._session_factory() as session:
+        with self._audit.operation(fusion_run_id=fusion_run_id) as session:
             record = session.get(FusionRunRecord, fusion_run_id)
             if record is None:
                 raise KeyError(f"unknown FusionRun: {fusion_run_id}")
@@ -197,8 +218,10 @@ class SqlAlchemyPostReviewRepository:
         self,
         portfolio_revision_id: str,
     ) -> PortfolioRevision | None:
-        with self._session_factory() as session:
+        with self._audit.transaction() as session:
             record = session.get(PortfolioRevisionRecord, portfolio_revision_id)
+            if record is not None:
+                self._audit.require(session, record.parent_analysis_run_id)
             return _portfolio_revision(session, record) if record is not None else None
 
     def save_portfolio_revision(
@@ -207,7 +230,10 @@ class SqlAlchemyPostReviewRepository:
     ) -> PortfolioRevision:
         _validate_revision_for_save(revision)
         try:
-            with self._session_factory.begin() as session:
+            with self._audit.operation(
+                analysis_run_id=revision.parent_analysis_run_id,
+                fusion_run_id=revision.fusion_run_id,
+            ) as session:
                 existing = _find_revision_record(session, revision)
                 if existing is not None:
                     return _matching_revision(session, existing, revision)
@@ -227,7 +253,10 @@ class SqlAlchemyPostReviewRepository:
                 session.flush()
                 return _matching_revision(session, record, revision)
         except IntegrityError:
-            with self._session_factory() as session:
+            with self._audit.operation(
+                analysis_run_id=revision.parent_analysis_run_id,
+                fusion_run_id=revision.fusion_run_id,
+            ) as session:
                 existing = _find_revision_record(session, revision)
                 if existing is not None:
                     return _matching_revision(session, existing, revision)

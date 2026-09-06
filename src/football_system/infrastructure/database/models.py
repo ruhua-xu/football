@@ -22,6 +22,23 @@ from sqlalchemy import (
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
 
+from football_system.infrastructure.database.quant_integrity_schema import (
+    quant_integrity_tables_v1,
+)
+
+from football_system.infrastructure.database.training_admission_schema import (
+    training_admission_tables_v1,
+)
+from football_system.infrastructure.database.production_quant_schema import (
+    production_quant_tables_v1,
+)
+from football_system.infrastructure.database.production_inference_schema import (
+    production_inference_tables_v1,
+)
+from football_system.infrastructure.database.production_audit_schema import (
+    production_audit_tables_v1,
+)
+
 
 class UTCDateTime(TypeDecorator[datetime]):
     impl = DateTime(timezone=True)
@@ -60,6 +77,75 @@ PriceColumn = Numeric(18, 6, asdecimal=True)
 ProbabilityColumn = Numeric(18, 12, asdecimal=True)
 MetricColumn = Numeric(24, 8, asdecimal=True)
 RatioColumn = Numeric(24, 12, asdecimal=True)
+
+
+_pilot_tables = quant_integrity_tables_v1(Base.metadata, UTCDateTime())
+
+
+class QuantIntegritySeriesRecord(Base):
+    __table__ = _pilot_tables["production_quant_integrity_pilot_series"]
+
+
+class QuantIntegrityPlanRecord(Base):
+    __table__ = _pilot_tables["production_quant_integrity_pilot_plans"]
+
+
+class QuantIntegrityReservationRecord(Base):
+    __table__ = _pilot_tables["production_quant_integrity_pilot_reservations"]
+
+
+class QuantIntegrityOutputRecord(Base):
+    __table__ = _pilot_tables["production_quant_integrity_pilot_outputs"]
+
+
+class QuantIntegrityReportRecord(Base):
+    __table__ = _pilot_tables["production_quant_integrity_pilot_reports"]
+
+
+class QuantIntegrityAttemptRecord(Base):
+    __table__ = _pilot_tables["production_quant_integrity_pilot_attempts"]
+
+
+class QuantIntegritySummaryRecord(Base):
+    __table__ = _pilot_tables["production_quant_integrity_pilot_summaries"]
+
+
+class QuantIntegrityAttestationRecord(Base):
+    __table__ = _pilot_tables["production_quant_integrity_pilot_attestations"]
+
+
+_training_tables = training_admission_tables_v1(Base.metadata, UTCDateTime())
+_production_quant_tables = production_quant_tables_v1(Base.metadata, UTCDateTime())
+_production_inference_tables = production_inference_tables_v1(Base.metadata, UTCDateTime())
+_production_audit_tables = production_audit_tables_v1(Base.metadata, UTCDateTime())
+
+
+class SourceRightsAdmissionRecord(Base):
+    __table__ = _training_tables["source_rights_admissions"]
+
+
+class TrainingCaptureReceiptRecord(Base):
+    __table__ = _training_tables["training_capture_receipts"]
+
+
+class TrainingFactAdmissionRecord(Base):
+    __table__ = _training_tables["training_fact_admissions"]
+
+
+class TrainingFactFixtureSourceRecord(Base):
+    __table__ = _training_tables["training_fact_fixture_sources"]
+
+
+class MatchSeasonMembershipRecord(Base):
+    __table__ = _training_tables["match_season_memberships"]
+
+
+class MatchResultAdmissionRecord(Base):
+    __table__ = _training_tables["match_result_admissions"]
+
+
+class TrainingFactBindingRecord(Base):
+    __table__ = _training_tables["training_fact_bindings"]
 
 
 class ProviderRecord(Base):

@@ -1413,6 +1413,51 @@ def install_sqlite_immutability_triggers(connection: Connection) -> None:
     install_backtest_v2_v1_triggers(connection)
     install_live_source_v1_triggers(connection)
     install_live_analysis_run_preparation_v1_triggers(connection)
+    install_training_admission_v1_triggers(connection)
+    install_quant_integrity_v1_triggers(connection)
+    from football_system.infrastructure.database.production_inference_schema import (
+        production_inference_trigger_sql_v1,
+    )
+    from football_system.infrastructure.database.production_audit_schema import (
+        production_audit_trigger_sql_v1,
+    )
+
+    if connection.dialect.name == "sqlite":
+        for statement in production_inference_trigger_sql_v1().values():
+            connection.exec_driver_sql(statement)
+        for statement in production_audit_trigger_sql_v1().values():
+            connection.exec_driver_sql(statement)
+
+
+def install_quant_integrity_v1_triggers(connection: Connection) -> None:
+    from football_system.infrastructure.database.quant_integrity_schema import (
+        quant_integrity_trigger_sql_v1,
+    )
+
+    if connection.dialect.name == "sqlite":
+        for statement in quant_integrity_trigger_sql_v1().values():
+            connection.exec_driver_sql(statement)
+    install_production_quant_v1_triggers(connection)
+
+
+def install_production_quant_v1_triggers(connection: Connection) -> None:
+    from football_system.infrastructure.database.production_quant_schema import (
+        production_quant_trigger_sql_v1,
+    )
+
+    if connection.dialect.name == "sqlite":
+        for statement in production_quant_trigger_sql_v1().values():
+            connection.exec_driver_sql(statement)
+
+
+def install_training_admission_v1_triggers(connection: Connection) -> None:
+    from football_system.infrastructure.database.training_admission_schema import (
+        training_admission_trigger_sql_v1,
+    )
+
+    if connection.dialect.name == "sqlite":
+        for statement in training_admission_trigger_sql_v1().values():
+            connection.exec_driver_sql(statement)
 
 
 def _install_fixture_ingestion_lineage_trigger(connection: Connection) -> None:

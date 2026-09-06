@@ -1179,8 +1179,6 @@ def _assert_artifact_seal(
     content_hash: str,
     label: str,
 ) -> None:
-    if isinstance(content_payload, BaseModel):
-        content_payload = _revalidate_model(content_payload)
     expected_id, expected_hash = _artifact_identity(schema_version, content_payload)
     if not hmac.compare_digest(content_hash, expected_hash):
         raise ValueError(f"{label} hash is inconsistent")

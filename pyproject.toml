@@ -83,6 +83,11 @@ where = ["src"]
     "migrations/versions/c4e8a1d7f205_add_backtest_v2_lineage.py",
     "migrations/versions/3cb19bcbdd88_add_live_source_ingestion.py",
     "migrations/versions/6e4b1a9c2d73_bind_live_analysis_preparations.py",
+    "migrations/versions/8a7c2f4e9b10_add_training_admissions.py",
+    "migrations/versions/9b8d3e5f0a21_add_quant_integrity_pilots.py",
+    "migrations/versions/a0c9e4f6b132_add_production_quant_releases.py",
+    "migrations/versions/b1dae507c243_bind_production_quant_analysis.py",
+    "migrations/versions/c2ebf618d354_add_production_audit_bundles.py",
 ]
 
 [tool.pytest.ini_options]

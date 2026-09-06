@@ -4,7 +4,7 @@ from collections.abc import Iterable
 import hashlib
 import json
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from football_system.application.live_sources import (
@@ -30,6 +30,7 @@ from football_system.domain.prediction import (
 from football_system.domain.services.payout import calculate_stake_fen
 from football_system.domain.services.risk import analyze_portfolio_risk
 from football_system.infrastructure.database.models import (
+    Base,
     AnalysisRunMatchRecord,
     AnalysisRunRecord,
     BetCandidateRecord,
@@ -72,17 +73,29 @@ from football_system.infrastructure.database.models import (
 from football_system.infrastructure.database.live_source_repositories import (
     SqlAlchemyLiveSourceRepository,
 )
+from football_system.infrastructure.database.production_inference_repository import (
+    SqlAlchemyProductionInferenceRepository,
+)
 
 
 class SqlAlchemyAnalysisRepository:
-    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+    def __init__(
+        self,
+        session_factory: sessionmaker[Session],
+        *,
+        production_release_repository: SqlAlchemyProductionInferenceRepository | None = None,
+    ) -> None:
         self._session_factory = session_factory
+        self._production_release_repository = production_release_repository
 
     def save_analysis(
         self,
         artifacts: AnalysisArtifacts,
         rules: SportteryRules,
     ) -> None:
+        artifacts = AnalysisArtifacts.model_validate(
+            artifacts.model_dump(mode="python", exclude_computed_fields=True)
+        )
         if artifacts.analysis_run.status != AnalysisRunStatus.COMPLETED:
             raise ValueError("only completed AnalysisRun artifacts can be persisted")
         self._validate_hashes(artifacts)
@@ -90,6 +103,11 @@ class SqlAlchemyAnalysisRepository:
         self._validate_ticket_rules(artifacts, rules)
         prepared_bundle = self._prepared_bundle(artifacts)
         with self._session_factory.begin() as session:
+            production = self._production_release_repository
+            if artifacts.production_binding is not None:
+                if production is None:
+                    raise ValueError("production analysis requires a release repository")
+                session.execute(text("BEGIN IMMEDIATE"))
             run = artifacts.analysis_run
             existing_run = session.get(AnalysisRunRecord, run.analysis_run_id)
             if existing_run is not None:
@@ -100,6 +118,11 @@ class SqlAlchemyAnalysisRepository:
                     rules,
                     prepared_bundle,
                 )
+                self._assert_production_bindings(session, artifacts)
+                if artifacts.production_binding is not None:
+                    production.validate_analysis_in_session(
+                        session, artifacts, current=True, persisted=True
+                    )
                 return
 
             if prepared_bundle is None:
@@ -159,8 +182,38 @@ class SqlAlchemyAnalysisRepository:
             self._persist_betting(session, artifacts)
             self._persist_risk(session, artifacts)
             session.flush()
+            if artifacts.production_binding is not None:
+                production.save_binding_in_session(session, artifacts.production_binding)
+                self._assert_run_graph_matches(session, artifacts)
+            self._assert_production_bindings(session, artifacts)
             run_record.status = AnalysisRunStatus.COMPLETED.value
             run_record.completed_at_utc = run.completed_at_utc
+            if artifacts.production_binding is not None:
+                session.flush()
+                # Last read in the serialized write transaction, not cached start inputs.
+                production.validate_analysis_in_session(
+                    session, artifacts, current=True, persisted=True
+                )
+
+    def _assert_production_bindings(self, session, artifacts):
+        if self._production_release_repository is not None:
+            self._production_release_repository.assert_bindings_in_session(
+                session,
+                artifacts.analysis_run.analysis_run_id,
+                artifacts.production_binding,
+            )
+        else:
+            for name in (
+                "quant_model_state_production_releases",
+                "analysis_run_target_acceptance_plans",
+            ):
+                table = Base.metadata.tables[name]
+                if session.execute(
+                    select(table).where(
+                        table.c.analysis_run_id == artifacts.analysis_run.analysis_run_id
+                    )
+                ).first() is not None:
+                    raise ValueError("unexpected production bindings on unapproved analysis")
 
     def _assert_existing_analysis_matches(
         self,
@@ -669,11 +722,32 @@ class SqlAlchemyAnalysisRepository:
             "Sporttery bonus quotes",
         )
 
-    @staticmethod
     def _assert_model_training_sources(
+        self,
         session: Session,
         artifacts: AnalysisArtifacts,
     ) -> None:
+        if artifacts.production_binding is not None:
+            if self._production_release_repository is None:
+                raise ValueError("admitted training facts require production release verification")
+            self._production_release_repository.validate_analysis_in_session(
+                session, artifacts, current=True
+            )
+            return
+        result_ids = tuple(
+            fact.match_result_id
+            for state in artifacts.quant_model_states
+            for fact in state.training_facts
+        )
+        # Admission is a durable source property, not a removable request label.
+        for name in ("match_result_admissions", "training_fact_bindings"):
+            table = Base.metadata.tables[name]
+            if session.execute(select(table.c.match_result_id).where(
+                table.c.match_result_id.in_(result_ids)
+            )).first() is not None:
+                raise ValueError(
+                    "admitted research training results require a production release binding"
+                )
         for state in artifacts.quant_model_states:
             for fact in state.training_facts:
                 result = session.get(MatchResultRecord, fact.match_result_id)

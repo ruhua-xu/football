@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import json
+
 from pydantic import model_validator
 
+from football_system.application.ports.production_inference import (
+    ProductionInferenceBindingV1,
+)
+from football_system.application.quant_model import project_available_model_quant
 from football_system.domain.analysis import (
     AnalysisMatchContext,
     AnalysisRun,
@@ -12,7 +18,7 @@ from football_system.domain.betting import (
     SelectionCandidate,
     TicketCandidate,
 )
-from football_system.domain.common import DomainModel
+from football_system.domain.common import DomainModel, stable_id
 from football_system.domain.match import (
     Competition,
     MarketOddsSnapshot,
@@ -23,6 +29,8 @@ from football_system.domain.match import (
 )
 from football_system.domain.prediction import (
     FinalPrediction,
+    FusionConfig,
+    FusionInputs,
     ManualQuantInput,
     MarketPrediction,
     ModelQuantPrediction,
@@ -32,6 +40,8 @@ from football_system.domain.prediction import (
     QuantPrediction,
 )
 from football_system.domain.risk import PortfolioRiskReport
+from football_system.domain.services.fusion import get_fusion_policy
+from football_system.domain.services.probability import normalized_inverse_probability
 from football_system.domain.services.risk import analyze_portfolio_risk
 
 
@@ -62,6 +72,7 @@ class AnalysisArtifacts(DomainModel):
     quant_model_states: tuple[QuantModelStateArtifact, ...] = ()
     quant_model_evaluations: tuple[QuantModelEvaluation, ...] = ()
     live_source_preparation_id: str | None = None
+    production_binding: ProductionInferenceBindingV1 | None = None
 
     @model_validator(mode="after")
     def validate_lineage(self) -> AnalysisArtifacts:
@@ -122,6 +133,38 @@ class AnalysisArtifacts(DomainModel):
             "quant_model_state_id",
             "quant model state",
         )
+        config = json.loads(self.analysis_run.config_json).get("request", {})
+        pinned = (
+            config.get("model_training_use_class") == "APPROVED_TRAINING_HISTORY"
+            or config.get("production_model_release_id") is not None
+            or config.get("production_target_acceptance_plan_id") is not None
+        )
+        binding = self.production_binding
+        if pinned != (binding is not None):
+            raise ValueError(
+                "approved production marker requires exact companion binding"
+            )
+        if binding is not None:
+            if (
+                binding.analysis_run_id != run_id
+                or set(model_state_by_id) != {binding.quant_model_state_id}
+                or self.live_source_preparation_id is None
+                or config.get("model_training_use_class") != "APPROVED_TRAINING_HISTORY"
+                or config.get("production_model_release_id")
+                != binding.release.artifact_id
+                or config.get("production_target_acceptance_plan_id")
+                != binding.target_acceptance_plan.artifact_id
+                or binding.start_authorization.actual_at_utc
+                != self.analysis_run.started_at_utc
+                or binding.completion_authorization.actual_at_utc
+                != self.analysis_run.completed_at_utc
+                or binding.training_cutoff_at_utc >= self.analysis_run.as_of_at_utc
+                or model_state_by_id[binding.quant_model_state_id].training_data_hash
+                != binding.training_data_hash
+            ):
+                raise ValueError(
+                    "production companion has inconsistent run/state lineage"
+                )
         model_evaluation_by_id = _unique_index(
             self.quant_model_evaluations,
             "quant_model_evaluation_id",
@@ -197,7 +240,9 @@ class AnalysisArtifacts(DomainModel):
             and context.fixture_observation_id is not None
         )
         if self.live_source_preparation_id is not None:
-            if not has_model_context or len(prepared_contexts) != len(self.match_contexts):
+            if not has_model_context or len(prepared_contexts) != len(
+                self.match_contexts
+            ):
                 raise ValueError(
                     "prepared live analysis requires fixture lineage for every context"
                 )
@@ -396,7 +441,118 @@ class AnalysisArtifacts(DomainModel):
                 for result in report.stress_results
             ):
                 raise ValueError("stress result has inconsistent ticket lineage")
+        if binding is not None:
+            validate_production_predictions(
+                run=self.analysis_run,
+                contexts=self.match_contexts,
+                model_states=self.quant_model_states,
+                evaluations=self.quant_model_evaluations,
+                market_snapshots=self.market_odds_snapshots,
+                market_predictions=self.market_predictions,
+                quant_predictions=self.quant_predictions,
+                final_predictions=self.final_predictions,
+            )
         return self
+
+
+def validate_production_predictions(
+    *,
+    run: AnalysisRun,
+    contexts: tuple[AnalysisMatchContext | ModelAnalysisMatchContext, ...],
+    model_states: tuple[QuantModelStateArtifact, ...],
+    evaluations: tuple[QuantModelEvaluation, ...],
+    market_snapshots: tuple[MarketOddsSnapshot, ...],
+    market_predictions: tuple[MarketPrediction, ...],
+    quant_predictions: tuple[QuantPrediction | ModelQuantPrediction, ...],
+    final_predictions: tuple[FinalPrediction, ...],
+) -> None:
+    """Require the exact base prediction graph, using unchanged model/fusion math."""
+    context_by_match = _unique_index(contexts, "match_id", "production context")
+    evaluation_by_match = _unique_index(
+        evaluations, "match_id", "production evaluation"
+    )
+    market_by_match = _unique_index(
+        market_predictions, "match_id", "production market prediction"
+    )
+    quant_by_match = _unique_index(
+        quant_predictions, "match_id", "production quant prediction"
+    )
+    final_by_match = _unique_index(
+        final_predictions, "match_id", "production final prediction"
+    )
+    state_by_id = _unique_index(
+        model_states, "quant_model_state_id", "production model state"
+    )
+    odds_by_id = _unique_index(
+        market_snapshots, "snapshot_id", "production market snapshot"
+    )
+    available = {
+        item.match_id
+        for item in evaluations
+        if item.status is QuantModelEvaluationStatus.AVAILABLE
+    }
+    if (
+        set(evaluation_by_match) != set(context_by_match)
+        or set(market_by_match) != set(context_by_match)
+        or set(quant_by_match) != available
+        or set(final_by_match) != available
+    ):
+        raise ValueError(
+            "production targets require exact market/quant/final prediction coverage"
+        )
+    config = json.loads(run.config_json)["request"]
+    policy = get_fusion_policy(config["fusion_policy"])
+    fusion_config = FusionConfig(quant_weight=config["quant_weight"])
+    for match_id, context in context_by_match.items():
+        evaluation = evaluation_by_match[match_id]
+        snapshot = odds_by_id.get(context.market_odds_snapshot_id)
+        state = state_by_id.get(evaluation.quant_model_state_id)
+        if (
+            not isinstance(context, ModelAnalysisMatchContext)
+            or context.analysis_run_id != run.analysis_run_id
+            or context.quant_model_evaluation_id != evaluation.quant_model_evaluation_id
+            or evaluation.analysis_run_id != run.analysis_run_id
+            or snapshot is None
+            or snapshot.match_id != match_id
+            or snapshot.market != evaluation.market
+            or state is None
+            or state.analysis_run_id != run.analysis_run_id
+        ):
+            raise ValueError("production prediction context/evaluation/source mismatch")
+        probabilities, overround = normalized_inverse_probability(
+            snapshot.three_way_odds()
+        )
+        market = MarketPrediction(
+            prediction_id=stable_id(
+                "p-market", run.analysis_run_id, match_id, snapshot.market.canonical
+            ),
+            analysis_run_id=run.analysis_run_id,
+            match_id=match_id,
+            market=snapshot.market,
+            probabilities=probabilities,
+            input_snapshot_ids=(snapshot.snapshot_id,),
+            overround=overround,
+            generated_at_utc=run.started_at_utc,
+        )
+        if market_by_match[match_id] != market:
+            raise ValueError("production market prediction differs from frozen odds")
+        quant = project_available_model_quant(model_state=state, evaluation=evaluation)
+        if quant is not None:
+            final = policy.fuse(
+                FusionInputs(
+                    analysis_run_id=run.analysis_run_id,
+                    match_id=match_id,
+                    market=snapshot.market,
+                    p_market=market,
+                    p_quant=quant,
+                ),
+                fusion_config,
+                run.started_at_utc,
+            )
+            if quant_by_match[match_id] != quant or final_by_match[match_id] != final:
+                raise ValueError(
+                    "production quant/final prediction differs from base model/fusion"
+                )
 
 
 def _unique_index(items: tuple, field: str, label: str) -> dict[str, object]:

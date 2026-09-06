@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from typing import cast
 
@@ -9,6 +11,7 @@ from pydantic import Field, model_validator
 
 from football_system.application.environment import (
     ProviderRuntimeProvenanceMismatchError,
+    RuntimeEnvironment,
     RuntimeProvenance,
     require_provider_runtime_provenance,
     validate_analysis_provider_runtime,
@@ -28,6 +31,11 @@ from football_system.application.ports.data_providers import (
     SportteryProvider,
 )
 from football_system.application.ports.repositories import AnalysisRepository
+from football_system.application.ports.production_inference import (
+    ProductionInferenceBindingV1,
+    ProductionInferenceRepository,
+)
+from football_system.application.production_release import project_release_state
 from football_system.application.quant_model import (
     MVP_INPUT_MANIFEST_V3,
     build_model_input_manifest_json,
@@ -57,6 +65,7 @@ from football_system.domain.common import (
     Identifier,
     UtcDateTime,
     new_id,
+    normalize_utc,
     stable_id,
     utc_now,
 )
@@ -75,6 +84,10 @@ from football_system.domain.prediction import (
     MarketPrediction,
     ModelQuantPrediction,
     QuantModelEvaluation,
+)
+from football_system.domain.production_release import (
+    assert_authorization_progression,
+    release_active_for_inference,
 )
 from football_system.domain.services.betting import (
     build_selection_candidates,
@@ -104,9 +117,23 @@ class RunModelAnalysisRequest(RunAnalysisRequest):
     constraints: PortfolioConstraints | None = None
     live_source_preparation_id: Identifier | None = None
     prepared_fixture_observations: tuple[PreparedFixtureObservationRef, ...] = ()
+    production_model_release_id: Identifier | None = None
+    production_target_acceptance_plan_id: Identifier | None = None
 
     @model_validator(mode="after")
     def validate_prepared_lineage(self) -> RunModelAnalysisRequest:
+        if (self.production_model_release_id is None) != (
+            self.production_target_acceptance_plan_id is None
+        ):
+            raise ValueError(
+                "production release and target plan must be supplied together"
+            )
+        if self.production_model_release_id is not None and (
+            self.live_source_preparation_id is None or self.allow_partial_inputs
+        ):
+            raise ValueError(
+                "production inference requires complete prepared live inputs"
+            )
         references = tuple(item.match_id for item in self.prepared_fixture_observations)
         if len(references) != len(set(references)):
             raise ValueError("prepared fixture observation matches must be unique")
@@ -123,10 +150,18 @@ class RunModelAnalysisRequest(RunAnalysisRequest):
 
 class ModelAnalysisDecision(DomainModel):
     analysis_artifacts: AnalysisArtifacts
-    training_history: EloTrainingHistoryBatch
+    training_history: EloTrainingHistoryBatch | None = None
 
     @model_validator(mode="after")
     def validate_cutoff(self) -> ModelAnalysisDecision:
+        if self.analysis_artifacts.production_binding is not None:
+            if self.training_history is not None:
+                raise ValueError(
+                    "production inference cannot contain provider training history"
+                )
+            return self
+        if self.training_history is None:
+            raise ValueError("strict training decision requires training history")
         if (
             self.training_history.as_of_at_utc
             != self.analysis_artifacts.analysis_run.as_of_at_utc
@@ -153,10 +188,12 @@ class RunModelAnalysisService:
         fixture_provider: FixtureProvider,
         market_odds_provider: MarketOddsProvider,
         sporttery_provider: SportteryProvider,
-        training_history_provider: EloTrainingHistoryProvider,
+        training_history_provider: EloTrainingHistoryProvider | None,
         repository: AnalysisRepository,
         settings: AppSettings,
         elo_config: EloBaselineConfig | None = None,
+        production_release_repository: ProductionInferenceRepository | None = None,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._fixture_provider = fixture_provider
         self._market_odds_provider = market_odds_provider
@@ -165,19 +202,27 @@ class RunModelAnalysisService:
         self._repository = repository
         self._settings = settings
         self._baseline = EloThreeWayBaseline(elo_config or EloBaselineConfig())
+        self._production_release_repository = production_release_repository
+        self._clock = clock or utc_now
 
     @property
     def baseline(self) -> EloThreeWayBaseline:
         return self._baseline
 
-    def declared_provider_runtime_provenance(self) -> dict[str, RuntimeProvenance]:
+    def declared_provider_runtime_provenance(
+        self, *, production_release: bool = False
+    ) -> dict[str, RuntimeProvenance]:
         return {
             role: require_provider_runtime_provenance(provider, role)
             for role, provider in {
                 "fixture": self._fixture_provider,
                 "market_odds": self._market_odds_provider,
                 "sporttery": self._sporttery_provider,
-                "model_training": self._training_history_provider,
+                **(
+                    {}
+                    if production_release
+                    else {"model_training": self._training_history_provider}
+                ),
             }.items()
         }
 
@@ -193,17 +238,89 @@ class RunModelAnalysisService:
         )
         if request.elo_config != self._baseline.config:
             raise ValueError("model analysis Elo config does not match its runner")
+        pinned = request.production_model_release_id is not None
+        production = self._production_release_repository
+        if pinned and (
+            production is None
+            or self._settings.runtime.environment is not RuntimeEnvironment.LIVE
+        ):
+            raise ValueError(
+                "production inference requires live runtime and release repository"
+            )
+        if not pinned and self._training_history_provider is None:
+            raise ValueError(
+                "strict model analysis requires a training history provider"
+            )
         runtime_provenance = validate_analysis_provider_runtime(
             self._settings.runtime.environment,
             {
                 "fixture": self._fixture_provider,
                 "market_odds": self._market_odds_provider,
                 "sporttery": self._sporttery_provider,
-                "model_training": self._training_history_provider,
+                **(
+                    {}
+                    if pinned
+                    else {"model_training": self._training_history_provider}
+                ),
             },
         )
-        started_at = request.execution_time_utc or utc_now()
+        started_at = (
+            normalize_utc(self._clock())
+            if pinned
+            else request.execution_time_utc or self._clock()
+        )
         run_id = request.analysis_run_id or new_id()
+        release = plan = prior_binding = start_authorization = None
+        if pinned:
+            release = production.load_release(request.production_model_release_id)
+            plan = production.load_target_plan(
+                request.production_target_acceptance_plan_id
+            )
+            target = plan.content_payload
+            if (
+                release.artifact_id != request.production_model_release_id
+                or plan.artifact_id != request.production_target_acceptance_plan_id
+                or request.competition_id != target.competition_id
+                or request.season_id != target.production_target_season_id
+                or request.as_of_at_utc != target.decision_as_of_at_utc
+                or request.kickoff_from_utc != target.kickoff_window_start_at_utc
+                or request.kickoff_to_utc != target.kickoff_window_end_at_utc
+                or (
+                    request.expected_match_ids is not None
+                    and request.expected_match_ids
+                    != tuple(item.match_id for item in target.targets)
+                )
+                or request.elo_config != release.content_payload.scope.model.config
+            ):
+                raise ValueError(
+                    "production request differs from exact release/target plan"
+                )
+            if started_at >= min(item.kickoff_at_utc for item in target.targets):
+                raise ValueError(
+                    "production inference must start before planned kickoff"
+                )
+            start_authorization = production.authorization(
+                release.artifact_id, started_at
+            )
+            if start_authorization.actual_at_utc != started_at:
+                raise ValueError(
+                    "production authorization returned the wrong actual time"
+                )
+            release_active_for_inference(
+                release=release,
+                plan=plan,
+                current=start_authorization,
+                state_retention_horizon=release.content_payload.state_retention_horizon,
+                audit_retention_horizon=release.content_payload.audit_retention_horizon,
+            )
+            prior_binding = production.load_binding(run_id)
+            if prior_binding is not None:
+                if (
+                    prior_binding.release != release.reference()
+                    or prior_binding.target_acceptance_plan != plan.reference()
+                ):
+                    raise ValueError("production retry release/target plan mismatch")
+                started_at = prior_binding.start_authorization.actual_at_utc
 
         fixture_batch = await self._fixture_provider.fetch_fixtures(
             FixtureQuery(
@@ -216,8 +333,20 @@ class RunModelAnalysisService:
             fixture_batch.model_dump(mode="python", exclude_computed_fields=True)
         )
         query_matches = _validate_fixture_response(request, fixture_batch)
-        if any(match.competition_id != request.competition_id for match in query_matches):
+        if any(
+            match.competition_id != request.competition_id for match in query_matches
+        ):
             raise ValueError("model analysis fixtures cross the requested competition")
+        if pinned and tuple(
+            (item.match_id, item.home_team_id, item.away_team_id, item.kickoff_at_utc)
+            for item in sorted(query_matches, key=lambda item: item.match_id)
+        ) != tuple(
+            (item.match_id, item.home_team_id, item.away_team_id, item.kickoff_at_utc)
+            for item in plan.content_payload.targets
+        ):
+            raise ValueError(
+                "production fixtures differ from exact planned targets/kickoff"
+            )
         fixture_observations = {
             item.match_id: item.fixture_observation_id
             for item in request.prepared_fixture_observations
@@ -235,27 +364,40 @@ class RunModelAnalysisService:
             match_ids=tuple(match.match_id for match in query_matches),
             as_of_at_utc=request.as_of_at_utc,
         )
-        training_query = EloTrainingHistoryQuery(
-            competition_id=request.competition_id,
-            target_season_id=request.season_id,
-            as_of_at_utc=request.as_of_at_utc,
-            exclude_match_ids=target_match_ids,
-        )
-        odds_batch, sporttery_batch, training_batch = await asyncio.gather(
-            self._market_odds_provider.fetch_market_odds(snapshot_query),
-            self._sporttery_provider.fetch_fixed_bonus(snapshot_query),
-            self._training_history_provider.fetch_elo_training_history(training_query),
-        )
+        training_batch = None
+        if pinned:
+            target_match_ids = tuple(
+                item.match_id for item in plan.content_payload.targets
+            )
+            query_matches = tuple(sorted(query_matches, key=lambda item: item.match_id))
+            odds_batch, sporttery_batch = await asyncio.gather(
+                self._market_odds_provider.fetch_market_odds(snapshot_query),
+                self._sporttery_provider.fetch_fixed_bonus(snapshot_query),
+            )
+        else:
+            training_query = EloTrainingHistoryQuery(
+                competition_id=request.competition_id,
+                target_season_id=request.season_id,
+                as_of_at_utc=request.as_of_at_utc,
+                exclude_match_ids=target_match_ids,
+            )
+            odds_batch, sporttery_batch, training_batch = await asyncio.gather(
+                self._market_odds_provider.fetch_market_odds(snapshot_query),
+                self._sporttery_provider.fetch_fixed_bonus(snapshot_query),
+                self._training_history_provider.fetch_elo_training_history(
+                    training_query
+                ),
+            )
+            training_batch = EloTrainingHistoryBatch.model_validate(
+                training_batch.model_dump(mode="python", exclude_computed_fields=True)
+            )
+            _validate_training_batch(training_query, training_batch)
         odds_batch = MarketOddsBatch.model_validate(
             odds_batch.model_dump(mode="python", exclude_computed_fields=True)
         )
         sporttery_batch = SportteryBatch.model_validate(
             sporttery_batch.model_dump(mode="python", exclude_computed_fields=True)
         )
-        training_batch = EloTrainingHistoryBatch.model_validate(
-            training_batch.model_dump(mode="python", exclude_computed_fields=True)
-        )
-        _validate_training_batch(training_query, training_batch)
         _validate_runtime_outputs(
             runtime_provenance,
             fixture_batch,
@@ -272,11 +414,17 @@ class RunModelAnalysisService:
             sporttery_batch,
         )
 
-        state = self._baseline.rebuild_state(
-            (source.result for source in training_batch.sources),
-            request.as_of_at_utc,
-            target_season_id=request.season_id,
-            exclude_match_ids=target_match_ids,
+        state = (
+            project_release_state(
+                release, request.as_of_at_utc, target_match_ids, request.season_id
+            )
+            if pinned
+            else self._baseline.rebuild_state(
+                (source.result for source in training_batch.sources),
+                request.as_of_at_utc,
+                target_season_id=request.season_id,
+                exclude_match_ids=target_match_ids,
+            )
         )
         model_state = freeze_elo_model_state(
             analysis_run_id=run_id,
@@ -348,6 +496,10 @@ class RunModelAnalysisService:
                 model_state=model_state,
                 evaluation=evaluation,
             )
+            if pinned and quant_prediction is None:
+                raise ValueError(
+                    "planned production target requires five prior matches"
+                )
             if quant_prediction is not None:
                 final_predictions.append(
                     policy.fuse(
@@ -443,6 +595,16 @@ class RunModelAnalysisService:
             "calibration_label": state.calibration_label,
             "model_config_hash": state.config_hash,
         }
+        if pinned:
+            request_config.update(
+                production_model_release_id=release.artifact_id,
+                production_target_acceptance_plan_id=plan.artifact_id,
+                model_training_use_class="APPROVED_TRAINING_HISTORY",
+                model_training_source_mode="SOURCE_TIME_RESEARCH",
+                decision_data_mode="LIVE_STRICT",
+                kickoff_from_utc=request.kickoff_from_utc,
+                kickoff_to_utc=request.kickoff_to_utc,
+            )
         if runtime_provenance:
             request_config["provider_runtime_provenance"] = {
                 role: provenance.model_dump(mode="json")
@@ -473,7 +635,48 @@ class RunModelAnalysisService:
             sporttery_snapshots=selected.sporttery_snapshots,
             model_states=(model_state,),
         )
-        completed_at = request.execution_time_utc or utc_now()
+        completed_at = (
+            normalize_utc(self._clock())
+            if pinned
+            else request.execution_time_utc or self._clock()
+        )
+        binding = None
+        if pinned:
+            completion = production.authorization(release.artifact_id, completed_at)
+            if completion.actual_at_utc != completed_at:
+                raise ValueError(
+                    "production authorization returned the wrong actual time"
+                )
+            assert_authorization_progression(start_authorization, completion)
+            release_active_for_inference(
+                release=release,
+                plan=plan,
+                current=completion,
+                state_retention_horizon=release.content_payload.state_retention_horizon,
+                audit_retention_horizon=release.content_payload.audit_retention_horizon,
+            )
+            if completed_at >= min(
+                item.kickoff_at_utc for item in plan.content_payload.targets
+            ):
+                raise ValueError(
+                    "production inference must complete before planned kickoff"
+                )
+            core = release.content_payload.released_state_core
+            binding = prior_binding or ProductionInferenceBindingV1(
+                analysis_run_id=run_id,
+                quant_model_state_id=model_state.quant_model_state_id,
+                release=release.reference(),
+                target_acceptance_plan=plan.reference(),
+                released_state_core_hash=core.content_hash,
+                training_cutoff_at_utc=release.content_payload.training_cutoff_at_utc,
+                training_data_hash=core.content_payload.training_data_hash,
+                approved_facts_hash=core.content_payload.approved_facts_hash,
+                start_authorization=start_authorization,
+                completion_authorization=completion,
+                state_retention_horizon=release.content_payload.state_retention_horizon,
+                audit_retention_horizon=release.content_payload.audit_retention_horizon,
+            )
+            completed_at = binding.completion_authorization.actual_at_utc
         analysis_run = AnalysisRun(
             analysis_run_id=run_id,
             as_of_at_utc=request.as_of_at_utc,
@@ -508,6 +711,7 @@ class RunModelAnalysisService:
             quant_model_states=(model_state,),
             quant_model_evaluations=tuple(model_evaluations),
             live_source_preparation_id=request.live_source_preparation_id,
+            production_binding=binding,
         )
         self._repository.save_analysis(artifacts, rules)
         return ModelAnalysisDecision(
@@ -545,7 +749,9 @@ def _select_model_inputs(
     for group in (odds_batch.snapshots, sporttery_batch.snapshots):
         for snapshot in group:
             if snapshot.match_id not in requested:
-                raise ValueError("provider returned an unrequested model-analysis match")
+                raise ValueError(
+                    "provider returned an unrequested model-analysis match"
+                )
             if any(
                 timestamp > request.as_of_at_utc
                 for timestamp in (
@@ -569,8 +775,12 @@ def _select_model_inputs(
         and match_id in bonus_by_match
     )
     if not request.allow_partial_inputs and len(complete_ids) != len(ordered_ids):
-        missing = tuple(match_id for match_id in ordered_ids if match_id not in complete_ids)
-        raise ValueError("required model analysis inputs missing for: " + ", ".join(missing))
+        missing = tuple(
+            match_id for match_id in ordered_ids if match_id not in complete_ids
+        )
+        raise ValueError(
+            "required model analysis inputs missing for: " + ", ".join(missing)
+        )
     selected_ids = set(complete_ids)
     matches = tuple(match_by_id[match_id] for match_id in complete_ids)
     market_snapshots = tuple(
@@ -603,7 +813,9 @@ def _select_model_inputs(
         raise ValueError("model analysis fixture is missing its provider mapping")
     competition_ids = {match.competition_id for match in matches}
     competitions = tuple(
-        item for item in fixture_batch.competitions if item.competition_id in competition_ids
+        item
+        for item in fixture_batch.competitions
+        if item.competition_id in competition_ids
     )
     if {item.competition_id for item in competitions} != competition_ids:
         raise ValueError("model analysis fixture is missing its competition")
@@ -630,7 +842,7 @@ def _validate_runtime_outputs(
     fixture_batch: FixtureBatch,
     odds_batch: MarketOddsBatch,
     sporttery_batch: SportteryBatch,
-    training_batch: EloTrainingHistoryBatch,
+    training_batch: EloTrainingHistoryBatch | None,
 ) -> None:
     if not provenance:
         return
@@ -644,10 +856,11 @@ def _validate_runtime_outputs(
             *(item.provider_code for item in sporttery_batch.snapshots),
             *(item.provider_code for item in sporttery_batch.mappings),
         },
-        "model_training": {
-            source.archive.provider_code for source in training_batch.sources
-        },
     }
+    if training_batch is not None:
+        actual_codes["model_training"] = {
+            source.archive.provider_code for source in training_batch.sources
+        }
     for role, codes in actual_codes.items():
         if any(code != provenance[role].provider_code for code in codes):
             raise ProviderRuntimeProvenanceMismatchError(

@@ -10,6 +10,7 @@ from pydantic import BaseModel, ValidationError
 
 from football_system.application.ports.review_artifacts import (
     ReviewArtifactRepository,
+    repository_operation,
 )
 from football_system.domain.common import stable_id, utc_now
 from football_system.domain.review import (
@@ -82,6 +83,14 @@ class ExportAnalysisPacketService:
         analysis_run_id: str,
         schema_version: str = "ANALYSIS_PACKET_V1",
     ) -> tuple[AnalysisPacketContract, str]:
+        with repository_operation(
+            self._repository, analysis_run_id=analysis_run_id, require_sidecar=False
+        ):
+            return self._export(analysis_run_id, schema_version)
+
+    def _export(
+        self, analysis_run_id: str, schema_version: str
+    ) -> tuple[AnalysisPacketContract, str]:
         if schema_version not in {
             "ANALYSIS_PACKET_V1",
             "ANALYSIS_PACKET_V2",
@@ -121,6 +130,17 @@ class ImportLLMReviewService:
         self,
         packet_bytes: bytes,
         review_bytes: bytes,
+    ) -> LLMReviewArtifact:
+        packet = _parse_analysis_packet(packet_bytes)
+        with repository_operation(
+            self._repository,
+            analysis_run_id=packet.analysis_run.analysis_run_id,
+            packet_id=packet.packet_id,
+        ):
+            return self._import_review(packet_bytes, review_bytes)
+
+    def _import_review(
+        self, packet_bytes: bytes, review_bytes: bytes
     ) -> LLMReviewArtifact:
         packet, submission, normalized_review_json = validate_review_files(
             packet_bytes,

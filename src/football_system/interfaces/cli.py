@@ -189,6 +189,10 @@ THE_ODDS_API_BASE_URL = "https://api.the-odds-api.com/"
 def main(argv: Sequence[str] | None = None) -> int:
     _configure_utf8_output()
     arguments = list(argv) if argv is not None else sys.argv[1:]
+    if arguments[:1] == ["production-quant"]:
+        from football_system.interfaces.production_quant_cli import dispatch_production_quant
+
+        return dispatch_production_quant(arguments[1:])
     if arguments[:1] == ["live"]:
         return _dispatch_live(arguments[1:])
     if arguments[:1] == ["historical-archive"]:
@@ -973,12 +977,52 @@ def _run_live_analysis(
     preparation_selector.add_argument("--preparation-id")
     parser.add_argument("--budget", nargs="+", required=True)
     parser.add_argument("--analysis-run-id")
+    parser.add_argument("--production-model-release-id")
+    parser.add_argument("--production-target-acceptance-plan-id")
+    parser.add_argument("--evidence-root", type=Path)
+    parser.add_argument("--authority-pins", type=Path)
+    parser.add_argument("--operator")
     args = parser.parse_args(arguments)
+    production_options = (
+        args.production_model_release_id,
+        args.production_target_acceptance_plan_id,
+        args.evidence_root,
+        args.authority_pins,
+        args.operator,
+    )
+    using_release = any(value is not None for value in production_options)
+    if using_release and any(value is None for value in production_options):
+        parser.error(
+            "pinned production inference requires both release/target-plan IDs, "
+            "--evidence-root, --authority-pins and --operator"
+        )
     try:
         settings, database_url = _live_settings(args.config, args.database_url)
         budgets_fen = tuple(_yuan_to_fen(value, parser) for value in args.budget)
         if len(budgets_fen) != len(set(budgets_fen)):
             raise ValueError("budgets must be unique")
+        evidence = None
+        if using_release:
+            from football_system.interfaces.production_quant_cli import (
+                MAX_PINS_BYTES,
+                AuthorityPinsV1,
+                LocalTrainingEvidence,
+                ReviewerAuthorityV1,
+                _read_json,
+                production_inference_context,
+                strict_json_bytes,
+            )
+
+            pins = AuthorityPinsV1.model_validate(
+                _read_json(args.authority_pins, MAX_PINS_BYTES)
+            )
+            evidence = LocalTrainingEvidence(
+                args.evidence_root, trusted_authorities=pins.trusted_authorities
+            )
+            for name, digest in pins.trusted_authorities.items():
+                ReviewerAuthorityV1.model_validate(
+                    strict_json_bytes(evidence.read(name, digest))
+                )
         sessions, _, live_repository = _open_live_repositories(
             database_url,
             clock=clock or utc_now,
@@ -999,17 +1043,31 @@ def _run_live_analysis(
         bundle = live_repository.load_prepared_sources(preparation_id)
         if bundle.preparation.status is not PreparationStatus.ANALYSIS_INPUT_READY:
             raise ValueError("live source preparation is not analysis-input ready")
-        execution_time = (clock or utc_now)()
+        execution_time = None if using_release else (clock or utc_now)()
         elo_config = EloBaselineConfig()
-        analysis_repository = SqlAlchemyAnalysisRepository(sessions)
+        production_inference = None
+        if using_release:
+            _, _, _, production_inference, _ = production_inference_context(
+                sessions,
+                evidence=evidence,
+                operator_id=args.operator,
+                clock=clock or utc_now,
+            )
+        analysis_repository = SqlAlchemyAnalysisRepository(
+            sessions, production_release_repository=production_inference
+        )
         service = RunModelAnalysisService(
             fixture_provider=PreparedLiveFixtureProvider(bundle),
             market_odds_provider=PreparedLiveMarketOddsProvider(bundle),
             sporttery_provider=PreparedLiveSportteryProvider(bundle),
-            training_history_provider=NoAvailableLiveTrainingHistoryProvider(),
+            training_history_provider=(
+                None if using_release else NoAvailableLiveTrainingHistoryProvider()
+            ),
             repository=analysis_repository,
             settings=settings,
             elo_config=elo_config,
+            production_release_repository=production_inference,
+            clock=clock,
         )
         artifacts = asyncio.run(
             service.run(
@@ -1027,6 +1085,10 @@ def _run_live_analysis(
                     season_id=bundle.season_id,
                     elo_config=elo_config,
                     live_source_preparation_id=preparation_id,
+                    production_model_release_id=args.production_model_release_id,
+                    production_target_acceptance_plan_id=(
+                        args.production_target_acceptance_plan_id
+                    ),
                     prepared_fixture_observations=tuple(
                         PreparedFixtureObservationRef(
                             match_id=item.match_id,
@@ -1047,8 +1109,19 @@ def _run_live_analysis(
         ValidationError,
         ValueError,
     ) as error:
+        if using_release:
+            parser.error(
+                "pinned production inference rejected; verify retained evidence, "
+                "release/target-plan pins and current grants. No fallback is permitted."
+            )
         parser.error(str(error))
     print(f"Live source preparation: {preparation_id}")
+    if using_release:
+        print(
+            "Decision mode: LIVE_STRICT; training mode: SOURCE_TIME_RESEARCH; "
+            "training use: APPROVED_TRAINING_HISTORY; retrospective facts: true"
+        )
+        print(f"Pinned production release: {args.production_model_release_id}")
     print(format_analysis(artifacts, analysis_repository.table_counts()))
     return 0
 
@@ -2205,7 +2278,9 @@ def _build_parser() -> argparse.ArgumentParser:
             "historical-archive import; match-results list; settlement create; "
             "settlement report; backtest run; backtest report; backtest compare. "
             "Offline review commands: analysis-packet export; "
-            "llm-review validate/import; fusion-run create; portfolio-revision create."
+            "llm-review validate/import; fusion-run create; portfolio-revision create. "
+            "Local production quant contracts: production-quant --help; "
+            "production-quant --print-schema."
         ),
     )
     parser.add_argument(

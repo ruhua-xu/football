@@ -77,14 +77,29 @@ from football_system.infrastructure.database.models import (
     SportteryBonusQuoteRecord,
     TeamRecord,
 )
+from football_system.infrastructure.database.production_audit_repository import (
+    ProductionAuditGuard,
+    SqlAlchemyProductionAuditRepository,
+)
 
 
 class SqlAlchemyReviewArtifactRepository:
-    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+    def __init__(
+        self,
+        session_factory: sessionmaker[Session],
+        *,
+        audit_repository: SqlAlchemyProductionAuditRepository | None = None,
+    ) -> None:
         self._session_factory = session_factory
+        self._audit = ProductionAuditGuard(session_factory, audit_repository)
+
+    def audit_operation(self, **scope):
+        return self._audit.operation(**scope)
 
     def load_packet_source(self, analysis_run_id: str) -> AnalysisPacketSource:
-        with self._session_factory() as session:
+        with self._audit.operation(
+            analysis_run_id=analysis_run_id, require_sidecar=False
+        ) as session:
             run = session.get(AnalysisRunRecord, analysis_run_id)
             if run is None:
                 raise KeyError(f"unknown AnalysisRun: {analysis_run_id}")
@@ -118,7 +133,9 @@ class SqlAlchemyReviewArtifactRepository:
             )
 
     def load_packet_source_v2(self, analysis_run_id: str) -> AnalysisPacketSourceV2:
-        with self._session_factory() as session:
+        with self._audit.operation(
+            analysis_run_id=analysis_run_id, require_sidecar=False
+        ) as session:
             run = session.get(AnalysisRunRecord, analysis_run_id)
             if run is None:
                 raise KeyError(f"unknown AnalysisRun: {analysis_run_id}")
@@ -152,56 +169,66 @@ class SqlAlchemyReviewArtifactRepository:
             )
 
     def load_packet_source_v3(self, analysis_run_id: str) -> AnalysisPacketSourceV3:
-        with self._session_factory() as session:
-            run = session.get(AnalysisRunRecord, analysis_run_id)
-            if run is None:
-                raise KeyError(f"unknown AnalysisRun: {analysis_run_id}")
-            if run.status != "COMPLETED" or run.completed_at_utc is None:
-                raise ValueError("AnalysisPacket requires a completed AnalysisRun")
-            if _sha256(run.config_json) != run.config_hash:
-                raise ValueError("stored AnalysisRun config failed hash verification")
-            if _sha256(run.input_manifest_json) != run.input_manifest_hash:
-                raise ValueError("stored AnalysisRun manifest failed hash verification")
-            contexts = tuple(
-                session.scalars(
-                    select(AnalysisRunMatchRecord)
-                    .where(AnalysisRunMatchRecord.analysis_run_id == analysis_run_id)
-                    .order_by(AnalysisRunMatchRecord.internal_match_id)
-                )
+        with self._audit.operation(
+            analysis_run_id=analysis_run_id, require_sidecar=False
+        ) as session:
+            return self._load_packet_source_v3(session, analysis_run_id)
+
+    @classmethod
+    def _load_packet_source_v3(
+        cls, session: Session, analysis_run_id: str
+    ) -> AnalysisPacketSourceV3:
+        run = session.get(AnalysisRunRecord, analysis_run_id)
+        if run is None:
+            raise KeyError(f"unknown AnalysisRun: {analysis_run_id}")
+        if run.status != "COMPLETED" or run.completed_at_utc is None:
+            raise ValueError("AnalysisPacket requires a completed AnalysisRun")
+        if _sha256(run.config_json) != run.config_hash:
+            raise ValueError("stored AnalysisRun config failed hash verification")
+        if _sha256(run.input_manifest_json) != run.input_manifest_hash:
+            raise ValueError("stored AnalysisRun manifest failed hash verification")
+        contexts = tuple(
+            session.scalars(
+                select(AnalysisRunMatchRecord)
+                .where(AnalysisRunMatchRecord.analysis_run_id == analysis_run_id)
+                .order_by(AnalysisRunMatchRecord.internal_match_id)
             )
-            matches = tuple(
-                self._load_match_v3(session, run, context) for context in contexts
-            )
-            state_ids = sorted(
-                {
-                    match.p_quant.evaluation.quant_model_state_id
-                    for match in matches
-                    if isinstance(match.p_quant, PacketModelQuantLineageV3)
-                }
-            )
-            return AnalysisPacketSourceV3(
-                analysis_run=AnalysisPacketRunV3(
-                    analysis_run_id=run.analysis_run_id,
-                    as_of_at_utc=run.as_of_at_utc,
-                    started_at_utc=run.started_at_utc,
-                    completed_at_utc=run.completed_at_utc,
-                    pipeline_version=run.pipeline_version,
-                    code_revision=run.code_revision,
-                    input_manifest_version=run.input_manifest_version,
-                    input_manifest_hash=run.input_manifest_hash,
-                ),
-                quant_model_states=tuple(
-                    _quant_model_state(session, state_id) for state_id in state_ids
-                ),
-                matches=matches,
-            )
+        )
+        matches = tuple(
+            cls._load_match_v3(session, run, context) for context in contexts
+        )
+        state_ids = sorted(
+            {
+                match.p_quant.evaluation.quant_model_state_id
+                for match in matches
+                if isinstance(match.p_quant, PacketModelQuantLineageV3)
+            }
+        )
+        return AnalysisPacketSourceV3(
+            analysis_run=AnalysisPacketRunV3(
+                analysis_run_id=run.analysis_run_id,
+                as_of_at_utc=run.as_of_at_utc,
+                started_at_utc=run.started_at_utc,
+                completed_at_utc=run.completed_at_utc,
+                pipeline_version=run.pipeline_version,
+                code_revision=run.code_revision,
+                input_manifest_version=run.input_manifest_version,
+                input_manifest_hash=run.input_manifest_hash,
+            ),
+            quant_model_states=tuple(
+                _quant_model_state(session, state_id) for state_id in state_ids
+            ),
+            matches=matches,
+        )
 
     def find_analysis_packet(
         self,
         analysis_run_id: str,
         schema_version: str,
     ) -> StoredAnalysisPacket | None:
-        with self._session_factory() as session:
+        with self._audit.operation(
+            analysis_run_id=analysis_run_id, require_sidecar=False
+        ) as session:
             record = session.scalar(
                 select(AnalysisPacketRecord).where(
                     AnalysisPacketRecord.parent_analysis_run_id == analysis_run_id,
@@ -216,10 +243,17 @@ class SqlAlchemyReviewArtifactRepository:
         packet_json: str,
     ) -> StoredAnalysisPacket:
         try:
-            with self._session_factory.begin() as session:
+            with self._audit.operation(
+                analysis_run_id=packet.analysis_run.analysis_run_id,
+                require_sidecar=False,
+            ) as session:
                 existing = _find_packet_record(session, packet)
                 if existing is not None:
+                    self._audit.require(session, existing.parent_analysis_run_id)
                     return _stored_packet(existing)
+                operation = self._audit.require(
+                    session, packet.analysis_run.analysis_run_id, require_sidecar=False
+                )
                 record = AnalysisPacketRecord(
                     packet_id=packet.packet_id,
                     parent_analysis_run_id=packet.analysis_run.analysis_run_id,
@@ -230,16 +264,23 @@ class SqlAlchemyReviewArtifactRepository:
                 )
                 session.add(record)
                 session.flush()
+                if operation is not None:
+                    SqlAlchemyProductionAuditRepository.create_in_session(
+                        self._audit.repository, session, packet.packet_id, operation
+                    )
                 return _stored_packet(record)
         except IntegrityError:
-            with self._session_factory() as session:
+            with self._audit.operation(
+                analysis_run_id=packet.analysis_run.analysis_run_id
+            ) as session:
                 existing = _find_packet_record(session, packet)
                 if existing is not None:
+                    self._audit.require(session, existing.parent_analysis_run_id)
                     return _stored_packet(existing)
             raise
 
     def load_analysis_packet(self, packet_id: str) -> StoredAnalysisPacket:
-        with self._session_factory() as session:
+        with self._audit.operation(packet_id=packet_id) as session:
             record = session.get(AnalysisPacketRecord, packet_id)
             if record is None:
                 raise KeyError(f"unknown AnalysisPacket: {packet_id}")
@@ -247,9 +288,16 @@ class SqlAlchemyReviewArtifactRepository:
 
     def save_llm_review(self, artifact: LLMReviewArtifact) -> LLMReviewArtifact:
         try:
-            with self._session_factory.begin() as session:
+            with self._audit.operation(
+                analysis_run_id=artifact.parent_analysis_run_id,
+                packet_id=artifact.packet_id,
+            ) as session:
+                packet = session.get(AnalysisPacketRecord, artifact.packet_id)
+                if packet.packet_hash != artifact.packet_hash:
+                    raise ValueError("review packet hash differs from stored packet")
                 existing = _find_review_record(session, artifact)
                 if existing is not None:
+                    self._audit.require(session, existing.parent_analysis_run_id)
                     return _review_artifact(existing)
                 record = LLMReviewArtifactRecord(
                     review_artifact_id=artifact.review_artifact_id,
@@ -269,9 +317,13 @@ class SqlAlchemyReviewArtifactRepository:
                 session.flush()
                 return _review_artifact(record)
         except IntegrityError:
-            with self._session_factory() as session:
+            with self._audit.operation(
+                analysis_run_id=artifact.parent_analysis_run_id,
+                packet_id=artifact.packet_id,
+            ) as session:
                 existing = _find_review_record(session, artifact)
                 if existing is not None:
+                    self._audit.require(session, existing.parent_analysis_run_id)
                     return _review_artifact(existing)
             raise
 
@@ -746,10 +798,10 @@ def _stored_market(record: object, label: str) -> MarketKey:
     return market
 
 
-def _quant_model_state(
+def _load_model_state(
     session: Session,
     quant_model_state_id: str,
-) -> PacketQuantModelStateV3:
+) -> QuantModelStateArtifact:
     record = _required(
         session.get(QuantModelStateRecord, quant_model_state_id),
         "quant model state",
@@ -766,7 +818,7 @@ def _quant_model_state(
     )
     if record.training_fact_count != len(facts):
         raise ValueError("stored quant model state has incomplete training lineage")
-    artifact = QuantModelStateArtifact(
+    return QuantModelStateArtifact(
         quant_model_state_id=record.quant_model_state_id,
         analysis_run_id=record.analysis_run_id,
         model_name=record.model_name,
@@ -792,6 +844,12 @@ def _quant_model_state(
         ),
         generated_at_utc=record.generated_at_utc,
     )
+
+
+def _quant_model_state(
+    session: Session, quant_model_state_id: str
+) -> PacketQuantModelStateV3:
+    artifact = _load_model_state(session, quant_model_state_id)
     return PacketQuantModelStateV3(
         quant_model_state_id=artifact.quant_model_state_id,
         analysis_run_id=artifact.analysis_run_id,
