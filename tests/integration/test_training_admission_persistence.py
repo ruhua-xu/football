@@ -13,6 +13,7 @@ from traceback import format_exception
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import event, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 
@@ -49,6 +50,7 @@ from football_system.infrastructure.database.models import (
     CanonicalMatchIdentityRecord,
     CompetitionRecord,
     MatchRecord,
+    MatchResultRecord,
     ProviderCompetitionMappingRecord,
     ProviderMatchMappingRecord,
     ProviderRecord,
@@ -908,7 +910,19 @@ def test_new_correction_invalidates_reads_and_new_admissions(lane):
             "ingested_at_utc": original.ingested_at_utc + timedelta(seconds=1),
         }
     )
-    SqlAlchemyHistoricalRepository(lane.sessions).append_match_result(correction)
+    with pytest.raises(IntegrityError, match="controlled correction"):
+        SqlAlchemyHistoricalRepository(lane.sessions).append_match_result(correction)
+    assert lane.repo.load(value.training_fact_admission_id) == value
+    # Deliberate corruption after removing the new guard must still fail reads.
+    with lane.engine.begin() as connection:
+        connection.exec_driver_sql("DROP TRIGGER trg_match_results_controlled_stream_insert")
+        row = connection.execute(select(MatchResultRecord.__table__)).mappings().one()
+        corrupted = dict(row)
+        corrupted.update(match_result_id=correction.match_result_id,
+            source_result_key=correction.source_result_key, home_goals=correction.home_goals,
+            payload_hash=correction.payload_hash, ingested_at_utc=correction.ingested_at_utc,
+            supersedes_match_result_id=original.match_result_id)
+        connection.execute(MatchResultRecord.__table__.insert().values(**corrupted))
     with pytest.raises(
         ControlledTrainingCorrectionRequired, match="implementation is missing"
     ):
@@ -960,7 +974,7 @@ def test_migration_upgrade_empty_downgrade_and_populated_refusal(tmp_path):
         assert connection.execute(text("PRAGMA foreign_key_check")).all() == []
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))
-            == "c2ebf618d354"
+            == ScriptDirectory.from_config(config).get_current_head()
         )
     engine.dispose()
     command.downgrade(config, "6e4b1a9c2d73")

@@ -761,7 +761,7 @@ def test_inference_migration_runtime_offline_and_empty_downgrade(tmp_path):
     config = Config("alembic.ini")
     url = f"sqlite:///{(tmp_path / 'inference-migration.db').as_posix()}"
     config.set_main_option("sqlalchemy.url", url)
-    command.upgrade(config, "head")
+    command.upgrade(config, "c2ebf618d354")
     engine = create_database_engine(url)
     assert set(PRODUCTION_INFERENCE_TABLES) <= set(inspect(engine).get_table_names())
     with engine.connect() as connection:

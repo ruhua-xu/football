@@ -254,16 +254,12 @@ class SqlAlchemyProductionInferenceRepository:
             # The repository verifies all event rows before applying its as-of
             # filter. Require the returned snapshot to cover EVERY scoped row,
             # including recorded revocations whose effective time is still future.
-            corrections = Base.metadata.tables["training_source_correction_events"]
-            correction_ids = set(
-                session.scalars(
-                    select(corrections.c.correction_id).where(
-                        corrections.c.internal_match_id.in_(
-                            release.content_payload.released_state_core.content_payload.training_match_ids
-                        )
-                    )
+            correction_ids = {
+                item.artifact_id
+                for item in self._production.correction_events_in_session(
+                    session, release.training_manifest.content_payload.history
                 )
-            )
+            }
             revocation_ids = {
                 row["revocation_id"]
                 for row in _rows(

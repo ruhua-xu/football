@@ -231,6 +231,40 @@ def provider_record_sha256(record: object) -> str:
     return tagged_canonical_sha256("TRAINING_PROVIDER_RECORD_V1", record)
 
 
+def verified_provider_fields(payload, reference, paths, *, digest, nullable_fields=(), missing_fields=()):
+    """Shared strict extraction; nulls are allowed only by the new caller contract."""
+    record = json_pointer(strict_json_bytes(payload), reference.record_pointer)
+    if provider_record_sha256(record) != digest:
+        raise ValueError("full provider record hash mismatch")
+    field_paths = paths.model_dump(exclude_none=True)
+    if len(set(field_paths.values())) != len(field_paths):
+        raise ValueError("provider field paths must be distinct")
+    extracted = {}
+    for key, path in field_paths.items():
+        try:
+            extracted[key] = json_pointer(record, path)
+        except ValueError as error:
+            if key not in missing_fields or str(error) != "missing provider field":
+                raise
+            extracted[key] = None
+    for key, value in extracted.items():
+        if value is None and key in nullable_fields:
+            continue
+        if key in {"home_goals", "away_goals", "revision_order"}:
+            if type(value) is not int or value < 0:
+                raise ValueError("provider scores/order must be nonnegative JSON integers")
+        elif key.endswith("_at_utc"):
+            if not isinstance(value, str) or "T" not in value:
+                raise ValueError("provider time must be an explicit ISO-8601 timestamp")
+            try:
+                extracted[key] = normalize_utc(datetime.fromisoformat(value))
+            except (ValueError, TypeError, OverflowError):
+                raise ValueError(f"invalid provider timestamp field: {key}") from None
+        elif not isinstance(value, str) or not value or value != value.strip():
+            raise ValueError("provider identity/status fields must be explicit strings")
+    return extracted
+
+
 class _WindowsEvidenceHandles:
     """Win32 handles, with validation before transferring any handle to a reader."""
 
@@ -544,36 +578,7 @@ class LocalTrainingEvidence:
             hashes,
             strict=True,
         ):
-            record = json_pointer(strict_json_bytes(payload), ref.record_pointer)
-            if provider_record_sha256(record) != digest:
-                raise ValueError("full provider record hash mismatch")
-            field_paths = paths.model_dump()
-            if len(set(field_paths.values())) != len(field_paths):
-                raise ValueError("provider field paths must be distinct")
-            extracted = {
-                key: json_pointer(record, path) for key, path in field_paths.items()
-            }
-            for key, value in extracted.items():
-                if key in {"home_goals", "away_goals"}:
-                    if type(value) is not int or value < 0:
-                        raise ValueError(
-                            "provider scores must be nonnegative JSON integers"
-                        )
-                elif key.endswith("_at_utc"):
-                    if not isinstance(value, str) or "T" not in value:
-                        raise ValueError(
-                            "provider time must be an explicit ISO-8601 timestamp"
-                        )
-                    try:
-                        extracted[key] = normalize_utc(datetime.fromisoformat(value))
-                    except (ValueError, TypeError, OverflowError):
-                        raise ValueError(
-                            f"invalid provider timestamp field: {key}"
-                        ) from None
-                elif not isinstance(value, str) or not value or value != value.strip():
-                    raise ValueError(
-                        "provider identity/status fields must be explicit strings"
-                    )
+            extracted = verified_provider_fields(payload, ref, paths, digest=digest)
             if (
                 extracted["fixture_key"],
                 extracted["competition_id"],

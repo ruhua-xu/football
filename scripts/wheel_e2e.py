@@ -17,7 +17,7 @@ from typing import Sequence
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_VERSION = "0.5.0"
-EXPECTED_MIGRATION_HEAD = "c2ebf618d354"
+EXPECTED_MIGRATION_HEAD = "f51e294b0687"
 PROVIDER_CODE = "SYNTHETIC_ACCEPTANCE_V1"
 QUANT_RUN_ID = "wheel-e2e-quant"
 BLEND_RUN_ID = "wheel-e2e-blend"
@@ -93,6 +93,9 @@ EXPECTED_RESOURCE_FILES = frozenset(
         "migrations/versions/a0c9e4f6b132_add_production_quant_releases.py",
         "migrations/versions/b1dae507c243_bind_production_quant_analysis.py",
         "migrations/versions/c2ebf618d354_add_production_audit_bundles.py",
+        "migrations/versions/d3fc0729e465_add_training_approval_v2.py",
+        "migrations/versions/e40d183af576_add_controlled_training_corrections.py",
+        "migrations/versions/f51e294b0687_bind_corrected_quant_history.py",
     }
 )
 
@@ -467,21 +470,49 @@ print(json.dumps({
         [executable, "production-quant", "--help"],
         cwd=work_dir,
         environment=environment,
-        markers=("pilot-plan", "bundle-export", "approval-record", "BLOCKED"),
+        markers=(
+            "pilot-plan",
+            "bundle-export",
+            "approval-prepare",
+            "approval-record",
+            "correction-reference",
+            "correction-prepare",
+            "correction-admit",
+            "correction-context",
+        ),
     )
     _run_checked(
         "production quant request schema",
         [executable, "production-quant", "pilot-plan", "--print-schema"],
         cwd=work_dir,
         environment=environment,
-        markers=("QuantIntegrityPlanDefinitionV1", "additionalProperties"),
+        markers=(
+            "QuantIntegrityPlanDefinitionV1",
+            "QuantIntegrityPlanDefinitionV2",
+            "QuantIntegrityTargetV2",
+            "additionalProperties",
+        ),
+    )
+    _run_checked(
+        "production quant correction request schema",
+        [executable, "production-quant", "correction-admit", "--print-schema"],
+        cwd=work_dir,
+        environment=environment,
+        markers=(
+            "TrainingCorrectionIntentV2",
+            "reviewer_evidence",
+            "reviewer_authority",
+        ),
     )
     _run_checked(
         "pinned production live help",
         [executable, "live", "run-analysis", "--help"],
         cwd=work_dir,
         environment=environment,
-        markers=("--production-model-release-id", "--production-target-acceptance-plan-id"),
+        markers=(
+            "--production-model-release-id",
+            "--production-target-acceptance-plan-id",
+        ),
     )
 
     _run_checked(

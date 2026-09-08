@@ -39,7 +39,6 @@ from football_system.domain.production_release import (
     ApprovedTrainingHistoryAuditV1,
     CurrentAuthorizationInputsV1,
     GrantRevocationV1,
-    SourceCorrectionV1,
     assert_authorization_progression,
     release_active_for_inference,
 )
@@ -48,11 +47,13 @@ from football_system.infrastructure.database.models import Base
 from football_system.infrastructure.database.production_audit_schema import (
     admitted_training_sql_v1,
 )
+from football_system.infrastructure.database.versioned_quant_schema import (
+    admitted_training_sql_v2,
+)
 from football_system.infrastructure.database.production_inference_repository import (
     SqlAlchemyProductionInferenceRepository,
 )
 from football_system.infrastructure.database.production_quant_repository import (
-    ControlledTrainingCorrectionRequired,
     SqlAlchemyProductionQuantRepository,
     _verification_scope,
     _verified_read,
@@ -192,31 +193,12 @@ class SqlAlchemyProductionAuditRepository:
             state_retention_horizon=binding.state_retention_horizon,
             audit_retention_horizon=binding.audit_retention_horizon,
         )
-        if any(
-            item.content_payload.registered_at_utc <= final.actual_at_utc
-            for item in final.corrections
-        ):
-            raise ControlledTrainingCorrectionRequired(
-                "registered correction event blocks production until full controlled predecessor path exists"
-            )
         return audit
 
-    @staticmethod
-    def _authorization_events_in_session(session, release):
+    def _authorization_events_in_session(self, session, release):
         approval_id = release.training_approval.artifact_id
         tables = Base.metadata.tables
         filters = (
-            (
-                "corrections",
-                SourceCorrectionV1,
-                "training_source_correction_events",
-                tables["training_source_correction_events"].c.internal_match_id.in_(
-                    tuple(
-                        item.content_payload.elo_fact.match_id
-                        for item in release.content_payload.release_facts
-                    )
-                ),
-            ),
             (
                 "revocations",
                 GrantRevocationV1,
@@ -232,18 +214,23 @@ class SqlAlchemyProductionAuditRepository:
             ),
         )
         return {
-            name: tuple(
-                sorted(
-                    (
-                        model.model_validate_json(row["artifact_json"])
-                        for row in session.execute(
-                            select(tables[table]).where(condition)
-                        ).mappings()
-                    ),
-                    key=lambda item: item.artifact_id,
+            "corrections": self._production.correction_events_in_session(
+                session, release.training_manifest.content_payload.history
+            ),
+            **{
+                name: tuple(
+                    sorted(
+                        (
+                            model.model_validate_json(row["artifact_json"])
+                            for row in session.execute(
+                                select(tables[table]).where(condition)
+                            ).mappings()
+                        ),
+                        key=lambda item: item.artifact_id,
+                    )
                 )
-            )
-            for name, model, table, condition in filters
+                for name, model, table, condition in filters
+            },
         }
 
     def create_in_session(
@@ -517,6 +504,13 @@ class ProductionAuditGuard:
         ):
             raise ValueError("invalid stored production operation config")
         request = config.get("request", {})
+        training_sql = admitted_training_sql_v1
+        if session.scalar(
+            text(
+                "SELECT 1 FROM sqlite_master WHERE name='training_correction_result_bindings'"
+            )
+        ):
+            training_sql = admitted_training_sql_v2
         requires_audit = (
             request.get("model_training_use_class") == "APPROVED_TRAINING_HISTORY"
             or request.get("production_model_release_id") is not None
@@ -530,7 +524,7 @@ class ProductionAuditGuard:
                 )
             )
             or session.scalar(
-                text(f"SELECT {admitted_training_sql_v1(':analysis_run_id')}"),
+                text(f"SELECT {training_sql(':analysis_run_id')}"),
                 {"analysis_run_id": analysis_run_id},
             )
         )

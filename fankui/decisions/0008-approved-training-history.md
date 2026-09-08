@@ -4,7 +4,7 @@
 
 Accepted
 
-外部架构审查对 commit `34638a3dee17c58631942da8c7a690869ff4daf5` 的结论为 `APPROVE WITH MINOR CHANGES`，无 blocker；本修订纳入全部要求后接受该架构。接受 ADR 不等于本次开始实现：本次仍不授权运行时代码、数据库迁移、真实数据导入或 package 版本变更；在后续独立实施前，`0.5.0` 的 `LIVE_STRICT` guard、`MODEL_UNAVAILABLE` 行为和 ADR-0007 全部保持不变。
+外部架构审查对 commit `34638a3dee17c58631942da8c7a690869ff4daf5` 的结论为 `APPROVE WITH MINOR CHANGES`，无 blocker；纳入修订后接受该架构。后续实施已获独立授权。外部裁决保留 `c9083e59a5fd3ad3a2528b5d4997b5cbcabcc415`，确认其 CI 成功但整体验收未完成，并正式授权下述 approval V2 envelope 修订、受控 correction 和显式 season 接口实现。该授权不是数据许可、reviewer 审批或发布授权；不得合并 main、发布版本或改写 `0.5.0` 既有运行。
 
 ## 与 ADR-0007 的关系
 
@@ -56,7 +56,7 @@ Production bootstrap 必须解决这些缺口，同时保持 Elo 算法、现有
 | Training grant 过期、撤销、stale 或 hash 不匹配 | 已封存研究不改写 | 禁止新 build | 不替代独立 inference predicate | 对 build fail closed |
 | Inference/retention grant 或 release 过期、撤销、stale 或 hash 不匹配 | 已封存研究不改写 | 不替代独立 build predicate | 禁止新 run/downstream artifact | 对 inference fail closed |
 
-`TRAINING_HISTORY_APPROVAL_V1` 只解决 retrospective `SOURCE_TIME_RESEARCH` bootstrap，并赋予 `training_use_class=APPROVED_TRAINING_HISTORY`。它不取代、收紧或放宽普通 `LIVE_STRICT` path。一个 history manifest 只能使用一种 source mode；V1 固定为 `SOURCE_TIME_RESEARCH` 和 `source_classification=REAL_SOURCE_DATA`。`REAL_SOURCE_DATA` 仅表示非 synthetic 且通过 source rights/fact admission，不表示 `LIVE_STRICT` 或自动获得 production 权利。
+新审批使用 `TRAINING_HISTORY_APPROVAL_V2`，只解决 retrospective `SOURCE_TIME_RESEARCH` bootstrap，并赋予 `training_use_class=APPROVED_TRAINING_HISTORY`。V1 已有解析/hash 语义保留，不自动转换或重新审核。审批不取代、收紧或放宽普通 `LIVE_STRICT` path。一个 history manifest 只能使用一种 source mode；本路径固定为 `SOURCE_TIME_RESEARCH` 和 `source_classification=REAL_SOURCE_DATA`。`REAL_SOURCE_DATA` 仅表示非 synthetic 且通过 source rights/fact admission，不表示 `LIVE_STRICT` 或自动获得 production 权利。
 
 完整流程为：
 
@@ -65,7 +65,7 @@ SOURCE_RIGHTS_ADMISSION_V1
   -> SOURCE_TIME_RESEARCH archives
   -> mandatory PRODUCTION_QUANT_INTEGRITY_PILOT
   -> TRAINING_HISTORY_MANIFEST_V1
-  -> TRAINING_HISTORY_APPROVAL_V1 event
+  -> TRAINING_HISTORY_APPROVAL_V2 event
   -> offline PRODUCTION_QUANT_MODEL_RELEASE_V1 build
 
 PRODUCTION_QUANT_INTEGRITY_PILOT
@@ -122,6 +122,10 @@ AUDIT_HASH_RETENTION
 
 Approval 必须绑定 exact source rights admission、terms hash、history manifest hash、quant integrity pilot plan/attempt-root/attestation/report hashes、model/config、build recipe/code revision 和 season scope，并保存 approver、authority reference/hash、reviewed time、evidence reference/hash，以及每项 grant 各自的 effective/expiry time。`PRODUCTION_MODEL_TRAINING` 和 `PRODUCTION_MODEL_INFERENCE` 使用各自有效期；`DERIVED_MODEL_STATE_RETENTION` 和 `AUDIT_HASH_RETENTION` 还必须分别保存 retention rule 及有界的 `retain_until_at_utc` 或明确的 indefinite policy。Approval event hash 覆盖独立的 `approval_payload_hash` 与本地 reviewer attestation/evidence metadata；attestation/evidence 原始 bytes、approval ID 和 final hash 不进入 payload，避免循环。Market/Fusion benchmark 的状态或结果不属于 training approval/model release 的必要条件。
 
+新写入明确分为 `TRAINING_HISTORY_APPROVAL_PAYLOAD_V2` 与 `TRAINING_HISTORY_APPROVAL_V2`。Reviewer 只审核精确的 manifest/source/pilot/model/config/recipe/code/grants/retention/supersession 内容与审核身份/authority；原 reviewer attestation 绑定此 payload hash。Grant 有效期、retention horizon 和 supersession 生效规则属于被审核的政策内容，不是对未来持久化时间的断言。实际 `recorded_at_utc`、`persisted_at_utc`、operator 和幂等请求标识不进入该事先审核的 payload。
+
+系统记录事件再封存完整审核 payload、其 hash、原 reviewer attestation/evidence、operator、幂等请求 key/hash，以及由该事务实际观测的 recorded/persisted UTC。不得重新绑定旧审核、预测未来时间、回填时钟或由系统代替 reviewer 生成审批。同一审核授权不能通过更换 request key、证据路径或 JSON 排版重新取得已撤销/被替代的 grant；新的授权必须遵守精确 scope 的显式、重新审核的 successor 关系。
+
 `0.6` V1 不实现 PKI、CA、remote signer 或 key-management subsystem。若以后需要 cryptographic signing，必须以新的 schema/evidence mechanism version 扩展，不能静默改变 V1 canonical payload 或 hash 语义。
 
 若条款要求删除的内容与 append-only training fact、model lineage 或 audit hash 的最低保留要求冲突，该 source 不具备本路径资格。Terms 过期、权限不明、授权主体不匹配或 retention 不兼容均 fail closed。Raw rights/evidence 保留在本地受控路径，不进入 public Git。
@@ -174,6 +178,8 @@ mapping_policy_version / reviewed_by / reviewed_at_utc
 ### 4. 时间合同与未来数据隔离
 
 所有 persisted time 均为真实 UTC。`decision_as_of_at_utc` / `evaluation_as_of_at_utc` 仍只是知识 cutoff，不能替代实际 import、plan、run、approval 或 build time。
+
+`persisted_at_utc` 是事务内完成校验并封存待提交事件时的实际时钟观察，不声称是物理磁盘提交完成的时间。数据库 commit 成功返回后才能报告该事件已持久化；commit 失败回滚时不得返回成功工件。提交后的文件输出失败需明确说明数据库事件可能已存在，按原幂等请求核对/重试，不重造审核或抹除 attempt。事务最后一次昂贵读取之后重新观察时间，基于同一事务完整事件集复核到期/撤销/retention，不用较早时刻掩盖处理中途失效。
 
 对 retrospective quant integrity pilot 中某个 slice，必须同时满足：
 
@@ -363,7 +369,9 @@ SHA256("TRAINING_HISTORY_MANIFEST_V1\0" + canonical_json(manifest_payload))
 
 Manifest payload 明确排除 `training_history_manifest_id`、`manifest_json` 和 `manifest_hash`。Plan、attempt、summary、attestation、manifest、release、revocation、target plan 和 audit sidecar 都必须在各自 schema 中列出同样的 include/exclude envelope，禁止依赖实现默认序列化。
 
-`TRAINING_HISTORY_APPROVAL_V1` 先计算包含 manifest hash、quant integrity pilot attestation/attempt root、source rights admission、approver、authority、per-grant effective/expiry/retention semantics、actual approved/persisted time 和 supersession lineage 的 `approval_payload_hash`。本地 reviewer attestation 绑定该 payload hash；`training_history_approval_hash` 再覆盖 payload hash、reviewer/authority metadata、evidence reference 和 evidence SHA-256。Attestation/evidence 原始 bytes、approval ID 和 final hash 不进入 payload。Approval、manifest 或 build recipe/code revision 与 integrity pilot attestation 不完全一致时禁止 activation；任何 covered input、correction 或 implementation 变化都需要新 integrity plan/attempt/attestation，再创建新 manifest/approval/release。
+`TRAINING_HISTORY_APPROVAL_PAYLOAD_V2` 先计算包含 exact manifest/source/pilot/model/config/recipe/code、approver/authority、per-grant effective/expiry/retention semantics 与 supersession 意图的 `approval_payload_hash`，排除实际记录时间。历史证据通过精确 ID/hash 绑定，不把新的事务观察时间塞进 reviewer 的审核内容。原 `LOCAL_REVIEWER_ATTESTATION_V1` 以 `attested_schema_version=TRAINING_HISTORY_APPROVAL_PAYLOAD_V2` 绑定该 hash；`TRAINING_HISTORY_APPROVAL_V2` 事件 hash 再覆盖原 attestation/evidence metadata、operator、幂等请求以及实际 recorded/persisted 观察时间。原始 evidence bytes、事件自身 ID/hash 和 JSON 副本仍不进入自身 content payload。
+
+`TRAINING_HISTORY_APPROVAL_PAYLOAD_V1` 与 `TRAINING_HISTORY_APPROVAL_V1` 的既有 bytes/hash/解析语义保持不变，包括其原有时间字段；不允许自动转为 V2 或将旧 attestation 当成 V2 审核。读取使用显式 schema 分派，未知或混用版本 fail closed。必要的 release、approval 引用、持久化投影和验证路径支持两个版本；Packet/Review V3 与其独立 validator 不改版。Approval、manifest 或 build recipe/code revision 与 integrity pilot attestation 不完全一致时禁止 activation；任何 covered input、correction 或 implementation 变化都需要新 integrity plan/attempt/attestation，再创建新 manifest/approval/release。
 
 ### 8. Model release 与持久化桥
 
@@ -444,6 +452,10 @@ Training grant 过期会禁止新 build，但不能替代上述 inference 判断
 
 Superseding approval 必须具有相同 competition/model/config/training-window scope，每个 approval 最多一个直接 successor，禁止 fork。Successor 必须满足 `persisted_at <= effective_at`；只有 persisted/effective 均不晚于 operation time 才影响该 operation，禁止后来写入的 backdated successor 追溯改变旧判断。Correction 是否影响 operation 同时取决于其 source visibility 和实际 local registration；后来下载但携带旧 source timestamp 的 correction 不得追溯改写已封存 run，却会使其 registration 后的新 build/run fail closed，直到新 integrity pilot attestation/manifest/approval/release 完成。
 
+Correction 使用受控、不可变的逐 stream revision，事务中解析实际已持久化 predecessor、核验原始 capture 与重新审核的精确变更意图，并封存独立的实际注册时间。保留 V1 correction 拒绝与旧工件语义；不能仅删检查或用临时 `predecessor_validated` 标志绕过。Fixture、mapping、season、status 和 result 组成完整版本；withdrawal/非常规时间结果是不可训练 head，不制造 `MatchResult`，也不能退回前一个可训练版本。相同 provider logical result key 的新 revision 仍使用既有 `match_results`，显式记录前序、revision 顺序与 typed 绑定；同 source time 不能靠加微秒解决。
+
+已保留的原始 admissions 与 correction context 是重放上下文，逐 cutoff 选择的完整版本集合才是训练输入。二者 counts/roots 分开封存，predecessor context 不重复进入 Elo 样本分母。先按各 source cutoff 与实际注册范围选择版本，再检查 trainability、目标排除与真实 season。旧运行始终重放原 pinned 输入；新运行不得使用尚未纳入新 pilot/approval/release 的可见 correction。跨 canonical match 的 provider 重新指派不是同一 stream 的普通修订，不能借 correction 重指旧行或制造第二套比赛体系。
+
 Revocation event 保存 event ID/hash、approval/release ID、受影响的 grant、actor、authority、reason、recorded/effective time。Model build 在 start/completion 检查 `approval_active_for_build`；AnalysisRun、packet export、review import、FusionRun 和 PortfolioRevision 在各自 start/completion 检查 `release_active_for_inference`。中途生效的相关 revocation 使尚未提交的 operation 失败。已经完成的 immutable artifact 不删除、不改写，但禁止其后继续派生新 artifact。
 
 ### 11. 保持 V3 wire contract，强制 approval audit bundle
@@ -488,7 +500,7 @@ Current acceptance 必须满足：
 
 ## 分阶段门禁
 
-本次 `Accepted` 修订只允许 Architecture/ADR 文档变更，不开始 implementation，禁止新增 migration、provider、CLI、真实 adapter 或版本号变更。后续实现必须由独立指令启动。
+最初 `Accepted` 修订仅授权架构文档；后续独立实施指令及本次外部裁决已授权在当前 feature 分支连续实施、测试和提交，无需逐内部 checkpoint 再次批准。真实数据权限、费用或无法证明的来源时间仍是受影响操作的停止门禁；不能将开发授权视为数据许可。版本发布、main 合并和正式网页 Review 仍遵守独立交付门禁。
 
 后续经独立指令启动的 `0.6` 实现顺序为：
 

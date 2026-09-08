@@ -7,6 +7,7 @@ import json
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
@@ -1795,7 +1796,7 @@ def test_historical_migration_upgrades_c8_head_and_downgrades(tmp_path) -> None:
     } <= {item["name"] for item in inspect(engine).get_indexes("portfolio_settlements")}
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "c2ebf618d354"
+            ScriptDirectory.from_config(config).get_current_head()
         )
         triggers = set(
             connection.execute(

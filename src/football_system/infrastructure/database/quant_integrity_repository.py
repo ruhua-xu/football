@@ -1,7 +1,10 @@
 """Durable offline pilot transactions and the schema-aware release evidence bridge.
 
 Pre-plan reads select admission headers and opaque fact refs, never normalized
-result objects or the admission's full JSON. Fixture/membership bytes, identity
+result objects or the admission's full JSON. Mixed metadata/result captures and
+their payload/path aliases are rejected BEFORE opening provider documents; this
+legacy capture contract requires separate metadata documents for planning.
+Fixture/membership bytes, identity
 rows, reviewed scope/schedule/exception documents and recipe bytes are checked
 before sealing. Result bytes and the complete admission graph are verified only
 after a committed reservation. SQLite/trusted local evidence are internal audit
@@ -44,6 +47,7 @@ from football_system.domain.production_release import (
     ReleaseArtifactRefV1,
     TechnicalEvidenceRefsV1,
     TrainingHistoryGraphV1,
+    TrainingHistoryGraphV2,
     replay_exact_facts,
 )
 from football_system.domain.quant_integrity import (
@@ -59,6 +63,8 @@ from football_system.domain.quant_integrity import (
     QuantIntegrityFailureV1,
     QuantIntegrityOutputV1,
     QuantIntegrityPlanDefinitionV1,
+    QuantIntegrityPlanDefinitionV2,
+    QuantIntegrityTargetV2,
     QuantIntegrityPlanV1,
     QuantIntegrityReportV1,
     QuantIntegritySummaryContentV1,
@@ -118,6 +124,148 @@ from football_system.infrastructure.files.training_evidence import (
     provider_record_sha256,
     strict_json_bytes,
 )
+from football_system.domain.training_correction import (
+    CorrectionRefV2,
+    TrainingCorrectionContextV2,
+)
+from football_system.domain.versioned_training_history import (
+    TrainingHistoryContextPinV2,
+    VersionedFactRefV2,
+    validate_versioned_context,
+)
+
+
+def correction_context_in_session(
+    repository, session, pin, at, *, require_complete=True
+):
+    """Same-transaction version of the controlled repository's pinned reader.
+
+    Use its byte-verifying primitives, never normalized 'latest' rows or supplied
+    predecessor objects. Historical callers pass their captured actual boundary.
+    """
+    from football_system.infrastructure.database.training_correction_repository import (
+        ADMISSIONS,
+        SqlAlchemyTrainingCorrectionRepository,
+    )
+
+    repo = SqlAlchemyTrainingCorrectionRepository(repository)
+    versions = []
+    rights = {}
+    for ref in pin.base_admissions:
+        admission = repository._load(session, ref.artifact_id)
+        if (ref.schema_version, ref.content_hash) != (
+            admission.schema_version,
+            admission.admission_hash,
+        ):
+            raise ValueError("correction context base admission pin mismatch")
+        original_rights = admission.source_rights_admission
+        rights[ref.artifact_id] = CorrectionRefV2(
+            schema_version=original_rights.schema_version,
+            artifact_id=original_rights.source_rights_admission_id,
+            content_hash=original_rights.admission_hash,
+        )
+        versions.extend(
+            repo._base_version(session, ref.artifact_id, f.training_fact_binding_id)
+            for f in admission.facts
+        )
+    corrections = [
+        repo._load_version(session, ref.artifact_id) for ref in pin.corrections
+    ]
+    if {v.reference for v in corrections} != set(pin.corrections):
+        raise ValueError("correction context exact reference hash mismatch")
+    for version in corrections:
+        value = session.scalar(
+            select(
+                func.json_extract(
+                    ADMISSIONS.c.artifact_json,
+                    "$.content_payload.intent.source_rights_admission",
+                )
+            ).where(ADMISSIONS.c.correction_id == version.version_id)
+        )
+        if CorrectionRefV2.model_validate_json(value) != rights.get(
+            version.base_admission.artifact_id
+        ):
+            raise ValueError(
+                "correction history must preserve the exact base source rights scope"
+            )
+    corrections.sort(key=lambda v: (v.snapshot.stream.stream_id, v.revision_sequence))
+    versions.extend(corrections)
+    context = validate_versioned_context(
+        TrainingCorrectionContextV2(
+            actual_at_utc=at,
+            versions=tuple(versions),
+            corrections=tuple(e for v in corrections for e in repo._events(session, v)),
+        )
+    )
+    if require_complete:
+        assert_complete_correction_pins(session, pin, at)
+    return context
+
+
+def assert_complete_correction_pins(session, pin, at):
+    if not session.scalar(
+        text(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='training_correction_admissions'"
+        )
+    ):
+        if pin.corrections:
+            raise ValueError("controlled correction schema is not installed")
+        return
+    from football_system.infrastructure.database.training_correction_repository import (
+        ADMISSIONS,
+        STREAMS,
+    )
+
+    binding, mapping = TrainingFactBindingRecord, ProviderMatchMappingRecord
+    scoped = (
+        select(binding.sequence)
+        .join(mapping, mapping.mapping_id == binding.provider_mapping_id)
+        .where(
+            binding.training_fact_admission_id.in_(
+                tuple(p.artifact_id for p in pin.base_admissions)
+            ),
+            binding.internal_match_id == STREAMS.c.internal_match_id,
+            mapping.provider_id == STREAMS.c.provider_id,
+            func.json_extract(
+                binding.artifact_json, "$.content_payload.fixture_source.source_id"
+            )
+            == STREAMS.c.source_id,
+        )
+        .exists()
+    )
+    rows = session.execute(
+        select(ADMISSIONS.c.correction_id, ADMISSIONS.c.content_hash)
+        .join(STREAMS, STREAMS.c.stream_id == ADMISSIONS.c.stream_id)
+        .where(
+            scoped,
+            ADMISSIONS.c.registered_at_utc <= at,
+            ADMISSIONS.c.source_available_at_utc <= at,
+        )
+    ).all()
+    known = {(p.artifact_id, p.content_hash) for p in pin.corrections}
+    if any(tuple(row) not in known for row in rows):
+        raise ValueError(
+            "unincorporated source-visible and locally registered correction; new context required"
+        )
+
+
+def base_context_pin(admissions):
+    return TrainingHistoryContextPinV2(
+        base_admissions=tuple(
+            sorted(
+                (
+                    CorrectionRefV2(
+                        schema_version=a.schema_version,
+                        artifact_id=a.training_fact_admission_id,
+                        content_hash=a.admission_hash,
+                    )
+                    for a in admissions
+                ),
+                key=lambda r: r.artifact_id,
+            )
+        ),
+        corrections=(),
+    )
 
 
 class QuantIntegrityReviewDocumentV1(DomainModel):
@@ -204,8 +352,14 @@ class QuantIntegrityBuildRecipeV1(DomainModel):
 class _PinnedReplayReader:
     """Only already reverified exact admissions, never a production-evidence adapter."""
 
-    def __init__(self, admissions):
+    def __init__(self, admissions, context=None):
         self.admissions = {a.training_fact_admission_id: a for a in admissions}
+        self.context = context
+
+    def load_verified_correction_context(self, pin, *, at_utc):
+        if self.context is None or TrainingHistoryContextPinV2.of(self.context) != pin:
+            raise ValueError("replay correction context mismatch")
+        return self.context
 
     def load_verified_training_admission(self, pin, *, at_utc):
         value = self.admissions[pin.training_fact_admission_id]
@@ -337,6 +491,52 @@ class SqlAlchemyQuantIntegrityRepository:
             raise ValueError("build recipe identity/config/revision mismatch")
 
     def _capture(self, definition, receipt_id, at, *, session):
+        if not self._contract_only:
+            receipt = self._capture_metadata(session, receipt_id)
+            captures = TrainingCaptureReceiptRecord
+            result_ids = select(MatchResultAdmissionRecord.capture_receipt_id)
+            result_link = captures.capture_receipt_id.in_(result_ids)
+            if session.scalar(
+                text(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='training_correction_admissions'"
+                )
+            ):
+                from football_system.infrastructure.database.training_correction_repository import (
+                    ADMISSIONS,
+                )
+
+                result_link |= captures.capture_receipt_id.in_(
+                    select(
+                        func.json_extract(
+                            ADMISSIONS.c.artifact_json,
+                            "$.content_payload.intent.evidence.result.capture_receipt_id",
+                        )
+                    )
+                )
+            # Inspect only sealed headers and typed result links, never the bytes
+            # of a document merely labelled fixture/scope by a caller. Checking
+            # hashes as well as paths also catches separately captured aliases.
+            shared = session.scalar(
+                select(captures.capture_receipt_id)
+                .where(
+                    result_link,
+                    (captures.payload_sha256 == receipt.payload_sha256)
+                    | (
+                        func.lower(
+                            func.json_extract(
+                                captures.artifact_json, "$.evidence_reference"
+                            )
+                        )
+                        == receipt.evidence_reference.lower()
+                    ),
+                )
+                .limit(1)
+            )
+            if shared is not None:
+                raise ValueError(
+                    "pre-plan metadata capture overlaps a registered result capture; "
+                    "separate metadata documents are required (receipt, payload and path aliases are not allowed)"
+                )
         receipt, payload = (
             self.admission_repository.load_capture(receipt_id)
             if self._contract_only
@@ -559,6 +759,24 @@ class SqlAlchemyQuantIntegrityRepository:
             )
         else:
             self._admission_metadata(session, definition, at)
+            if isinstance(definition, QuantIntegrityPlanDefinitionV2):
+                self._versioned_metadata(session, definition, at)
+            else:
+                assert_complete_correction_pins(
+                    session,
+                    TrainingHistoryContextPinV2(
+                        base_admissions=tuple(
+                            CorrectionRefV2(
+                                schema_version="TRAINING_FACT_ADMISSION_V1",
+                                artifact_id=p.training_fact_admission_id,
+                                content_hash=p.admission_hash,
+                            )
+                            for p in definition.admissions
+                        ),
+                        corrections=(),
+                    ),
+                    at,
+                )
         self._reviewed_sources(session, definition, at)
 
     def _admission_metadata(self, session, definition, at):
@@ -567,6 +785,8 @@ class SqlAlchemyQuantIntegrityRepository:
             for s in definition.slices
             for t in s.content_payload.targets
         }
+        if isinstance(definition, QuantIntegrityPlanDefinitionV2):
+            targets = {}
         resolved = set()
         scopes = {s.canonical_season_id: s for s in definition.scope.provider_seasons}
         # Exact byte/hash-verified snapshots for this metadata pass only. Every
@@ -870,8 +1090,417 @@ class SqlAlchemyQuantIntegrityRepository:
         if resolved != set(targets):
             raise ValueError("every plan target must resolve before result access")
 
+    def _versioned_metadata(self, session, definition, at):
+        """Opaque version refs plus fixture/season metadata, never target scores."""
+        from football_system.infrastructure.database.training_correction_repository import (
+            ADMISSIONS,
+        )
+        from football_system.application.training_correction import (
+            TrainingCorrectionJsonAdapterV2,
+        )
+        from football_system.domain.training_correction import CorrectionEvidenceV2
+
+        pin = definition.correction_context
+        if definition.context_registered_at_utc > at:
+            raise ValueError("context registration boundary follows operation")
+        assert_complete_correction_pins(session, pin, at)
+        versions = {}
+        for parent in definition.admissions:
+            if parent.persisted_at_utc > definition.context_registered_at_utc:
+                raise ValueError("base admission follows pinned context boundary")
+            b = TrainingFactBindingRecord
+            for row in session.execute(
+                select(
+                    b.training_fact_binding_id,
+                    b.internal_match_id,
+                    b.match_result_id,
+                    func.json_extract(b.artifact_json, "$.fact_hash").label(
+                        "fact_hash"
+                    ),
+                    func.json_extract(
+                        b.artifact_json, "$.content_payload.canonical_identity"
+                    ).label("identity"),
+                    func.json_extract(
+                        b.artifact_json,
+                        "$.content_payload.fixture_source.source_available_at_utc",
+                    ).label("fixture_at"),
+                    func.json_extract(
+                        b.artifact_json,
+                        "$.content_payload.season_membership.content_payload.source_available_at_utc",
+                    ).label("mapping_at"),
+                    func.json_extract(
+                        b.artifact_json,
+                        "$.content_payload.normalized_result.available_at_utc",
+                    ).label("result_at"),
+                ).where(
+                    b.training_fact_admission_id == parent.training_fact_admission_id
+                )
+            ).mappings():
+                digest = tagged_canonical_sha256(
+                    "TRAINING_BASE_FACT_VERSION_V2",
+                    {
+                        "admission_id": parent.training_fact_admission_id,
+                        "admission_hash": parent.admission_hash,
+                        "binding_id": row["training_fact_binding_id"],
+                        "fact_hash": row["fact_hash"],
+                    },
+                )
+                ref = CorrectionRefV2(
+                    schema_version="TRAINING_BASE_FACT_VERSION_V2",
+                    artifact_id=stable_id("TRAINING_BASE_FACT_VERSION_V2", digest),
+                    content_hash=digest,
+                )
+                versions[ref.artifact_id] = dict(
+                    fact=VersionedFactRefV2(
+                        version=ref,
+                        base_admission=next(
+                            p
+                            for p in pin.base_admissions
+                            if p.artifact_id == parent.training_fact_admission_id
+                        ),
+                        base_binding=CorrectionRefV2(
+                            schema_version="TRAINING_FACT_BINDING_V1",
+                            artifact_id=row["training_fact_binding_id"],
+                            content_hash=row["fact_hash"],
+                        ),
+                        match_id=row["internal_match_id"],
+                        match_result_id=row["match_result_id"],
+                    ),
+                    identity=TrainingCanonicalMatchIdentityV1.model_validate_json(
+                        row["identity"]
+                    ),
+                    fixture_at=_source_time(row["fixture_at"]),
+                    mapping_at=_source_time(row["mapping_at"]),
+                    result_at=_source_time(row["result_at"]),
+                    sequence=0,
+                )
+        paths = {
+            "predecessor": "intent.predecessor",
+            "identity": "intent.candidate.identity",
+            "stream": "intent.candidate.stream",
+            "fixture_at": "intent.candidate.fixture_source_available_at_utc",
+            "mapping_at": "intent.candidate.mapping_source_available_at_utc",
+            "result_at": "intent.candidate.result_source_available_at_utc",
+            "result_id": "intent.match_result_id",
+            "rights": "intent.source_rights_admission",
+            "evidence": "intent.evidence",
+            "provider_mapping": "intent.candidate.provider_mapping",
+            **{
+                key: "intent.candidate." + key
+                for key in (
+                    "provider_home_team_id",
+                    "provider_away_team_id",
+                    "provider_competition_id",
+                    "provider_season_id",
+                    "home_team_alias_id",
+                    "away_team_alias_id",
+                    "competition_mapping_id",
+                    "season_mapping_version",
+                    "mapping_policy_version",
+                )
+            },
+        }
+        rows = (
+            session.execute(
+                select(
+                    ADMISSIONS.c.correction_id,
+                    ADMISSIONS.c.content_hash,
+                    ADMISSIONS.c.revision_sequence,
+                    ADMISSIONS.c.registered_at_utc,
+                    *(
+                        func.json_extract(
+                            ADMISSIONS.c.artifact_json, "$.content_payload." + path
+                        ).label(name)
+                        for name, path in paths.items()
+                    ),
+                )
+                .where(
+                    ADMISSIONS.c.correction_id.in_(
+                        tuple(r.artifact_id for r in pin.corrections)
+                    )
+                )
+                .order_by(ADMISSIONS.c.revision_sequence, ADMISSIONS.c.correction_id)
+            )
+            .mappings()
+            .all()
+        )
+        if len(rows) != len(pin.corrections):
+            raise ValueError("missing pinned controlled correction metadata")
+        predecessors = set()
+        for row in rows:
+            ref = next(
+                r for r in pin.corrections if r.artifact_id == row["correction_id"]
+            )
+            predecessor = CorrectionRefV2.model_validate_json(row["predecessor"])
+            previous = versions.get(predecessor.artifact_id)
+            identity = TrainingCanonicalMatchIdentityV1.model_validate_json(
+                row["identity"]
+            )
+            if (
+                previous is None
+                or previous["fact"].version != predecessor
+                or row["revision_sequence"] != previous["sequence"] + 1
+            ):
+                raise ValueError("context metadata has an incomplete predecessor chain")
+            if predecessor in predecessors:
+                raise ValueError("correction metadata predecessor fork")
+            predecessors.add(predecessor)
+            if (
+                ref.content_hash != row["content_hash"]
+                or ref.artifact_id != stable_id(ref.schema_version, ref.content_hash)
+                or row["registered_at_utc"] > definition.context_registered_at_utc
+            ):
+                raise ValueError("context correction hash/registration mismatch")
+            stream = strict_json_bytes(row["stream"].encode())
+            if (
+                stream["internal_match_id"] != identity.internal_match_id
+                or identity.internal_match_id != previous["fact"].match_id
+            ):
+                raise ValueError(
+                    "corrected identity must preserve the existing match anchor"
+                )
+            rights = CorrectionRefV2.model_validate_json(row["rights"])
+            base_pin = next(
+                p
+                for p in definition.admissions
+                if p.training_fact_admission_id
+                == previous["fact"].base_admission.artifact_id
+            )
+            if (rights.artifact_id, rights.content_hash) != (
+                base_pin.source_rights_admission_id,
+                base_pin.source_rights_admission_hash,
+            ):
+                raise ValueError("correction must preserve pinned source rights scope")
+            scope = next(
+                (
+                    s
+                    for s in definition.scope.provider_seasons
+                    if s.canonical_season_id == identity.season
+                ),
+                None,
+            )
+            if (
+                scope is None
+                or identity.internal_competition_id != definition.scope.competition_id
+                or identity.competition_type != definition.scope.competition_type
+                or (
+                    stream["source_id"],
+                    stream["provider_code"],
+                    row["provider_competition_id"],
+                    row["provider_season_id"],
+                )
+                != (
+                    scope.source_id,
+                    scope.provider_code,
+                    scope.provider_competition_id,
+                    scope.provider_season_id,
+                )
+            ):
+                raise ValueError(
+                    "corrected metadata outside exact reviewed provider season scope"
+                )
+            evidence = CorrectionEvidenceV2.model_validate_json(row["evidence"])
+            if (
+                evidence.home_team_alias_id,
+                evidence.away_team_alias_id,
+                evidence.competition_mapping_id,
+            ) != (
+                row["home_team_alias_id"],
+                row["away_team_alias_id"],
+                row["competition_mapping_id"],
+            ):
+                raise ValueError("corrected metadata reference mismatch")
+            adapter = TrainingCorrectionJsonAdapterV2.model_validate(
+                strict_json_bytes(
+                    self.evidence.read(
+                        evidence.adapter.evidence_reference,
+                        evidence.adapter.evidence_sha256,
+                    )
+                )
+            )
+            if (
+                adapter.provider_code,
+                adapter.provider_fixture_namespace,
+                adapter.season_mapping_version,
+                adapter.mapping_policy_version,
+            ) != (
+                stream["provider_code"],
+                stream["provider_fixture_namespace"],
+                row["season_mapping_version"],
+                row["mapping_policy_version"],
+            ):
+                raise ValueError("corrected adapter metadata mismatch")
+            for capture_ref, paths_, source_at in (
+                (evidence.fixture, adapter.fixture, row["fixture_at"]),
+                (evidence.scope, adapter.scope, row["mapping_at"]),
+            ):
+                receipt, document = self._capture(
+                    definition,
+                    capture_ref.capture_receipt_id,
+                    definition.context_registered_at_utc,
+                    session=session,
+                )
+                raw = json_pointer(document, capture_ref.record_pointer)
+                fields = {
+                    key: json_pointer(raw, path)
+                    for key, path in paths_.model_dump().items()
+                }
+                if (
+                    (
+                        receipt.receipt_hash,
+                        receipt.payload_sha256,
+                        receipt.source_id,
+                        receipt.provider_code,
+                    )
+                    != (
+                        capture_ref.receipt_hash,
+                        capture_ref.payload_sha256,
+                        stream["source_id"],
+                        stream["provider_code"],
+                    )
+                    or provider_record_sha256(raw) != capture_ref.record_sha256
+                    or (
+                        fields["fixture_key"],
+                        fields["competition_id"],
+                        fields["season_id"],
+                        _source_time(fields["available_at_utc"]),
+                    )
+                    != (
+                        stream["provider_fixture_key"],
+                        row["provider_competition_id"],
+                        row["provider_season_id"],
+                        _source_time(source_at),
+                    )
+                ):
+                    raise ValueError("corrected fixture/season raw metadata mismatch")
+                if capture_ref is evidence.fixture and (
+                    fields["home_team_id"],
+                    fields["away_team_id"],
+                    _source_time(fields["kickoff_at_utc"]),
+                ) != (
+                    row["provider_home_team_id"],
+                    row["provider_away_team_id"],
+                    identity.kickoff_at_utc,
+                ):
+                    raise ValueError("corrected fixture identity metadata mismatch")
+            mapping = TrainingProviderMatchMappingV1.model_validate_json(
+                row["provider_mapping"]
+            )
+            if (
+                mapping.provider_code,
+                mapping.external_namespace,
+                mapping.external_match_id,
+                mapping.internal_match_id,
+            ) != (
+                stream["provider_code"],
+                stream["provider_fixture_namespace"],
+                stream["provider_fixture_key"],
+                stream["internal_match_id"],
+            ):
+                raise ValueError(
+                    "corrected provider mapping must retain the stream anchor"
+                )
+            stored = _required(
+                session, ProviderMatchMappingRecord, evidence.provider_mapping_id
+            )
+            provider = _required(session, ProviderRecord, stored.provider_id)
+            _required(session, MatchRecord, identity.internal_match_id)
+            if mapping != TrainingProviderMatchMappingV1(
+                mapping_id=stored.mapping_id,
+                provider_code=provider.code,
+                external_namespace=stored.external_namespace,
+                external_match_id=stored.external_match_id,
+                internal_match_id=stored.internal_match_id,
+                resolution_method=stored.resolution_method,
+                confidence=stored.confidence,
+                available_at_utc=stored.available_at_utc,
+            ):
+                raise ValueError(
+                    "corrected metadata differs from registered mapping anchor"
+                )
+            for alias_id, raw_team, team_id in (
+                (
+                    evidence.home_team_alias_id,
+                    row["provider_home_team_id"],
+                    identity.internal_home_team_id,
+                ),
+                (
+                    evidence.away_team_alias_id,
+                    row["provider_away_team_id"],
+                    identity.internal_away_team_id,
+                ),
+            ):
+                alias = _required(session, ProviderTeamAliasRecord, alias_id)
+                if (
+                    alias.provider_id,
+                    alias.provider_team_id,
+                    alias.internal_team_id,
+                ) != (
+                    stored.provider_id,
+                    raw_team,
+                    team_id,
+                ) or alias.available_at_utc > _source_time(row["fixture_at"]):
+                    raise ValueError("corrected registered team revision mismatch")
+            comp = _required(
+                session,
+                ProviderCompetitionMappingRecord,
+                evidence.competition_mapping_id,
+            )
+            if (
+                comp.provider_id,
+                comp.provider_competition_id,
+                comp.internal_competition_id,
+                comp.season,
+                comp.competition_type,
+            ) != (
+                stored.provider_id,
+                row["provider_competition_id"],
+                identity.internal_competition_id,
+                identity.season,
+                identity.competition_type,
+            ) or comp.available_at_utc > _source_time(row["mapping_at"]):
+                raise ValueError(
+                    "corrected registered competition/season revision mismatch"
+                )
+            versions[ref.artifact_id] = dict(
+                fact=VersionedFactRefV2(
+                    version=ref,
+                    base_admission=previous["fact"].base_admission,
+                    base_binding=previous["fact"].base_binding,
+                    match_id=identity.internal_match_id,
+                    match_result_id=row["result_id"],
+                ),
+                identity=identity,
+                fixture_at=_source_time(row["fixture_at"]),
+                mapping_at=_source_time(row["mapping_at"]),
+                result_at=_source_time(row["result_at"]),
+                sequence=row["revision_sequence"],
+            )
+        for item in definition.slices:
+            for target in item.content_payload.targets:
+                eligible = [
+                    v
+                    for v in versions.values()
+                    if v["fact"].match_id == target.fact.match_id
+                    and max(v["fixture_at"], v["mapping_at"], v["result_at"])
+                    <= item.content_payload.evaluation_as_of_at_utc
+                ]
+                selected = max(eligible, key=lambda v: v["sequence"], default=None)
+                if selected is None or target != QuantIntegrityTargetV2(
+                    identity=selected["identity"],
+                    fact=selected["fact"],
+                    training_fact_admission_id=selected[
+                        "fact"
+                    ].base_admission.artifact_id,
+                    fixture_source_available_at_utc=selected["fixture_at"],
+                    mapping_source_available_at_utc=selected["mapping_at"],
+                ):
+                    raise ValueError(
+                        "target differs from exact selected version metadata"
+                    )
+
     @staticmethod
-    def _receipt_metadata(session, pin, kind, receipt_id):
+    def _capture_metadata(session, receipt_id):
         table = TrainingCaptureReceiptRecord.__table__
         # The capture's sealed header can be checked without reading result bytes.
         row = (
@@ -894,6 +1523,28 @@ class SqlAlchemyQuantIntegrityRepository:
         ):
             raise ValueError("capture metadata row hash mismatch")
         receipt = TrainingCaptureReceiptV1.model_validate_json(row["artifact_json"])
+        if (
+            receipt.capture_receipt_id != receipt_id
+            or any(
+                row[key] != getattr(receipt, key)
+                for key in (
+                    "request_sha256",
+                    "source_rights_admission_id",
+                    "source_id",
+                    "payload_sha256",
+                    "local_imported_at_utc",
+                    "archive_created_at_utc",
+                    "registered_at_utc",
+                )
+            )
+            or _required(session, ProviderRecord, row["provider_id"]).code
+            != receipt.provider_code
+        ):
+            raise ValueError("capture metadata typed projection mismatch")
+        return receipt
+
+    def _receipt_metadata(self, session, pin, kind, receipt_id):
+        receipt = self._capture_metadata(session, receipt_id)
         expected = next(
             (a for a in pin.archives if (a.kind, a.archive_id) == (kind, receipt_id)),
             None,
@@ -1313,10 +1964,62 @@ class SqlAlchemyQuantIntegrityRepository:
         # read source results. Verify rights without opening result payloads.
         self._current_research_rights((pin,), at_utc, observed_at, session=session)
         value = self._load_admission(pin, at_utc, session=session)
+        assert_complete_correction_pins(
+            session, base_context_pin((value,)), observed_at
+        )
         value.source_rights_admission.assert_active_for(
             self._now(), TRAINING_FACT_REQUIRED_USES
         )
         return value
+
+    def load_verified_correction_context(self, pin, *, at_utc):
+        at = self._operation_time(at_utc)
+        with self._sessions.begin() as session:
+            session.execute(text("BEGIN"))
+            definition = None
+            for row in session.scalars(
+                select(QuantIntegrityReservationRecord).where(
+                    ~select(QuantIntegrityAttemptRecord.artifact_id)
+                    .where(
+                        QuantIntegrityAttemptRecord.reservation_id
+                        == QuantIntegrityReservationRecord.artifact_id
+                    )
+                    .exists()
+                )
+            ):
+                reserved = _artifact(
+                    row, QuantIntegrityAttemptReservationV1
+                ).content_payload
+                plan = _referenced(
+                    session,
+                    QuantIntegrityPlanRecord,
+                    QuantIntegrityPlanV1,
+                    reserved.plan_ref,
+                )
+                candidate = plan.content_payload.definition
+                if (
+                    row.operator_id == self.operator_id
+                    and reserved.actual_started_at_utc <= at_utc
+                    and isinstance(candidate, QuantIntegrityPlanDefinitionV2)
+                    and candidate.correction_context == pin
+                ):
+                    definition = candidate
+                    break
+            if definition is None:
+                raise ValueError(
+                    "versioned result access requires a committed pinned pilot reservation"
+                )
+            self._current_research_rights(
+                definition.admissions, at_utc, at, session=session
+            )
+            context = correction_context_in_session(
+                self.admission_repository, session, pin, at_utc
+            )
+            self._current_research_rights(
+                definition.admissions, self._now(), session=session
+            )
+            assert_complete_correction_pins(session, pin, self._now())
+            return context
 
     def _current_research_rights(self, pins, *boundaries, session):
         """Rights metadata only; check every distinct pin before any source read.
@@ -1817,17 +2520,33 @@ class SqlAlchemyQuantIntegrityRepository:
                 pin, at, self._operation_time(at), session=session
             )
             if recheck_current_research
+            and not isinstance(definition, QuantIntegrityPlanDefinitionV2)
             else self._load_admission(pin, at, session=session)
             for pin in definition.admissions
         )
+        context = None
+        if isinstance(definition, QuantIntegrityPlanDefinitionV2):
+            context = correction_context_in_session(
+                self.admission_repository, session, definition.correction_context, at
+            )
+        else:
+            assert_complete_correction_pins(session, base_context_pin(admissions), at)
         # Evidence bytes, source graphs, pins and time-specific rights above are
         # ALWAYS reverified. Cache only math whose inputs were just revalidated;
         # output/report business times are frozen by the plan, not this read time.
-        key = (plan.content_hash, tuple(a.admission_hash for a in admissions))
+        key = (
+            plan.content_hash,
+            tuple(a.admission_hash for a in admissions),
+            None
+            if context is None
+            else tagged_canonical_sha256(
+                "VERIFIED_VERSIONED_REPLAY_V2", context.versions
+            ),
+        )
         calculated = None if replay_cache is None else replay_cache.get(key)
         if calculated is None:
             replay_service = QuantIntegrityPilotService(
-                _PinnedReplayReader(admissions), self._now
+                _PinnedReplayReader(admissions, context), self._now
             )
             expected = replay_service._execute(plan, at_utc=at)
             calculated = expected, replay_service._report(plan, expected, expected)
@@ -1843,6 +2562,13 @@ class SqlAlchemyQuantIntegrityRepository:
                 admission.source_rights_admission.assert_active_for(
                     completed, TRAINING_FACT_REQUIRED_USES
                 )
+            assert_complete_correction_pins(
+                session,
+                definition.correction_context
+                if context is not None
+                else base_context_pin(admissions),
+                completed,
+            )
         self._recipe(definition)
 
     def _terminal_graph(self, session, row, at):
@@ -1940,6 +2666,24 @@ class SqlAlchemyQuantIntegrityRepository:
         history = revalidate_integrity_model(history)
         definition = plan.content_payload.definition
         core = output.content_payload.terminal_state_core.content_payload
+        versioned = isinstance(history, TrainingHistoryGraphV2)
+        if versioned != isinstance(definition, QuantIntegrityPlanDefinitionV2):
+            raise ValueError("pilot/release history schema mismatch")
+        if versioned and (
+            history.context_pin != definition.correction_context
+            or history.correction_context.actual_at_utc
+            != definition.context_registered_at_utc
+            or history.context_pin != core.context_pin
+            or history.selected_heads != core.selected_heads
+            or history.selected_versions_root != core.selected_versions_root
+            or history.selection_cutoff_at_utc
+            != definition.terminal_projection.training_cutoff_at_utc
+            or history.exclude_match_ids
+            != definition.terminal_projection.exclude_match_ids
+        ):
+            raise ValueError(
+                "pilot bridge requires exact context and selected version roots"
+            )
         if (
             history.integrity_pilot_scope_id != definition.integrity_pilot_scope_id
             or history.training_window != definition.training_window
@@ -1948,7 +2692,10 @@ class SqlAlchemyQuantIntegrityRepository:
             )
             != definition.admissions
             or tuple(
-                AdmittedFactRefV1.of(f.content_payload.binding) for f in history.facts
+                VersionedFactRefV2.of(f.content_payload.version)
+                if versioned
+                else AdmittedFactRefV1.of(f.content_payload.binding)
+                for f in history.facts
             )
             != core.admitted_fact_refs
             or tuple(f.content_payload.elo_fact for f in history.facts)

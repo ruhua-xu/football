@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sqlalchemy import Engine, create_engine, event
+from sqlalchemy import Engine, create_engine, event, inspect
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -11,6 +11,10 @@ from football_system.infrastructure.database.immutability import (
     install_sqlite_immutability_triggers,
 )
 from football_system.infrastructure.database.models import Base
+from football_system.infrastructure.database.training_correction_schema import (
+    initialize_training_correction_schema_v2,
+    install_training_correction_schema,
+)
 
 
 def create_database_engine(database_url: str, echo: bool = False) -> Engine:
@@ -32,8 +36,17 @@ def configure_sqlite_engine(engine: Engine) -> Engine:
 
 def create_schema(engine: Engine) -> None:
     configure_sqlite_engine(engine)
+    inspector = inspect(engine)
+    if inspector.has_table("match_results") and any(
+        item["name"] == "uq_match_result_source_key"
+        for item in inspector.get_unique_constraints("match_results")
+    ):
+        # Rebuild legacy normalized constraints before create_all can add the
+        # correction tables. The rebuild preserves all existing rows and FKs.
+        install_training_correction_schema(engine)
     Base.metadata.create_all(engine)
     with engine.begin() as connection:
+        initialize_training_correction_schema_v2(connection)
         install_sqlite_immutability_triggers(connection)
 
 

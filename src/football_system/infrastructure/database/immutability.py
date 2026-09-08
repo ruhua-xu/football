@@ -1427,6 +1427,18 @@ def install_sqlite_immutability_triggers(connection: Connection) -> None:
             connection.exec_driver_sql(statement)
         for statement in production_audit_trigger_sql_v1().values():
             connection.exec_driver_sql(statement)
+        from football_system.infrastructure.database.training_correction_schema import (
+            install_training_correction_v2_triggers,
+        )
+
+        install_training_correction_v2_triggers(connection)
+        from football_system.infrastructure.database.versioned_quant_schema import (
+            versioned_quant_trigger_sql_v2,
+        )
+
+        for name, statement in versioned_quant_trigger_sql_v2().items():
+            connection.exec_driver_sql(f"DROP TRIGGER IF EXISTS {name}")
+            connection.exec_driver_sql(statement)
 
 
 def install_quant_integrity_v1_triggers(connection: Connection) -> None:
@@ -1441,6 +1453,9 @@ def install_quant_integrity_v1_triggers(connection: Connection) -> None:
 
 
 def install_production_quant_v1_triggers(connection: Connection) -> None:
+    from football_system.infrastructure.database.approval_v2_schema import (
+        install_approval_v2_triggers,
+    )
     from football_system.infrastructure.database.production_quant_schema import (
         production_quant_trigger_sql_v1,
     )
@@ -1448,6 +1463,7 @@ def install_production_quant_v1_triggers(connection: Connection) -> None:
     if connection.dialect.name == "sqlite":
         for statement in production_quant_trigger_sql_v1().values():
             connection.exec_driver_sql(statement)
+        install_approval_v2_triggers(connection)
 
 
 def install_training_admission_v1_triggers(connection: Connection) -> None:

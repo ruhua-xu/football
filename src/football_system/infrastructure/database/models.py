@@ -29,6 +29,12 @@ from football_system.infrastructure.database.quant_integrity_schema import (
 from football_system.infrastructure.database.training_admission_schema import (
     training_admission_tables_v1,
 )
+from football_system.infrastructure.database.training_correction_schema import (
+    training_correction_tables_v2,
+)
+from football_system.infrastructure.database.versioned_quant_schema import (
+    versioned_quant_tables_v2,
+)
 from football_system.infrastructure.database.production_quant_schema import (
     production_quant_tables_v1,
 )
@@ -2351,10 +2357,10 @@ class MatchResultRecord(Base):
             "provider_id",
             name="uq_match_result_lineage_binding",
         ),
-        UniqueConstraint(
+        Index(
+            "ix_match_results_provider_source_key_versions",
             "provider_id",
             "source_result_key",
-            name="uq_match_result_source_key",
         ),
         UniqueConstraint(
             "supersedes_match_result_id",
@@ -2398,6 +2404,12 @@ class MatchResultRecord(Base):
     supersedes_match_result_id: Mapped[str | None] = mapped_column(
         IdColumn, nullable=True
     )
+
+
+# Register after the canonical targets, so the standalone factory's FK stubs
+# never replace real ORM tables. Alembic and create_schema share this metadata.
+TRAINING_CORRECTION_TABLES = training_correction_tables_v2(Base.metadata, UTCDateTime())
+VERSIONED_QUANT_TABLES = versioned_quant_tables_v2(Base.metadata)
 
 
 class TicketSettlementRecord(Base):

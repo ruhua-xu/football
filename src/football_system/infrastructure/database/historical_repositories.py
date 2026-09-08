@@ -2096,25 +2096,24 @@ def _preflight_match_result_batches(
         mapping = result_mappings[result.match_result_id]
         provider_id, _ = _provider_metadata(result.provider_code)
         by_result_id = session.get(MatchResultRecord, result.match_result_id)
-        by_source = session.scalar(
-            select(MatchResultRecord).where(
+        source_ids = tuple(session.scalars(
+            select(MatchResultRecord.match_result_id).where(
                 MatchResultRecord.provider_id == provider_id,
                 MatchResultRecord.source_result_key == result.source_result_key,
             )
-        )
-        if (
-            by_result_id is not None
-            and by_source is not None
-            and by_result_id.match_result_id != by_source.match_result_id
-        ):
-            raise ValueError("immutable MatchResult conflicts with stored data")
-        existing = by_result_id or by_source
+        ))
+        # A provider key identifies a stream, not a version. Exact registered
+        # IDs are authoritative; never compare against an arbitrary first row.
+        if by_result_id is None and source_ids:
+            raise ValueError("immutable MatchResult source key requires an exact registered version ID")
+        existing = by_result_id
         if existing is not None:
             if (
                 existing.provider_mapping_id != mapping.mapping_id
                 or _match_result(session, existing) != result
             ):
                 raise ValueError("immutable MatchResult conflicts with stored data")
+            continue
 
         previous_id = result.supersedes_match_result_id
         if previous_id is None:
@@ -2325,12 +2324,13 @@ def _append_match_result(
         raise ValueError(f"unknown MatchResult provider: {result.provider_code}")
     existing = session.get(MatchResultRecord, result.match_result_id)
     if existing is None:
-        existing = session.scalar(
-            select(MatchResultRecord).where(
+        if session.scalar(
+            select(MatchResultRecord.match_result_id).where(
                 MatchResultRecord.provider_id == provider.provider_id,
                 MatchResultRecord.source_result_key == result.source_result_key,
             )
-        )
+        ) is not None:
+            raise ValueError("immutable MatchResult source key requires an exact registered version ID")
     if existing is not None:
         stored = _match_result(session, existing)
         if stored != result or (
@@ -3653,6 +3653,10 @@ def _reject_existing_records(
 
 
 def _match_result(session: Session, record: MatchResultRecord) -> MatchResult:
+    from football_system.infrastructure.database.training_correction_repository import (
+        verify_controlled_normalized_stream,
+    )
+
     provider = session.get(ProviderRecord, record.provider_id)
     if provider is None:
         raise ValueError("stored MatchResult is missing its provider")
@@ -3682,6 +3686,7 @@ def _match_result(session: Session, record: MatchResultRecord) -> MatchResult:
         supersedes_match_result_id=record.supersedes_match_result_id,
     )
     _validate_match_result_payload(result)
+    controlled = verify_controlled_normalized_stream(session, record)
     if record.supersedes_match_result_id is not None:
         previous = session.get(MatchResultRecord, record.supersedes_match_result_id)
         if (
@@ -3689,7 +3694,8 @@ def _match_result(session: Session, record: MatchResultRecord) -> MatchResult:
             or previous.internal_match_id != record.internal_match_id
             or previous.provider_id != record.provider_id
             or previous.available_at_utc > record.available_at_utc
-            or previous.ingested_at_utc >= record.ingested_at_utc
+            or previous.ingested_at_utc > record.ingested_at_utc
+            or (previous.ingested_at_utc == record.ingested_at_utc and not controlled)
         ):
             raise ValueError("stored MatchResult supersession lineage is invalid")
     return result

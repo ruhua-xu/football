@@ -14,6 +14,8 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
@@ -154,10 +156,22 @@ def test_help_and_all_exact_schemas_are_side_effect_free(tmp_path, monkeypatch, 
         assert main(["production-quant", command, "--print-schema"]) == 0
         schema = json.loads(capsys.readouterr().out)
         assert schema == cli.COMMAND_MODELS[command].model_json_schema()
-        assert schema["additionalProperties"] is False
+        if "oneOf" in schema:
+            assert all(
+                schema["$defs"][branch["$ref"].rsplit("/", 1)[-1]][
+                    "additionalProperties"
+                ]
+                is False
+                for branch in schema["oneOf"]
+            )
+        else:
+            assert schema["additionalProperties"] is False
     assert main(["production-quant", "--print-schema"]) == 0
     catalog = json.loads(capsys.readouterr().out)
-    assert catalog["blocked_commands"] == ["approval-record"]
+    assert catalog["blocked_commands"] == []
+    assert catalog["unsupported_approval_payload_versions"] == [
+        "TRAINING_HISTORY_APPROVAL_PAYLOAD_V1"
+    ]
     for name, model in cli.SCHEMA_TYPES.items():
         assert main(["production-quant", "--print-schema", "--type", name]) == 0
         assert json.loads(capsys.readouterr().out) == model.model_json_schema()
@@ -474,7 +488,7 @@ def test_valid_write_can_migrate_a_fresh_database(lane, capsys):
     with sqlite3.connect(lane.root / "fresh.db") as connection:
         assert (
             connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
-            == "c2ebf618d354"
+            == ScriptDirectory.from_config(Config("alembic.ini")).get_current_head()
         )
         assert (
             connection.execute(
@@ -656,7 +670,7 @@ def test_reads_never_create_or_migrate_old_databases(
     assert old.read_bytes() == before
 
 
-def test_approval_remains_actionably_blocked_without_opening_database(
+def test_v1_approval_is_explicitly_unsupported_without_opening_database(
     lane, capsys, monkeypatch
 ):
     calls = no_database_calls(monkeypatch)
@@ -681,8 +695,9 @@ def test_approval_remains_actionably_blocked_without_opening_database(
     assert result == 3
     assert error["status"] == "BLOCKED"
     assert error["code"] == "APPROVAL_RECORDING_CONTRACT_CONFLICT"
-    assert "persisted_at_utc" in error["message"]
-    assert "new review/recording envelope" in error["message"]
+    assert "V1 approval writing is unsupported" in error["message"]
+    assert "approval-prepare" in error["message"]
+    assert "TRAINING_HISTORY_APPROVAL_PAYLOAD_V2" in error["message"]
     assert calls == []
     assert not (lane.root / "blocked.db").exists()
 

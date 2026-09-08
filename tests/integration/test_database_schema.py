@@ -6,6 +6,7 @@ from typing import cast
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import Engine, create_engine, inspect, text
 from sqlalchemy.exc import IntegrityError
 
@@ -25,7 +26,7 @@ from football_system.infrastructure.database.session import (
 
 
 IDENTITY_MIGRATION_REVISION = "d2e7a4c9b615"
-CURRENT_MIGRATION_HEAD = "c2ebf618d354"
+CURRENT_MIGRATION_HEAD = ScriptDirectory.from_config(Config("alembic.ini")).get_current_head()
 QUANT_MODEL_MIGRATION_REVISION = "b7d4e9f2c631"
 BACKTEST_V2_MIGRATION_REVISION = "c4e8a1d7f205"
 IDENTITY_TABLES = {
@@ -1874,6 +1875,20 @@ def _schema_signature(engine: Engine) -> dict[str, object]:
 
 
 def _trigger_signature(engine: Engine) -> tuple[tuple[str, str], ...]:
+    def normalize(statement):
+        value = _normalize_sql(statement).replace(
+            "create trigger if not exists", "create trigger", 1
+        )
+        # The integration factory enumerates unique constraints as a set. These
+        # pure equality OR predicates are commutative; compare every predicate,
+        # without treating allocation-dependent SQL ordering as schema drift.
+        if "immutable versioned history already exists" in value:
+            match = re.fullmatch(r"(.*\bwhere)\((.*)\)\)begin(.*)", value)
+            assert match is not None, "unexpected versioned immutable guard shape"
+            prefix, clauses, suffix = match.groups()
+            value = prefix + "(" + ")or(".join(sorted(clauses.split(")or("))) + "))begin" + suffix
+        return value
+
     with engine.connect() as connection:
         triggers = connection.execute(
             text(
@@ -1884,11 +1899,7 @@ def _trigger_signature(engine: Engine) -> tuple[tuple[str, str], ...]:
         return tuple(
             (
                 name,
-                _normalize_sql(sql).replace(
-                    "create trigger if not exists",
-                    "create trigger",
-                    1,
-                ),
+                normalize(sql),
             )
             for name, sql in triggers
         )

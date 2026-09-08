@@ -1,9 +1,8 @@
 """Durable ADR-0008 graphs, with no reviewer impersonation or correction bypass.
 
-Approval WRITING is intentionally blocked: the current pure V1 reviewer hash
-includes the future repository persistence timestamp. A prior request approval
-cannot honestly be rebound to that hash. Reads verify independently supplied
-existing V1 approvals; no public API imports or fabricates an approved row.
+Approval writing accepts only the authorized V2 timestamp-free review subject.
+The original supplied local attestation is retained unchanged; actual observations
+are sealed separately. Existing V1 bytes and persistence requests remain readable.
 
 Withdrawal is deliberately separate from activation: it verifies persisted target
 seals/scope and fresh revocation review bytes, not the installed model, historical
@@ -34,18 +33,19 @@ from typing import Literal, Protocol
 
 from pydantic import Field
 from sqlalchemy import select, text
+import sqlalchemy as sa
 from sqlalchemy.orm import Session, sessionmaker
 
 from football_system.application.production_release import (
     build_production_release,
     prepare_training_history,
+    prepare_versioned_training_history,
 )
 from football_system.application.run_analysis import _code_revision
 from football_system.domain.archive import canonical_json
 from football_system.domain.common import Identifier, UtcDateTime, stable_id, utc_now
 from football_system.domain.production_release import (
     PRODUCTION_CONFIG_HASH,
-    TRAINING_HISTORY_APPROVAL_PAYLOAD_V1,
     ApprovalSuccessorContentV1,
     ApprovalSuccessorV1,
     CurrentAuthorizationInputsV1,
@@ -64,18 +64,26 @@ from football_system.domain.production_release import (
     RetentionHorizonV1,
     SourceCorrectionV1,
     TechnicalEvidenceRefsV1,
-    TrainingHistoryApprovalV1,
+    TrainingHistoryApproval,
+    TrainingHistoryApprovalContentV2,
+    TrainingHistoryApprovalPayloadV2,
+    TrainingHistoryApprovalV2,
     TrainingHistoryGraphV1,
+    TrainingHistoryGraphV2,
     TrainingHistoryManifestContentV1,
     TrainingHistoryManifestV1,
     approval_active_for_build,
+    approval_technical_evidence_ref,
+    _assert_grant,
     assert_retention_authorized,
     assert_target_plan,
     revalidate,
+    parse_training_history_approval,
     source_rights_refs,
 )
 from football_system.domain.training_admission import (
     LocalReviewEvidenceV1,
+    LocalReviewerAttestationV1,
     RuleText,
     tagged_canonical_sha256,
 )
@@ -83,13 +91,28 @@ from football_system.infrastructure.database.models import (
     Base,
     CanonicalMatchIdentityRecord,
     MatchRecord,
-    MatchResultRecord,
 )
 from football_system.infrastructure.database.training_admission_repository import (
     ControlledTrainingCorrectionRequired,
     SqlAlchemyTrainingAdmissionRepository,
 )
 from football_system.infrastructure.files.training_evidence import strict_json_bytes
+from football_system.domain.versioned_training_history import (
+    TrainingHistoryContextPinV2,
+    VersionedFactRefV2,
+    select_versioned_training_heads,
+)
+from football_system.infrastructure.database.quant_integrity_repository import (
+    base_context_pin,
+    correction_context_in_session,
+    assert_complete_correction_pins,
+)
+from football_system.infrastructure.database.versioned_quant_schema import (
+    VERSIONED_QUANT_TABLES,
+    versioned_quant_tables_v2,
+)
+
+VERSIONED_TABLES = versioned_quant_tables_v2(sa.MetaData())
 
 
 class ProductionPilotRepository(Protocol):
@@ -103,7 +126,7 @@ class ProductionPilotRepository(Protocol):
 
 
 class ApprovalRecordingContractConflict(ValueError):
-    """Approval persistence needs a new reviewer/recording envelope contract."""
+    """V1 approval requests cannot be converted to the authorized V2 contract."""
 
 
 @contextmanager
@@ -192,7 +215,7 @@ class ProductionRevocationRequestV1(ReleaseSnapshotV1):
 class _RevocationTarget:
     """Identity for withdrawal only; this is not an activation-capable release."""
 
-    approval: TrainingHistoryApprovalV1
+    approval: TrainingHistoryApproval
     release: ReleaseArtifactRefV1 | None
     source_ids: tuple[str, ...]
     persisted_at_utc: datetime
@@ -238,6 +261,11 @@ class SqlAlchemyProductionQuantRepository:
         training_window: EloTrainingWindowV1,
         integrity_pilot_scope_id: str,
         attestation_id: str,
+        *,
+        correction_context: TrainingHistoryContextPinV2 | None = None,
+        context_registered_at_utc: datetime | None = None,
+        selection_cutoff_at_utc: datetime | None = None,
+        exclude_match_ids: tuple[str, ...] = (),
     ) -> TrainingHistoryManifestV1:
         window = revalidate(training_window)
         ids = tuple(admission_ids)
@@ -245,6 +273,22 @@ class SqlAlchemyProductionQuantRepository:
             raise ValueError("manifest requires exact nonempty unique admission IDs")
         for key in (*ids, integrity_pilot_scope_id, attestation_id):
             _identifier(key)
+        versioned = {}
+        if correction_context is not None:
+            versioned = dict(
+                correction_context=revalidate(correction_context),
+                context_registered_at_utc=_utc(context_registered_at_utc),
+                selection_cutoff_at_utc=_utc(selection_cutoff_at_utc),
+                exclude_match_ids=tuple(exclude_match_ids),
+            )
+        elif (
+            context_registered_at_utc is not None
+            or selection_cutoff_at_utc is not None
+            or exclude_match_ids
+        ):
+            raise ValueError(
+                "versioned selection requires an explicit correction context pin"
+            )
         request = _request(
             "create_manifest",
             request_key,
@@ -253,17 +297,20 @@ class SqlAlchemyProductionQuantRepository:
             training_window=window,
             integrity_pilot_scope_id=integrity_pilot_scope_id,
             attestation_id=attestation_id,
+            **versioned,
         )
         with self._transaction(write=True) as session:
             previous = _prior(session, "training_history_manifests", request)
             if previous:
                 return self.load_manifest_in_session(session, previous["manifest_id"])
-            history = prepare_training_history(
+            history = self._prepare_history(
+                session,
                 admissions=tuple(
-                    self.admission_repository._load(session, key) for key in ids
+                    self._history_admission_in_session(session, key) for key in ids
                 ),
                 training_window=window,
                 integrity_pilot_scope_id=integrity_pilot_scope_id,
+                **versioned,
             )
             evidence = self._technical(session, attestation_id, history)
             created, persisted = self._now(), self._now()
@@ -284,22 +331,276 @@ class SqlAlchemyProductionQuantRepository:
             self._assert_clean_sources(session, history, self._now())
             return result
 
-    def record_approval(
+    @_verified_read
+    def _history_admission_in_session(self, session, admission_id):
+        # Reuse only within the existing public-read scope, never across actual
+        # authorization boundaries or later calls in the same transaction.
+        return self.admission_repository._load(session, admission_id)
+
+    def _prepare_history(
         self,
-        request_key: str,
+        session,
+        *,
+        admissions,
+        training_window,
+        integrity_pilot_scope_id,
+        correction_context=None,
+        context_registered_at_utc=None,
+        selection_cutoff_at_utc=None,
+        exclude_match_ids=(),
+    ):
+        if correction_context is None:
+            return prepare_training_history(
+                admissions=admissions,
+                training_window=training_window,
+                integrity_pilot_scope_id=integrity_pilot_scope_id,
+            )
+        if not session.scalar(
+            text(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='training_history_version_context'"
+            )
+        ):
+            raise ValueError(
+                "versioned history requires migration f51e294b0687 or install_versioned_quant_schema"
+            )
+        context = correction_context_in_session(
+            self.admission_repository,
+            session,
+            correction_context,
+            context_registered_at_utc,
+        )
+        return prepare_versioned_training_history(
+            admissions=admissions,
+            correction_context=context,
+            training_window=training_window,
+            integrity_pilot_scope_id=integrity_pilot_scope_id,
+            selection_cutoff_at_utc=selection_cutoff_at_utc,
+            exclude_match_ids=exclude_match_ids,
+        )
+
+    def prepare_approval(
+        self,
         manifest_id: str,
         *,
         grants: tuple[ProductionGrantV1, ...],
-        review: LocalReviewEvidenceV1,
+        approver: str,
         reviewer_authority: LocalReviewEvidenceV1,
-    ) -> TrainingHistoryApprovalV1:
-        del request_key, manifest_id, grants, review, reviewer_authority
-        raise ApprovalRecordingContractConflict(
-            "TRAINING_HISTORY_APPROVAL_PAYLOAD_V1 hashes approved_at_utc and persisted_at_utc; "
-            "LocalReviewerAttestationV1 must bind that exact final payload hash. A review of a "
-            "timestamp-free operation request cannot satisfy it. Approval writing is stopped "
-            "until an explicit new review/recording envelope is authorized; no attestation is synthesized."
+        retention_compatibility: Literal["APPEND_ONLY_STATE_AND_AUDIT_COMPATIBLE"],
+        supersedes_approval: ReleaseArtifactRefV1 | None = None,
+        supersession_effective_at_utc: datetime | None = None,
+        superseded_grants: tuple[ProductionGrantKind, ...] = (),
+    ) -> TrainingHistoryApprovalPayloadV2:
+        """Read actual local context for human review, without recording any approval."""
+        authority = revalidate(reviewer_authority)
+        with self._transaction() as session:
+            manifest = self.load_manifest_in_session(session, manifest_id)
+            evidence = manifest.content_payload.technical_evidence
+            payload = TrainingHistoryApprovalPayloadV2(
+                manifest=manifest.reference(),
+                scope=manifest.content_payload.history.scope,
+                source_rights=source_rights_refs(manifest.content_payload.history),
+                technical_evidence=approval_technical_evidence_ref(evidence),
+                build_recipe=evidence.build_recipe,
+                code_revision=evidence.code_revision,
+                approver=approver,
+                authority_reference=authority.evidence_reference,
+                authority_sha256=authority.evidence_sha256,
+                grants=grants,
+                retention_compatibility=retention_compatibility,
+                supersedes_approval=supersedes_approval,
+                supersession_effective_at_utc=supersession_effective_at_utc,
+                superseded_grants=superseded_grants,
+            )
+            at = self._now()
+            self._approval_authority(payload, manifest, at)
+            self._assert_clean_sources(session, manifest.content_payload.history, at)
+            if payload.supersedes_approval is not None:
+                predecessor = self.load_approval_in_session(
+                    session, payload.supersedes_approval.artifact_id
+                )
+                if (
+                    predecessor.reference() != payload.supersedes_approval
+                    or predecessor.subject.scope != payload.scope
+                ):
+                    raise ValueError("approval predecessor reference/scope mismatch")
+            return payload
+
+    def record_approval(
+        self,
+        request_key: str,
+        *,
+        approval_payload: TrainingHistoryApprovalPayloadV2,
+        reviewer_attestation: LocalReviewerAttestationV1,
+    ) -> TrainingHistoryApprovalV2:
+        if not isinstance(approval_payload, TrainingHistoryApprovalPayloadV2):
+            raise ApprovalRecordingContractConflict(
+                "V1 approval writing is unsupported; prepare and review V2"
+            )
+        payload, attestation = (
+            revalidate(approval_payload),
+            revalidate(reviewer_attestation),
         )
+        request = _request(
+            "record_approval",
+            request_key,
+            self.operator_id,
+            approval_payload=payload,
+            reviewer_attestation=attestation,
+        )
+        with self._transaction(write=True) as session:
+            previous = _prior(session, "training_history_approval_events", request)
+            if previous:
+                result = self.load_approval_in_session(session, previous["approval_id"])
+                if not isinstance(result, TrainingHistoryApprovalV2):
+                    raise ApprovalRecordingContractConflict(
+                        "retry cannot switch approval schema"
+                    )
+                return result
+            self._assert_approval_reauthorization(session, payload, attestation)
+            manifest = self.load_manifest_in_session(
+                session, payload.manifest.artifact_id
+            )
+            recorded = self._now()
+            # Never construct or rebind an attestation. Its original seal and evidence
+            # are checked against the subject before children can be written.
+            self._verify_approval_review(
+                payload, attestation, manifest, self.operator_id, recorded
+            )
+            persisted = self._now()
+            approval = TrainingHistoryApprovalV2.freeze(
+                content_payload=TrainingHistoryApprovalContentV2(
+                    approval_payload=payload,
+                    approval_payload_hash=payload.approval_payload_hash,
+                    reviewer_attestation=attestation,
+                    operator_id=self.operator_id,
+                    request_key=request_key,
+                    request_sha256=request["request_sha256"],
+                    recorded_at_utc=recorded,
+                    persisted_at_utc=persisted,
+                )
+            )
+            self._approval_boundary(session, approval, manifest, persisted)
+            for name, row in _approval_grants(approval):
+                _insert(session, name, row)
+            if payload.supersedes_approval is not None:
+                predecessor = self.load_approval_in_session(
+                    session, payload.supersedes_approval.artifact_id
+                )
+                _insert(
+                    session,
+                    "training_history_successors",
+                    _successor_row(_successor(predecessor, approval)),
+                )
+            _insert(
+                session,
+                "training_history_approval_events",
+                _approval_row(approval, request),
+            )
+            result = self.load_approval_in_session(session, approval.artifact_id)
+            if not isinstance(result, TrainingHistoryApprovalV2) or result != approval:
+                raise ValueError(
+                    "recorded approval differs from the sealed V2 envelope"
+                )
+            self._verify_approval_review(
+                payload, attestation, manifest, self.operator_id, self._now()
+            )
+            authority = self._approval_boundary(session, result, manifest, self._now())
+            final = self._now()
+            authority.assert_active_for(final)
+            payload.assert_active_intervals(final)
+            for admission in manifest.content_payload.history.admissions:
+                admission.source_rights_admission.assert_active_for(final, ())
+            return result
+
+    def _assert_approval_reauthorization(self, session, payload, attestation):
+        """Request IDs and evidence paths cannot create a fresh authorization root."""
+        prior = {}
+        review = attestation.content_payload
+        for row in _select(session, "training_history_approval_events"):
+            old = parse_training_history_approval(
+                strict_json_bytes(row["artifact_json"].encode())
+            )
+            if old.subject.scope != payload.scope:
+                continue
+            old = self._revocation_target(session, row["approval_id"], None).approval
+            old_review = old.content_payload.reviewer_attestation
+            if isinstance(old, TrainingHistoryApprovalV2) and (
+                old.content_payload.approval_payload_hash
+                == payload.approval_payload_hash
+                and (
+                    old_review.attestation_hash == attestation.attestation_hash
+                    or old_review.content_payload.evidence.evidence_sha256
+                    == review.evidence.evidence_sha256
+                )
+            ):
+                raise ValueError(
+                    "reviewed approval authorization already recorded; retry the original request key"
+                )
+            prior[old.artifact_id] = old
+        if not prior:
+            return
+        parents = {
+            old.subject.supersedes_approval.artifact_id
+            for old in prior.values()
+            if old.subject.supersedes_approval is not None
+        }
+        heads = prior.keys() - parents
+        predecessor = payload.supersedes_approval
+        if (
+            predecessor is None
+            or heads != {predecessor.artifact_id}
+            or prior[predecessor.artifact_id].reference() != predecessor
+        ):
+            raise ValueError(
+                "existing approval scope requires an explicit fresh reviewed successor of its terminal predecessor"
+            )
+        if review.reviewed_at_utc < prior[predecessor.artifact_id].persisted_at_utc:
+            raise ValueError("successor review must follow predecessor persistence")
+        for old in prior.values():
+            for row in _select(
+                session,
+                "training_history_revocation_events",
+                approval_id=old.artifact_id,
+            ):
+                withdrawal = self._revocation(session, row).content_payload
+                if review.reviewed_at_utc < withdrawal.recorded_at_utc or not set(
+                    withdrawal.affected_grants
+                ) <= set(payload.superseded_grants):
+                    raise ValueError(
+                        "fresh successor review must acknowledge recorded withdrawals and explicitly reauthorize affected grants"
+                    )
+
+    def _approval_authority(self, payload, manifest, at):
+        authority = self.admission_repository.evidence.load_authority(
+            LocalReviewEvidenceV1(
+                evidence_reference=payload.authority_reference,
+                evidence_sha256=payload.authority_sha256,
+            )
+        )
+        authority.assert_active_for(at)
+        if (
+            authority.authorized_reviewer != payload.approver
+            or payload.payload_version not in authority.attested_schema_versions
+            or not set(_source_ids(manifest)) <= set(authority.source_ids)
+        ):
+            raise ValueError(
+                "approval requires pinned V2 reviewer/schema/source authority"
+            )
+        return authority
+
+    def _approval_boundary(self, session, approval, manifest, at):
+        current = self._authorization(session, approval, manifest, at)
+        approval_active_for_build(approval=approval, manifest=manifest, current=current)
+        for kind in ProductionGrantKind:
+            _assert_grant(approval, current, kind)
+        grants = {item.grant: item for item in approval.subject.grants}
+        assert_retention_authorized(
+            approval,
+            current,
+            grants[ProductionGrantKind.DERIVED_MODEL_STATE_RETENTION].retention,
+            grants[ProductionGrantKind.AUDIT_HASH_RETENTION].retention,
+        )
+        return self._approval_authority(approval.subject, manifest, at)
 
     def load_manifest(self, manifest_id: str) -> TrainingHistoryManifestV1:
         with self._transaction() as session:
@@ -325,15 +626,33 @@ class SqlAlchemyProductionQuantRepository:
         ):
             raise ValueError("manifest immutable request differs from graph")
         _assert_row(row, _manifest_row(manifest, request))
-        expected = prepare_training_history(
+        versioned = {}
+        if isinstance(history, TrainingHistoryGraphV2):
+            versioned = dict(
+                correction_context=TrainingHistoryContextPinV2.model_validate(
+                    payload["correction_context"]
+                ),
+                context_registered_at_utc=_utc(
+                    datetime.fromisoformat(payload["context_registered_at_utc"])
+                ),
+                selection_cutoff_at_utc=_utc(
+                    datetime.fromisoformat(payload["selection_cutoff_at_utc"])
+                ),
+                exclude_match_ids=tuple(payload["exclude_match_ids"]),
+            )
+        elif "correction_context" in payload:
+            raise ValueError("versioned request cannot load as original V1 history")
+        expected = self._prepare_history(
+            session,
             admissions=tuple(
-                self.admission_repository._load(
+                self._history_admission_in_session(
                     session, item.training_fact_admission_id
                 )
                 for item in history.admissions
             ),
             training_window=history.training_window,
             integrity_pilot_scope_id=history.integrity_pilot_scope_id,
+            **versioned,
         )
         if expected != history:
             raise ValueError("manifest differs from actual admitted evidence")
@@ -355,26 +674,33 @@ class SqlAlchemyProductionQuantRepository:
                 "training_history_mapping_sources",
                 "training_history_result_sources",
                 "training_history_facts",
+                *(
+                    VERSIONED_QUANT_TABLES[:2]
+                    if isinstance(history, TrainingHistoryGraphV2)
+                    else ()
+                ),
             ),
         )
         return manifest
 
-    def load_approval(self, approval_id: str) -> TrainingHistoryApprovalV1:
+    def load_approval(self, approval_id: str) -> TrainingHistoryApproval:
         with self._transaction() as session:
             return self.load_approval_in_session(session, approval_id)
 
     @_verified_read
     def load_approval_in_session(
         self, session: Session, approval_id: str
-    ) -> TrainingHistoryApprovalV1:
+    ) -> TrainingHistoryApproval:
         return self._approval(session, approval_id, frozenset())
 
     def _approval(self, session, approval_id, visited):
         if approval_id in visited:
             raise ValueError("approval predecessor cycle")
         row = _required(session, "training_history_approval_events", approval_id)
-        approval = TrainingHistoryApprovalV1.model_validate_json(row["artifact_json"])
-        payload = approval.content_payload.approval_payload
+        approval = parse_training_history_approval(
+            strict_json_bytes(row["artifact_json"].encode())
+        )
+        payload = approval.subject
         manifest = self.load_manifest_in_session(session, payload.manifest.artifact_id)
         request = _stored_request(row, "record_approval")
         expected_request = _request(
@@ -387,36 +713,15 @@ class SqlAlchemyProductionQuantRepository:
         if request != expected_request:
             raise ValueError("approval recorded request mismatch")
         _assert_row(row, _approval_row(approval, request))
-        if (
-            payload.manifest != manifest.reference()
-            or payload.scope != manifest.content_payload.history.scope
-            or payload.source_rights
-            != source_rights_refs(manifest.content_payload.history)
-            or payload.technical_evidence != manifest.content_payload.technical_evidence
-            or manifest.content_payload.persisted_at_utc
-            > approval.content_payload.reviewer_attestation.content_payload.reviewed_at_utc
-        ):
-            raise ValueError("approval exact manifest/source/pilot scope mismatch")
-        attestation = approval.content_payload.reviewer_attestation.content_payload
-        review = self.admission_repository.evidence.review(
-            evidence=attestation.evidence,
-            authority=LocalReviewEvidenceV1(
-                evidence_reference=attestation.reviewer_authority_reference,
-                evidence_sha256=attestation.authority_sha256,
-            ),
-            schema=TRAINING_HISTORY_APPROVAL_PAYLOAD_V1,
-            digest=payload.approval_payload_hash,
-            source_ids=_source_ids(manifest),
-            operator_id=row["operator_id"],
-            at_utc=payload.approved_at_utc,
+        self._verify_approval_review(
+            payload,
+            approval.content_payload.reviewer_attestation,
+            manifest,
+            row["operator_id"],
+            approval.recorded_at_utc,
         )
-        if (review.authorized_reviewer, review.reviewed_at_utc) != (
-            attestation.authorized_reviewer,
-            attestation.reviewed_at_utc,
-        ):
-            raise ValueError(
-                "approval attestation differs from authorized local review bytes"
-            )
+        if isinstance(approval, TrainingHistoryApprovalV2):
+            self._approval_authority(payload, manifest, approval.persisted_at_utc)
         _verify_children(
             session,
             "approval_id",
@@ -443,6 +748,50 @@ class SqlAlchemyProductionQuantRepository:
                 raise ValueError("missing or forked approval successor projection")
             _assert_row(edges[0], _successor_row(successor))
         return approval
+
+    def _verify_approval_review(
+        self, payload, reviewer_attestation, manifest, operator, at
+    ):
+        evidence = manifest.content_payload.technical_evidence
+        expected_evidence = (
+            approval_technical_evidence_ref(evidence)
+            if isinstance(payload, TrainingHistoryApprovalPayloadV2)
+            else evidence
+        )
+        if (
+            payload.manifest != manifest.reference()
+            or payload.scope != manifest.content_payload.history.scope
+            or payload.source_rights
+            != source_rights_refs(manifest.content_payload.history)
+            or payload.technical_evidence != expected_evidence
+            or payload.build_recipe != evidence.build_recipe
+            or payload.code_revision != evidence.code_revision
+            or manifest.content_payload.persisted_at_utc
+            > reviewer_attestation.content_payload.reviewed_at_utc
+        ):
+            raise ValueError("approval exact manifest/source/pilot scope mismatch")
+        attestation = reviewer_attestation.content_payload
+        review = self.admission_repository.evidence.review(
+            evidence=attestation.evidence,
+            authority=LocalReviewEvidenceV1(
+                evidence_reference=attestation.reviewer_authority_reference,
+                evidence_sha256=attestation.authority_sha256,
+            ),
+            schema=payload.payload_version,
+            digest=payload.approval_payload_hash,
+            source_ids=_source_ids(manifest),
+            operator_id=operator,
+            at_utc=at,
+        )
+        if (review.authorized_reviewer, review.reviewed_at_utc) != (
+            attestation.authorized_reviewer,
+            attestation.reviewed_at_utc,
+        ):
+            raise ValueError(
+                "approval attestation differs from authorized local review bytes"
+            )
+        if isinstance(payload, TrainingHistoryApprovalPayloadV2):
+            self._approval_authority(payload, manifest, at)
 
     def build_release(
         self,
@@ -475,7 +824,7 @@ class SqlAlchemyProductionQuantRepository:
                 approval = self.load_approval_in_session(session, approval_id)
                 manifest = self.load_manifest_in_session(
                     session,
-                    approval.content_payload.approval_payload.manifest.artifact_id,
+                    approval.subject.manifest.artifact_id,
                 )
                 start = self._authorization(session, approval, manifest, started)
                 approval_active_for_build(
@@ -560,13 +909,52 @@ class SqlAlchemyProductionQuantRepository:
                     audit_horizon,
                     release.reference(),
                 )
-                # Revalidation can take time. Re-read the visible authorization
-                # events and effective intervals at its end, not only its start.
-                commit = self._authorization(
-                    session,
-                    result.training_approval,
-                    result.training_manifest,
-                    self._now(),
+                # Verify that the as-of view includes EVERY transaction event,
+                # including withdrawals/successors not yet effective. No writers
+                # can add rows while this BEGIN IMMEDIATE transaction is held.
+                correction_ids = {
+                    item.artifact_id
+                    for item in self.correction_events_in_session(
+                        session, result.training_manifest.content_payload.history
+                    )
+                }
+                revocation_ids = {
+                    row["revocation_id"]
+                    for row in _select(
+                        session,
+                        "training_history_revocation_events",
+                        approval_id=result.training_approval.artifact_id,
+                    )
+                }
+                successor_ids = {
+                    row["successor_id"]
+                    for row in _select(
+                        session,
+                        "training_history_successors",
+                        predecessor_id=result.training_approval.artifact_id,
+                    )
+                }
+                if (
+                    correction_ids != {item.artifact_id for item in commit.corrections}
+                    or revocation_ids
+                    != {item.artifact_id for item in commit.revocations}
+                    or successor_ids
+                    != {
+                        item.content_payload.successor.artifact_id
+                        for item in commit.successors
+                    }
+                ):
+                    raise ValueError(
+                        "final build authorization requires complete transaction event snapshots"
+                    )
+                # All DB/evidence/code reads are finished. Re-evaluate only the
+                # verified immutable snapshot at this last actual clock sample.
+                commit = CurrentAuthorizationInputsV1(
+                    actual_at_utc=self._now(),
+                    technical_evidence=commit.technical_evidence,
+                    corrections=commit.corrections,
+                    revocations=commit.revocations,
+                    successors=commit.successors,
                 )
                 approval_active_for_build(
                     approval=result.training_approval,
@@ -619,7 +1007,16 @@ class SqlAlchemyProductionQuantRepository:
             "release_id",
             release_id,
             _release_children(release),
-            ("production_quant_model_release_facts",),
+            (
+                "production_quant_model_release_facts",
+                *(
+                    VERSIONED_QUANT_TABLES[2:]
+                    if isinstance(
+                        manifest.content_payload.history, TrainingHistoryGraphV2
+                    )
+                    else ()
+                ),
+            ),
         )
         for captured in (
             content.build_start_authorization,
@@ -661,20 +1058,9 @@ class SqlAlchemyProductionQuantRepository:
     def _authorization(self, session, approval, manifest, at):
         at = _utc(at)
         self._assert_clean_sources(session, manifest.content_payload.history, at)
-        corrections = []
-        match_ids = tuple(
-            item.content_payload.elo_fact.match_id
-            for item in manifest.content_payload.history.facts
+        corrections = self.correction_events_in_session(
+            session, manifest.content_payload.history, at
         )
-        table = _table("training_source_correction_events")
-        for row in session.execute(
-            select(table).where(table.c.internal_match_id.in_(match_ids))
-        ).mappings():
-            _verify_row(table.name, row)
-            correction = SourceCorrectionV1.model_validate_json(row["artifact_json"])
-            _assert_row(row, _correction_row(correction))
-            if correction.content_payload.registered_at_utc <= at:
-                corrections.append(correction)
         revocations = []
         for row in _select(
             session,
@@ -702,10 +1088,76 @@ class SqlAlchemyProductionQuantRepository:
                 manifest.content_payload.technical_evidence.attestation.artifact_id,
                 manifest.content_payload.history,
             ),
-            corrections=tuple(sorted(corrections, key=lambda item: item.artifact_id)),
+            corrections=corrections,
             revocations=tuple(sorted(revocations, key=lambda item: item.artifact_id)),
             successors=tuple(sorted(successors, key=lambda item: item.artifact_id)),
         )
+
+    def correction_events_in_session(self, session, history, at=None):
+        """Complete verified typed-ref projections; None captures all registered rows."""
+        corrections = []
+        scoped = {
+            (
+                f.content_payload.fixture_source.source_id,
+                f.content_payload.fixture_source.provider_code,
+                f.content_payload.normalized_result.match_id,
+            )
+            for a in history.admissions
+            for f in a.facts
+        }
+        match_ids = tuple(
+            f.content_payload.normalized_result.match_id
+            for a in history.admissions
+            for f in a.facts
+        )
+        table = _table("training_source_correction_events")
+        for row in session.execute(
+            select(table).where(table.c.internal_match_id.in_(match_ids))
+        ).mappings():
+            _verify_row(table.name, row)
+            correction = SourceCorrectionV1.model_validate_json(row["artifact_json"])
+            _assert_row(row, _correction_row(correction))
+            c = correction.content_payload
+            if (c.source_id, c.provider_code, c.match_id) in scoped and (
+                at is None or c.registered_at_utc <= at
+            ):
+                corrections.append(correction)
+        controlled = {}
+        if session.scalar(
+            text(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='training_correction_admissions'"
+            )
+        ):
+            from football_system.infrastructure.database.training_correction_repository import (
+                ADMISSIONS,
+                STREAMS,
+                SqlAlchemyTrainingCorrectionRepository,
+            )
+
+            repo = SqlAlchemyTrainingCorrectionRepository(self.admission_repository)
+            rows = session.execute(
+                select(ADMISSIONS.c.correction_id, ADMISSIONS.c.registered_at_utc)
+                .join(STREAMS, STREAMS.c.stream_id == ADMISSIONS.c.stream_id)
+                .where(STREAMS.c.internal_match_id.in_(match_ids))
+                .order_by(ADMISSIONS.c.stream_id, ADMISSIONS.c.revision_sequence)
+            ).all()
+            for key, registered in rows:
+                version = repo._load_version(session, key)
+                stream = version.snapshot.stream
+                if (
+                    stream.source_id,
+                    stream.provider_code,
+                    stream.internal_match_id,
+                ) in scoped and (at is None or registered <= at):
+                    for event in repo._events(session, version):
+                        projected = event.as_v1()
+                        controlled[projected.artifact_id] = projected
+        for event in corrections:
+            if controlled.get(event.artifact_id) != event:
+                raise ControlledTrainingCorrectionRequired(
+                    "registered correction lacks a verified controlled predecessor path"
+                )
+        return tuple(controlled[key] for key in sorted(controlled))
 
     def seal_target_plan(
         self,
@@ -937,8 +1389,10 @@ class SqlAlchemyProductionQuantRepository:
         Manifest/release envelopes are hashed without invoking today's Elo replay.
         """
         row = _required(session, "training_history_approval_events", approval_id)
-        approval = TrainingHistoryApprovalV1.model_validate_json(row["artifact_json"])
-        payload = approval.content_payload.approval_payload
+        approval = parse_training_history_approval(
+            strict_json_bytes(row["artifact_json"].encode())
+        )
+        payload = approval.subject
         request = _stored_request(row, "record_approval")
         if request != _request(
             "record_approval",
@@ -960,11 +1414,22 @@ class SqlAlchemyProductionQuantRepository:
             manifest["content_payload"],
             manifest["content_payload"]["history"],
         )
+        technical_evidence = content["technical_evidence"]
+        expected_evidence = (
+            ReleaseArtifactRefV1(
+                artifact_id=technical_evidence["attestation"]["artifact_id"],
+                content_hash=tagged_canonical_sha256(
+                    "TECHNICAL_EVIDENCE_REFS_V1",
+                    _revocation_hash_payload_v1(technical_evidence),
+                ),
+            ).model_dump(mode="json")
+            if isinstance(approval, TrainingHistoryApprovalV2)
+            else technical_evidence
+        )
         if (
             manifest["content_hash"] != payload.manifest.content_hash
             or history["scope"] != payload.scope.model_dump(mode="json")
-            or content["technical_evidence"]
-            != payload.technical_evidence.model_dump(mode="json")
+            or expected_evidence != payload.technical_evidence.model_dump(mode="json")
             or manifest_row["competition_id"] != payload.scope.competition_id
             or manifest_row["pilot_target_season_id"]
             != payload.scope.pilot_target_season_id
@@ -993,7 +1458,7 @@ class SqlAlchemyProductionQuantRepository:
             ):
                 raise ValueError("revocation target source/rights binding mismatch")
 
-        release_ref, persisted = None, payload.persisted_at_utc
+        release_ref, persisted = None, approval.persisted_at_utc
         if release_id is not None:
             row = _required(session, "production_quant_model_releases", release_id)
             release = _revocation_envelope_v1(
@@ -1004,8 +1469,7 @@ class SqlAlchemyProductionQuantRepository:
                 content["approval"] != approval.reference().model_dump(mode="json")
                 or content["manifest"] != payload.manifest.model_dump(mode="json")
                 or content["scope"] != payload.scope.model_dump(mode="json")
-                or content["technical_evidence"]
-                != payload.technical_evidence.model_dump(mode="json")
+                or content["technical_evidence"] != technical_evidence
                 or content["build_recipe"]
                 != payload.build_recipe.model_dump(mode="json")
                 or content["code_revision"] != payload.code_revision
@@ -1077,10 +1541,7 @@ class SqlAlchemyProductionQuantRepository:
             raise ValueError("revocation exact approval/source scope mismatch")
         if at < target.persisted_at_utc:
             raise ValueError("revocation cannot precede target persistence")
-        granted = {
-            item.grant
-            for item in target.approval.content_payload.approval_payload.grants
-        }
+        granted = {item.grant for item in target.approval.subject.grants}
         if not set(
             intent.affected_grants
         ) <= granted or intent.affected_grants != tuple(
@@ -1134,35 +1595,55 @@ class SqlAlchemyProductionQuantRepository:
     def _assert_clean_sources(self, session, history, at):
         # No actual registration clock exists on bare normalized successors. Do
         # not manufacture one or silently ignore them using source-time ingestion.
-        results = {
-            item.content_payload.elo_fact.match_id: item.content_payload.elo_fact.match_result_id
-            for item in history.facts
-        }
-        for row in session.execute(
-            select(MatchResultRecord.__table__).where(
-                MatchResultRecord.internal_match_id.in_(tuple(results))
-            )
-        ).mappings():
+        for admission in history.admissions:
             if (
-                results[row["internal_match_id"]] != row["match_result_id"]
-                or row["supersedes_match_result_id"] is not None
-            ):
-                raise ControlledTrainingCorrectionRequired(
-                    "unadmitted normalized successor requires full controlled predecessor path"
+                self._history_admission_in_session(
+                    session, admission.training_fact_admission_id
                 )
+                != admission
+            ):
+                raise ValueError("source evidence differs from pinned history")
+        pin = (
+            history.context_pin
+            if isinstance(history, TrainingHistoryGraphV2)
+            else base_context_pin(history.admissions)
+        )
+        assert_complete_correction_pins(session, pin, at)
+        if isinstance(history, TrainingHistoryGraphV2):
+            context = correction_context_in_session(
+                self.admission_repository, session, pin, at
+            )
+            heads = tuple(
+                VersionedFactRefV2.of(v)
+                for v in select_versioned_training_heads(
+                    context,
+                    source_cutoffs={
+                        v.snapshot.stream.source_id: at for v in context.versions
+                    },
+                    strict_cutoff=False,
+                )
+            )
+            if heads != history.selected_heads:
+                raise ValueError(
+                    "newer source-visible and locally registered correction requires new terminal selection"
+                )
+        results = tuple(
+            f.content_payload.normalized_result.match_id
+            for a in history.admissions
+            for f in a.facts
+        )
         correction_table = _table("training_source_correction_events")
         if (
             session.execute(
                 select(correction_table.c.correction_id).where(
                     correction_table.c.internal_match_id.in_(tuple(results)),
                     correction_table.c.registered_at_utc <= at,
+                    correction_table.c.source_available_at_utc <= at,
                 )
             ).first()
             is not None
         ):
-            raise ControlledTrainingCorrectionRequired(
-                "registered correction event blocks production until full controlled predecessor path exists"
-            )
+            self.correction_events_in_session(session, history, at)
 
 
 def _manifest_children(manifest):
@@ -1209,6 +1690,8 @@ def _manifest_children(manifest):
             ),
         )
     for fact in graph.facts:
+        if isinstance(graph, TrainingHistoryGraphV2):
+            break
         content, binding = (
             fact.content_payload,
             fact.content_payload.binding.content_payload,
@@ -1291,6 +1774,48 @@ def _manifest_children(manifest):
                 artifact_json=canonical_json(fact),
             ),
         )
+    if isinstance(graph, TrainingHistoryGraphV2):
+        selected = {r.version for r in graph.selected_heads}
+        for sequence, version in enumerate(graph.correction_context.versions):
+            yield (
+                VERSIONED_QUANT_TABLES[0],
+                _row(
+                    VERSIONED_QUANT_TABLES[0],
+                    manifest_id=mid,
+                    version_id=version.version_id,
+                    context_sequence=sequence,
+                    revision_sequence=version.revision_sequence,
+                    base_admission_id=version.base_admission.artifact_id,
+                    base_binding_id=version.base_binding.artifact_id,
+                    internal_match_id=version.snapshot.stream.internal_match_id,
+                    correction_id=version.version_id
+                    if version.revision_sequence
+                    else None,
+                    predecessor_version_id=None
+                    if version.predecessor is None
+                    else version.predecessor.artifact_id,
+                    selected=version.reference in selected,
+                    artifact_json=canonical_json(version),
+                ),
+            )
+        for fact in graph.facts:
+            c = fact.content_payload
+            yield (
+                VERSIONED_QUANT_TABLES[1],
+                _row(
+                    VERSIONED_QUANT_TABLES[1],
+                    manifest_id=mid,
+                    fact_sequence=c.fact_sequence,
+                    version_id=c.version.version_id,
+                    season_sequence=c.season_sequence,
+                    season_id=c.elo_fact.season_id,
+                    internal_match_id=c.elo_fact.match_id,
+                    match_result_id=c.elo_fact.match_result_id,
+                    elo_fact_hash=c.elo_fact.fact_hash,
+                    approved_fact_hash=fact.content_hash,
+                    artifact_json=canonical_json(fact),
+                ),
+            )
 
 
 def _manifest_row(manifest, request):
@@ -1321,15 +1846,20 @@ def _manifest_row(manifest, request):
 
 
 def _approval_row(approval, request):
-    content = approval.content_payload.approval_payload
+    content = approval.subject
+    if isinstance(approval, TrainingHistoryApprovalV2) and any(
+        getattr(approval.content_payload, key) != request[key]
+        for key in ("request_key", "request_sha256", "operator_id")
+    ):
+        raise ValueError("approval final envelope request identity mismatch")
     return _row(
         "training_history_approval_events",
         **request,
         approval_id=approval.artifact_id,
         approval_hash=approval.content_hash,
         manifest_id=content.manifest.artifact_id,
-        approved_at_utc=content.approved_at_utc,
-        persisted_at_utc=content.persisted_at_utc,
+        approved_at_utc=approval.recorded_at_utc,
+        persisted_at_utc=approval.persisted_at_utc,
         supersedes_approval_id=None
         if content.supersedes_approval is None
         else content.supersedes_approval.artifact_id,
@@ -1338,7 +1868,7 @@ def _approval_row(approval, request):
 
 
 def _approval_grants(approval):
-    for grant in approval.content_payload.approval_payload.grants:
+    for grant in approval.subject.grants:
         yield (
             "training_history_approval_grants",
             _row(
@@ -1353,17 +1883,22 @@ def _approval_grants(approval):
 
 
 def _successor(predecessor, successor):
-    payload = successor.content_payload.approval_payload
+    payload = successor.subject
     if payload.supersedes_approval != predecessor.reference():
         raise ValueError("successor does not bind actual predecessor")
+    if (
+        isinstance(successor, TrainingHistoryApprovalV2)
+        and predecessor.persisted_at_utc > successor.persisted_at_utc
+    ):
+        raise ValueError("successor cannot be persisted before its predecessor")
     return ApprovalSuccessorV1.freeze(
         content_payload=ApprovalSuccessorContentV1(
             predecessor=predecessor.reference(),
             successor=successor.reference(),
-            predecessor_scope=predecessor.content_payload.approval_payload.scope,
+            predecessor_scope=predecessor.subject.scope,
             successor_scope=payload.scope,
             affected_grants=payload.superseded_grants,
-            successor_persisted_at_utc=payload.persisted_at_utc,
+            successor_persisted_at_utc=successor.persisted_at_utc,
             effective_at_utc=payload.supersession_effective_at_utc,
         )
     )
@@ -1401,12 +1936,19 @@ def _release_row(release, request):
 
 
 def _release_children(release):
+    table = (
+        VERSIONED_QUANT_TABLES[2]
+        if isinstance(
+            release.training_manifest.content_payload.history, TrainingHistoryGraphV2
+        )
+        else "production_quant_model_release_facts"
+    )
     for fact in release.content_payload.release_facts:
         content = fact.content_payload
         yield (
-            "production_quant_model_release_facts",
+            table,
             _row(
-                "production_quant_model_release_facts",
+                table,
                 release_id=release.artifact_id,
                 manifest_id=release.content_payload.manifest.artifact_id,
                 fact_sequence=content.fact_sequence,
@@ -1575,6 +2117,8 @@ def _identifier(value):
 
 
 def _table(name):
+    if name in VERSIONED_TABLES:
+        return VERSIONED_TABLES[name]
     return Base.metadata.tables[name]
 
 

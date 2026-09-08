@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import ClassVar, TypeVar, cast
 
 from pydantic import ValidationError
+from sqlalchemy import select, text
 
 from football_system.application.environment import (
     RuntimeEnvironment,
@@ -61,10 +62,39 @@ from football_system.domain.match import (
     SportteryBonusSnapshot,
     Team,
 )
-from football_system.domain.common import stable_id
+from football_system.domain.common import normalize_utc, stable_id
 from football_system.domain.prediction import ManualQuantInput
-from football_system.domain.services.elo_baseline import EloRegularTimeResult
+from football_system.domain.quant_integrity import (
+    TrainingAdmissionPinV1,
+    project_admitted_training_fact,
+    revalidate_integrity_model,
+    select_admitted_training_facts,
+)
 from football_system.domain.settlement import MatchResult
+from football_system.domain.training_admission import (
+    TRAINING_FACT_REQUIRED_USES,
+    NormalizedMatchResultRecordV1,
+    TrainingFactBindingV1,
+    TrainingProviderMatchMappingV1,
+)
+from football_system.infrastructure.database.training_admission_repository import (
+    ControlledTrainingCorrectionRequired,
+    SqlAlchemyTrainingAdmissionRepository,
+)
+from football_system.domain.training_correction import (
+    TrainingCorrectionContextV2,
+    TrainingFactVersionV2,
+)
+from football_system.domain.versioned_training_history import (
+    TrainingHistoryContextPinV2,
+    project_versioned_training_fact,
+    select_versioned_training_facts,
+    validate_versioned_context,
+)
+from football_system.infrastructure.database.quant_integrity_repository import (
+    correction_context_in_session,
+    assert_complete_correction_pins,
+)
 
 TypedArchiveRecord = (
     FixtureArchiveRecord
@@ -135,7 +165,9 @@ def _parse_typed_record(
     )
 
 
-def load_historical_archive(path: str | Path) -> LoadedHistoricalArchive:
+def load_historical_archive(
+    path: str | Path, *, correction_context=None
+) -> LoadedHistoricalArchive:
     archive_path = Path(path)
     if not archive_path.is_file():
         raise MissingArchiveInputError(
@@ -161,8 +193,10 @@ def load_historical_archive(path: str | Path) -> LoadedHistoricalArchive:
         )
         entries = tuple(_ArchiveEntry(loaded, record) for record in records)
         _validate_record_manifests(entries)
-        _validate_business_keys(entries)
-        _validate_result_supersession(entries, require_complete=False)
+        _validate_business_keys(entries, correction_context=correction_context)
+        _validate_result_supersession(
+            entries, require_complete=False, correction_context=correction_context
+        )
         return loaded
     except HistoricalArchiveError:
         raise
@@ -184,6 +218,7 @@ class LocalArchiveStore:
         directory: str | Path,
         *,
         data_mode: HistoricalDataMode | str | None = None,
+        correction_context: TrainingCorrectionContextV2 | None = None,
     ) -> None:
         archive_directory = Path(directory)
         if not archive_directory.is_dir():
@@ -201,18 +236,34 @@ class LocalArchiveStore:
                 f"historical archive directory contains no JSON archives: "
                 f"{archive_directory}"
             )
-        archives = tuple(load_historical_archive(path) for path in paths)
+        if correction_context is not None:
+            correction_context = validate_versioned_context(correction_context)
+        archives = tuple(
+            load_historical_archive(path, correction_context=correction_context)
+            for path in paths
+        )
         _validate_archive_ids(archives)
         modes = {archive.manifest.data_mode for archive in archives}
         selected_mode = _select_data_mode(modes, data_mode)
+        if (
+            correction_context is not None
+            and selected_mode is not HistoricalDataMode.SOURCE_TIME_RESEARCH
+        ):
+            raise ArchiveValidationError(
+                "correction context cannot authorize LIVE_STRICT archives"
+            )
         selected = tuple(
             archive
             for archive in archives
             if archive.manifest.data_mode is selected_mode
         )
         selected_entries = _entries(selected)
-        _validate_business_keys(selected_entries)
-        _validate_result_supersession(selected_entries, require_complete=True)
+        _validate_business_keys(selected_entries, correction_context=correction_context)
+        _validate_result_supersession(
+            selected_entries,
+            require_complete=True,
+            correction_context=correction_context,
+        )
         _validate_mapping_coverage(selected_entries)
         self._directory = archive_directory
         self._data_mode = selected_mode
@@ -632,9 +683,7 @@ class LocalArchiveHistoricalDataProvider(
     dataset_kind = HistoricalArchiveDatasetKind.MATCH_RESULTS
 
     async def fetch_match_results(self, query: MatchResultQuery) -> MatchResultBatch:
-        return (
-            await self.fetch_archived_match_results(query)
-        ).to_match_result_batch()
+        return (await self.fetch_archived_match_results(query)).to_match_result_batch()
 
     async def fetch_archived_match_results(
         self,
@@ -692,11 +741,214 @@ class LocalArchiveHistoricalDataProvider(
         )
 
 
+@dataclass(frozen=True, slots=True)
+class RepositoryArchiveMembershipSource:
+    """Read per-fact season evidence from exact persisted admission pins.
+
+    ``repository`` must be the byte-verifying SqlAlchemyTrainingAdmissionRepository,
+    not a dictionary, a sealed fact tuple, or a duck-typed in-memory loader.
+    ``admissions`` is a nonempty, ID-sorted tuple of unique TrainingAdmissionPinV1
+    values. ``verified_at_utc`` is the actual local verification boundary, distinct
+    from each historical query's source-time cutoff. Pins must already exist then
+    and research/storage rights must be active then. This grants no live or
+    production permission.
+
+    Each load calls the repository's read-only ``load(admission_id)``: it rereads
+    captured raw files, full record hashes, adapter/reviewer evidence, registered
+    identities, normalized results, memberships and persisted child/parent roots.
+    Pin equality is checked after that I/O, never inferred from a constructor seal.
+    Unresolved corrections fail in repository verification. Without an explicit
+    ``correction_context`` pin, registered correction streams still fail closed.
+    With that opt-in, each read verifies every exact predecessor and correction,
+    complete current heads, and active rights at the repository's actual clock.
+    Whole-version source selection is separate from that current read permission.
+    Evidence files and the database remain local; this reader performs no writes.
+    """
+
+    repository: SqlAlchemyTrainingAdmissionRepository
+    admissions: tuple[TrainingAdmissionPinV1, ...]
+    verified_at_utc: datetime
+    correction_context: TrainingHistoryContextPinV2 | None = None
+
+    data_mode: ClassVar[HistoricalDataMode] = HistoricalDataMode.SOURCE_TIME_RESEARCH
+
+    def load_facts(
+        self,
+    ) -> tuple[TrainingFactBindingV1, ...] | tuple[TrainingFactVersionV2, ...]:
+        """Reverify every pinned graph, including facts later excluded by a query."""
+        if self.correction_context is not None:
+            return self.load_context().versions
+        if not isinstance(self.repository, SqlAlchemyTrainingAdmissionRepository):
+            raise MissingArchiveInputError(
+                "archive memberships require the byte-verifying admission repository"
+            )
+        at = normalize_utc(self.verified_at_utc)
+        pins = tuple(revalidate_integrity_model(pin) for pin in self.admissions)
+        ids = tuple(pin.training_fact_admission_id for pin in pins)
+        if not pins or ids != tuple(sorted(set(ids))):
+            raise ArchiveValidationError(
+                "memberships require sorted unique admission pins"
+            )
+        facts: list[TrainingFactBindingV1] = []
+        for pin in pins:
+            if pin.persisted_at_utc > at:
+                raise ArchiveValidationError(
+                    "membership admission is not yet persisted"
+                )
+            admission = revalidate_integrity_model(
+                self.repository.load(pin.training_fact_admission_id)
+            )
+            if TrainingAdmissionPinV1.from_admission(admission) != pin:
+                raise ArchiveValidationError(
+                    "membership admission differs from exact pin"
+                )
+            admission.source_rights_admission.assert_active_for(
+                at, TRAINING_FACT_REQUIRED_USES
+            )
+            facts.extend(admission.facts)
+        for key in ("match_id", "match_result_id"):
+            values = tuple(
+                getattr(f.content_payload.normalized_result, key) for f in facts
+            )
+            if len(values) != len(set(values)):
+                raise ArchiveValidationError(
+                    "ambiguous membership across pinned admissions"
+                )
+        # Audit replay may retain a verified original after a controlled correction.
+        # Refuse that stream until this consumer accepts explicit correction context.
+        with self.repository._sessions.begin() as session:
+            session.execute(text("BEGIN"))
+            if session.scalar(
+                text(
+                    "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+                    "AND name = 'training_correction_streams'"
+                )
+            ):
+                for fact in facts:
+                    result = fact.content_payload.normalized_result
+                    if session.scalar(
+                        text(
+                            "SELECT 1 FROM training_correction_streams AS s "
+                            "JOIN training_correction_admissions AS a "
+                            "ON a.stream_id = s.stream_id "
+                            "JOIN providers AS p ON p.provider_id = s.provider_id "
+                            "WHERE p.code = :provider AND s.internal_match_id = :match "
+                            "LIMIT 1"
+                        ),
+                        {"provider": result.provider_code, "match": result.match_id},
+                    ):
+                        raise ControlledTrainingCorrectionRequired(
+                            "archive memberships require explicit correction context "
+                            "for a registered correction stream"
+                        )
+        return tuple(facts)
+
+    def load_context(self) -> TrainingCorrectionContextV2:
+        if (
+            type(self.repository) is not SqlAlchemyTrainingAdmissionRepository
+            or self.correction_context is None
+        ):
+            raise MissingArchiveInputError(
+                "versioned archive requires concrete repository and explicit context pin"
+            )
+        pin = revalidate_integrity_model(self.correction_context)
+        admissions = tuple(revalidate_integrity_model(p) for p in self.admissions)
+        if tuple(
+            (p.training_fact_admission_id, p.admission_hash) for p in admissions
+        ) != tuple((p.artifact_id, p.content_hash) for p in pin.base_admissions):
+            raise ArchiveValidationError("archive admission/context pins mismatch")
+        with self.repository._sessions.begin() as session:
+            session.execute(text("BEGIN"))
+            at = self.repository._now()
+            if at < normalize_utc(self.verified_at_utc):
+                raise ArchiveValidationError(
+                    "membership verification cannot forecast actual time"
+                )
+            rights = []
+            from football_system.infrastructure.database.models import (
+                TrainingFactAdmissionRecord,
+            )
+
+            for admission in admissions:
+                # Bind rights to the actual parent header before reading result bytes.
+                parent = TrainingFactAdmissionRecord
+                header = session.execute(
+                    select(
+                        parent.admission_hash,
+                        parent.source_rights_admission_id,
+                        parent.persisted_at_utc,
+                    ).where(
+                        parent.training_fact_admission_id
+                        == admission.training_fact_admission_id
+                    )
+                ).one_or_none()
+                if header is None or tuple(header) != (
+                    admission.admission_hash,
+                    admission.source_rights_admission_id,
+                    admission.persisted_at_utc,
+                ):
+                    raise ArchiveValidationError(
+                        "archive base admission/rights pin mismatch"
+                    )
+                value = self.repository._rights(
+                    session, admission.source_rights_admission_id
+                )
+                if value.admission_hash != admission.source_rights_admission_hash:
+                    raise ArchiveValidationError("archive rights pin mismatch")
+                value.assert_active_for(at, TRAINING_FACT_REQUIRED_USES)
+                rights.append(value)
+            context = correction_context_in_session(self.repository, session, pin, at)
+            for admission in admissions:
+                actual = self.repository._load(
+                    session, admission.training_fact_admission_id
+                )
+                if TrainingAdmissionPinV1.from_admission(actual) != admission:
+                    raise ArchiveValidationError("archive admission differs from exact pin")
+            completed = self.repository._now()
+            for value in rights:
+                value.assert_active_for(completed, TRAINING_FACT_REQUIRED_USES)
+            assert_complete_correction_pins(session, pin, completed)
+            return context
+
+
 class HistoricalArchiveEloTrainingProvider(
     _HistoricalArchiveProvider,
     EloTrainingHistoryProvider,
 ):
-    """Build one explicitly configured season's Elo history from local archives."""
+    """Join local archive results to independently verified per-fact memberships.
+
+    Public constructor::
+
+        HistoricalArchiveEloTrainingProvider(
+            archive_source, provider_code=None, *, fixture_provider_code=None,
+            membership_source=None, ordered_season_ids=(), season_id=None,
+            data_mode=None,
+        )
+
+    ``archive_source`` remains a path or LocalArchiveStore. ``membership_source``
+    must be RepositoryArchiveMembershipSource; omitting it fails closed, including
+    obsolete season-only calls. Its SOURCE_TIME_RESEARCH mode must equal the archive
+    mode, and its fixture/result/mapping provider must equal both selected providers.
+    Other archive adapters still support ordinary LIVE_STRICT inputs unchanged.
+
+    ``ordered_season_ids`` declares unique chronological seasons, including any
+    empty final target season. It validates order, never assigns a fact's season.
+    Optional legacy ``season_id`` only asserts that ALL verified facts belong to
+    that one season; it cannot replace membership evidence or restrict the target.
+    Construction verifies the pins, and every fetch rereads raw evidence and checks
+    archive files against the loaded envelopes. No archive or persisted run is edited.
+
+    ``fetch_elo_training_history(query)`` uses inclusive source cutoffs independently
+    for fixture, mapping, membership and result. Not-yet-visible evidence yields no
+    fact; missing, ambiguous or mismatched evidence raises ValueError. All target
+    match IDs supplied in ``query.exclude_match_ids`` are excluded before joining.
+    Results retain real identity/season and original normalized timestamps, never
+    max-source/import times. The shared admitted selector enforces chronological
+    season blocks and Elo ordering. ``target_season_id`` is passed through for the
+    Elo engine's final transition, never propagated into facts; a target preceding
+    selected history is rejected. Corrections require explicit pinned context;
+    archive fixtures/results must match the exact revision, never silently latest.
+    """
 
     dataset_kind = HistoricalArchiveDatasetKind.MATCH_RESULTS
 
@@ -706,80 +958,365 @@ class HistoricalArchiveEloTrainingProvider(
         provider_code: str | None = None,
         *,
         fixture_provider_code: str | None = None,
-        season_id: str,
+        membership_source: RepositoryArchiveMembershipSource | None = None,
+        ordered_season_ids: tuple[str, ...] = (),
+        season_id: str | None = None,
         data_mode: HistoricalDataMode | str | None = None,
     ) -> None:
+        if not isinstance(membership_source, RepositoryArchiveMembershipSource):
+            raise MissingArchiveInputError(
+                "Elo archive history requires an explicit verified membership_source; "
+                "constructor season labels are not evidence"
+            )
+        if membership_source.correction_context is not None:
+            context = membership_source.load_context()
+            archive_source = LocalArchiveStore(
+                archive_source.directory
+                if isinstance(archive_source, LocalArchiveStore)
+                else archive_source,
+                data_mode=data_mode,
+                correction_context=context,
+            )
         super().__init__(archive_source, provider_code, data_mode=data_mode)
-        season_id = season_id.strip()
-        if not season_id:
-            raise ValueError("Elo archive season_id must be nonempty")
+        if self.data_mode is not membership_source.data_mode:
+            raise ArchiveValidationError(
+                "repository memberships require SOURCE_TIME_RESEARCH archives; "
+                "data modes cannot be mixed"
+            )
         self.fixture_provider_code = self._store.resolve_provider(
             HistoricalArchiveDatasetKind.FIXTURES,
             fixture_provider_code,
         )
+        if self.fixture_provider_code != self.provider_code:
+            raise ArchiveValidationError(
+                "verified memberships require the same fixture and result provider"
+            )
+        if (
+            not ordered_season_ids
+            or any(not s or s != s.strip() for s in ordered_season_ids)
+            or len(ordered_season_ids) != len(set(ordered_season_ids))
+        ):
+            raise ArchiveValidationError(
+                "explicit unique ordered_season_ids are required"
+            )
+        if season_id is not None and (not season_id or season_id != season_id.strip()):
+            raise ValueError(
+                "Elo archive season_id assertion must be an exact identifier"
+            )
+        self.membership_source = membership_source
+        self.ordered_season_ids = tuple(ordered_season_ids)
         self.season_id = season_id
+        self._verified_memberships()
+
+    def _verified_memberships(self) -> tuple[TrainingFactBindingV1, ...]:
+        facts = self.membership_source.load_facts()
+        for fact in facts:
+            if self.membership_source.correction_context is not None:
+                if (
+                    fact.snapshot.stream.provider_code != self.provider_code
+                    or fact.snapshot.identity.season not in self.ordered_season_ids
+                    or (
+                        self.season_id is not None
+                        and fact.snapshot.identity.season != self.season_id
+                    )
+                ):
+                    raise ArchiveValidationError(
+                        "version metadata outside exact archive provider/season scope"
+                    )
+                continue
+            binding = fact.content_payload
+            if binding.provider_mapping.provider_code != self.provider_code:
+                raise ArchiveValidationError(
+                    "membership has the wrong archive provider"
+                )
+            season = binding.season_membership.content_payload.canonical_season_id
+            if season not in self.ordered_season_ids:
+                raise ArchiveValidationError(
+                    "membership is outside declared ordered seasons"
+                )
+            if self.season_id is not None and season != self.season_id:
+                raise ArchiveValidationError(
+                    "season_id assertion does not match verified per-fact membership"
+                )
+        return facts
 
     async def fetch_elo_training_history(
         self,
         query: EloTrainingHistoryQuery,
     ) -> EloTrainingHistoryBatch:
-        if query.target_season_id != self.season_id:
+        query = revalidate_integrity_model(query)
+        if query.target_season_id not in self.ordered_season_ids:
             raise MissingArchiveInputError(
-                "Elo training query season does not match the configured archive season"
+                "target season is outside declared ordered seasons"
             )
+        if self.membership_source.correction_context is not None:
+            return self._fetch_versioned_history(query)
+        if query.as_of_at_utc > normalize_utc(self.membership_source.verified_at_utc):
+            raise ArchiveValidationError(
+                "source cutoff cannot follow membership verification"
+            )
+        facts = self._verified_memberships()
+        by_result = {
+            f.content_payload.normalized_result.match_result_id: f for f in facts
+        }
+        for archive in self._store.archives:
+            if (
+                archive.manifest.provider_code == self.provider_code
+                and (
+                    archive.manifest.dataset_kind
+                    in {
+                        self.dataset_kind,
+                        HistoricalArchiveDatasetKind.FIXTURES,
+                        HistoricalArchiveDatasetKind.PROVIDER_MAPPINGS,
+                    }
+                )
+                and load_historical_archive(archive.path).document != archive.document
+            ):
+                raise ArchiveValidationError("archive changed since it was loaded")
+
         excluded = set(query.exclude_match_ids)
-        fixtures: dict[str, FixtureArchivePayload] = {}
+        fixtures: dict[str, list[FixtureArchivePayload]] = defaultdict(list)
         for entry in self._store._records(
             HistoricalArchiveDatasetKind.FIXTURES,
             self.fixture_provider_code,
         ):
             fixture = cast(FixtureArchiveRecord, entry.record).payload
-            match = fixture.match
-            if (
-                match.competition_id != query.competition_id
-                or match.available_at_utc > query.as_of_at_utc
-            ):
-                continue
-            current = fixtures.get(match.match_id)
-            if current is None or (
-                match.available_at_utc > current.match.available_at_utc
-            ):
-                fixtures[match.match_id] = fixture
+            fixtures[fixture.match.match_id].append(fixture)
 
-        latest: dict[str, _ArchiveEntry] = {}
+        entries: dict[str, _ArchiveEntry] = {}
         for entry in self._store._records(self.dataset_kind, self.provider_code):
             result = cast(MatchResultArchiveRecord, entry.record).payload
-            if (
-                result.match_id in excluded
-                or result.match_id not in fixtures
-                or not _result_visible(result, query.as_of_at_utc)
+            if result.match_id in excluded or not _result_visible(
+                result, query.as_of_at_utc
             ):
                 continue
-            current = latest.get(result.match_id)
-            if current is None or _result_version(result) > _result_version(
-                cast(MatchResultArchiveRecord, current.record).payload
+            versions = fixtures.get(result.match_id)
+            if not versions:
+                raise MissingArchiveInputError(
+                    "Elo result has no archive fixture identity"
+                )
+            match = versions[0].match
+            fact = by_result.get(result.match_result_id)
+            if match.competition_id != query.competition_id and (
+                fact is None
+                or fact.content_payload.canonical_identity.internal_competition_id
+                != query.competition_id
             ):
-                latest[result.match_id] = entry
+                continue
+            if result.supersedes_match_result_id is not None:
+                raise ControlledTrainingCorrectionRequired(
+                    "archive Elo correction requires verified correction context"
+                )
+            if fact is None:
+                raise MissingArchiveInputError(
+                    "Elo result has no pinned verified membership"
+                )
+            binding = fact.content_payload
+            if (
+                NormalizedMatchResultRecordV1.from_result(result)
+                != binding.normalized_result
+            ):
+                raise ArchiveValidationError(
+                    "archive normalized result/hash differs from verified membership"
+                )
+            identity = binding.canonical_identity
+            if (
+                match.match_id,
+                match.competition_id,
+                match.home_team_id,
+                match.away_team_id,
+            ) != (
+                identity.internal_match_id,
+                identity.internal_competition_id,
+                identity.internal_home_team_id,
+                identity.internal_away_team_id,
+            ):
+                raise ArchiveValidationError(
+                    "archive fixture identity differs from membership"
+                )
+            entries[result.match_result_id] = entry
 
-        selected = tuple(
-            sorted(
-                latest.values(),
-                key=lambda entry: (
-                    fixtures[
-                        cast(MatchResultArchiveRecord, entry.record).payload.match_id
-                    ].match.kickoff_at_utc,
-                    cast(MatchResultArchiveRecord, entry.record).payload.match_id,
-                ),
-            )
+        selected = select_admitted_training_facts(
+            facts,
+            query.competition_id,
+            self.ordered_season_ids,
+            query.as_of_at_utc,
+            excluded,
+            strict_cutoff=False,
         )
+        sources = []
+        mappings = _mapping_payloads(self._store, self.provider_code)
+        for fact in selected:
+            binding = fact.content_payload
+            identity = binding.canonical_identity
+            entry = entries.get(binding.normalized_result.match_result_id)
+            if entry is None:
+                raise MissingArchiveInputError(
+                    "verified result is missing from the archive at source cutoff"
+                )
+            visible_fixtures = [
+                f
+                for f in fixtures[identity.internal_match_id]
+                if f.match.available_at_utc <= query.as_of_at_utc
+            ]
+            if not visible_fixtures:
+                raise MissingArchiveInputError(
+                    "verified fixture is missing at source cutoff"
+                )
+            match = max(visible_fixtures, key=lambda f: f.match.available_at_utc).match
+            if (match.kickoff_at_utc, match.available_at_utc) != (
+                identity.kickoff_at_utc,
+                binding.fixture_source.source_available_at_utc,
+            ):
+                raise ArchiveValidationError(
+                    "archive fixture kickoff/source availability differs from membership; "
+                    "correction context is required"
+                )
+            matching = tuple(
+                m for m in mappings if m.internal_match_id == match.match_id
+            )
+            if len(matching) != 1 or (
+                TrainingProviderMatchMappingV1.from_mapping(matching[0])
+                != binding.provider_mapping
+            ):
+                raise ArchiveValidationError(
+                    "archive mapping is ambiguous or differs from membership"
+                )
+            if self.ordered_season_ids.index(
+                identity.season
+            ) > self.ordered_season_ids.index(query.target_season_id):
+                raise ArchiveValidationError(
+                    "target season precedes selected training history"
+                )
+            sources.append(
+                EloTrainingResultSource(
+                    result=project_admitted_training_fact(fact),
+                    archive=BacktestArchiveProvenance.from_manifest(
+                        entry.archive.manifest
+                    ),
+                )
+            )
         return EloTrainingHistoryBatch(
             competition_id=query.competition_id,
             target_season_id=query.target_season_id,
             as_of_at_utc=query.as_of_at_utc,
-            sources=tuple(
-                _elo_training_source(entry, fixtures, self.season_id)
-                for entry in selected
-            ),
+            sources=tuple(sources),
+        )
+
+    def _fetch_versioned_history(self, query):
+        context = self.membership_source.load_context()
+        for archive in self._store.archives:
+            if (
+                load_historical_archive(
+                    archive.path, correction_context=context
+                ).document
+                != archive.document
+            ):
+                raise ArchiveValidationError("archive changed since it was loaded")
+        by_result = {
+            v.normalized_result.match_result_id: v
+            for v in context.versions
+            if v.normalized_result is not None
+        }
+        entries = {}
+        for entry in self._store._records(self.dataset_kind, self.provider_code):
+            result = entry.record.payload
+            if result.match_id in query.exclude_match_ids or not _result_visible(
+                result, query.as_of_at_utc
+            ):
+                continue
+            version = by_result.get(result.match_result_id)
+            if (
+                version is None
+                or NormalizedMatchResultRecordV1.from_result(result)
+                != version.normalized_result
+            ):
+                raise ArchiveValidationError(
+                    "archive normalized revision is not in the exact pinned context"
+                )
+            entries[result.match_result_id] = entry
+        fixtures = tuple(
+            e.record.payload.match
+            for e in self._store._records(
+                HistoricalArchiveDatasetKind.FIXTURES, self.provider_code
+            )
+        )
+        mappings = _mapping_payloads(self._store, self.provider_code)
+        facts = select_versioned_training_facts(
+            context,
+            query.competition_id,
+            self.ordered_season_ids,
+            query.as_of_at_utc,
+            query.exclude_match_ids,
+            False,
+        )
+        sources = []
+        for version in facts:
+            s, identity = version.snapshot, version.snapshot.identity
+            if (
+                s.stream.provider_code != self.provider_code
+                or self.ordered_season_ids.index(identity.season)
+                > self.ordered_season_ids.index(query.target_season_id)
+            ):
+                raise ArchiveValidationError(
+                    "selected archive version outside provider/target season scope"
+                )
+            exact = [
+                f
+                for f in fixtures
+                if (
+                    f.match_id,
+                    f.competition_id,
+                    f.home_team_id,
+                    f.away_team_id,
+                    f.kickoff_at_utc,
+                    f.available_at_utc,
+                )
+                == (
+                    identity.internal_match_id,
+                    identity.internal_competition_id,
+                    identity.internal_home_team_id,
+                    identity.internal_away_team_id,
+                    identity.kickoff_at_utc,
+                    s.fixture_source_available_at_utc,
+                )
+            ]
+            matching = tuple(
+                m for m in mappings if m.internal_match_id == identity.internal_match_id
+            )
+            if (
+                len(exact) != 1
+                or len(matching) != 1
+                or TrainingProviderMatchMappingV1.from_mapping(matching[0])
+                != s.provider_mapping
+            ):
+                raise ArchiveValidationError(
+                    "exact revision fixture/mapping metadata missing from archive"
+                )
+            entry = entries.get(version.normalized_result.match_result_id)
+            if entry is None:
+                raise MissingArchiveInputError(
+                    "selected normalized revision missing from archive"
+                )
+            sources.append(
+                EloTrainingResultSource(
+                    result=project_versioned_training_fact(version),
+                    archive=BacktestArchiveProvenance.from_manifest(
+                        entry.archive.manifest
+                    ),
+                )
+            )
+        # Recheck possession, raw evidence and complete registered heads at actual end.
+        end = self.membership_source.load_context()
+        if end.versions != context.versions or end.corrections != context.corrections:
+            raise ArchiveValidationError(
+                "archive membership context changed during query"
+            )
+        return EloTrainingHistoryBatch(
+            competition_id=query.competition_id,
+            target_season_id=query.target_season_id,
+            as_of_at_utc=query.as_of_at_utc,
+            sources=tuple(sources),
         )
 
 
@@ -797,32 +1334,6 @@ def _coerce_store(
             )
         return source
     return LocalArchiveStore(source, data_mode=data_mode)
-
-
-def _elo_training_source(
-    entry: _ArchiveEntry,
-    fixtures: dict[str, FixtureArchivePayload],
-    season_id: str,
-) -> EloTrainingResultSource:
-    result = cast(MatchResultArchiveRecord, entry.record).payload
-    match = fixtures[result.match_id].match
-    return EloTrainingResultSource(
-        result=EloRegularTimeResult(
-            match_result_id=result.match_result_id,
-            match_id=result.match_id,
-            season_id=season_id,
-            home_team_id=match.home_team_id,
-            away_team_id=match.away_team_id,
-            kickoff_at_utc=match.kickoff_at_utc,
-            available_at_utc=result.available_at_utc,
-            ingested_at_utc=result.ingested_at_utc,
-            home_goals=result.home_goals,
-            away_goals=result.away_goals,
-            payload_hash=result.payload_hash,
-            supersedes_match_result_id=result.supersedes_match_result_id,
-        ),
-        archive=BacktestArchiveProvenance.from_manifest(entry.archive.manifest),
-    )
 
 
 def _select_data_mode(
@@ -966,7 +1477,9 @@ def _source_known_at(
     raise TypeError(f"unsupported archive payload: {type(payload).__name__}")
 
 
-def _validate_business_keys(entries: tuple[_ArchiveEntry, ...]) -> None:
+def _validate_business_keys(
+    entries: tuple[_ArchiveEntry, ...], *, correction_context=None
+) -> None:
     fixtures = _entries_of_kind(entries, HistoricalArchiveDatasetKind.FIXTURES)
     market = _entries_of_kind(entries, HistoricalArchiveDatasetKind.MARKET_ODDS)
     market_issues = _entries_of_kind(
@@ -984,6 +1497,15 @@ def _validate_business_keys(entries: tuple[_ArchiveEntry, ...]) -> None:
             entry.provider_code,
             cast(FixtureArchiveRecord, entry.record).payload.match.match_id,
             cast(FixtureArchiveRecord, entry.record).payload.match.available_at_utc,
+            *(
+                (
+                    cast(
+                        FixtureArchiveRecord, entry.record
+                    ).payload.match.model_dump_json(),
+                )
+                if correction_context is not None
+                else ()
+            ),
         ),
         "fixture version",
     )
@@ -1064,12 +1586,21 @@ def _validate_business_keys(entries: tuple[_ArchiveEntry, ...]) -> None:
         lambda entry: (
             entry.provider_code,
             cast(MatchResultArchiveRecord, entry.record).payload.source_result_key,
+            *(
+                (cast(MatchResultArchiveRecord, entry.record).payload.match_result_id,)
+                if correction_context is not None
+                else ()
+            ),
         ),
         "match result source key",
     )
     _assert_unique(
         results,
-        lambda entry: _result_business_version_key(
+        lambda entry: (
+            cast(MatchResultArchiveRecord, entry.record).payload.match_result_id,
+        )
+        if correction_context is not None
+        else _result_business_version_key(
             cast(MatchResultArchiveRecord, entry.record).payload
         ),
         "match result version",
@@ -1090,10 +1621,54 @@ def _validate_business_keys(entries: tuple[_ArchiveEntry, ...]) -> None:
         ),
         "provider external match key",
     )
-    _validate_fixture_identity(fixtures)
+    _validate_fixture_identity(fixtures, correction_context=correction_context)
+    if correction_context is not None:
+        expected_fixtures = {
+            (
+                v.snapshot.stream.provider_code,
+                v.snapshot.identity.internal_match_id,
+                v.snapshot.identity.internal_competition_id,
+                v.snapshot.identity.internal_home_team_id,
+                v.snapshot.identity.internal_away_team_id,
+                v.snapshot.identity.kickoff_at_utc,
+                v.snapshot.fixture_source_available_at_utc,
+            )
+            for v in correction_context.versions
+        }
+        known_matches = {key[:2] for key in expected_fixtures}
+        for entry in fixtures:
+            match = entry.record.payload.match
+            key = (
+                entry.provider_code,
+                match.match_id,
+                match.competition_id,
+                match.home_team_id,
+                match.away_team_id,
+                match.kickoff_at_utc,
+                match.available_at_utc,
+            )
+            if key[:2] in known_matches and key not in expected_fixtures:
+                raise ArchiveValidationError(
+                    "archive fixture differs from exact controlled revision metadata"
+                )
+        expected = {
+            v.normalized_result.match_result_id: v.normalized_result
+            for v in correction_context.versions
+            if v.normalized_result is not None
+        }
+        for entry in results:
+            value = entry.record.payload
+            if expected.get(
+                value.match_result_id
+            ) != NormalizedMatchResultRecordV1.from_result(value):
+                raise ArchiveValidationError(
+                    "archive result differs from exact controlled version"
+                )
 
 
-def _validate_fixture_identity(entries: tuple[_ArchiveEntry, ...]) -> None:
+def _validate_fixture_identity(
+    entries: tuple[_ArchiveEntry, ...], *, correction_context=None
+) -> None:
     fixture_records = tuple(
         cast(FixtureArchiveRecord, entry.record).payload for entry in entries
     )
@@ -1120,6 +1695,26 @@ def _validate_fixture_identity(entries: tuple[_ArchiveEntry, ...]) -> None:
         )
         previous = seen_matches.setdefault(fixture.match.match_id, identity)
         if previous != identity:
+            if correction_context is not None:
+                match = fixture.match
+                if any(
+                    (
+                        v.snapshot.identity.internal_match_id,
+                        v.snapshot.identity.internal_competition_id,
+                        v.snapshot.identity.internal_home_team_id,
+                        v.snapshot.identity.internal_away_team_id,
+                        v.snapshot.identity.kickoff_at_utc,
+                        v.snapshot.fixture_source_available_at_utc,
+                    )
+                    == (
+                        match.match_id,
+                        *identity,
+                        match.kickoff_at_utc,
+                        match.available_at_utc,
+                    )
+                    for v in correction_context.versions
+                ):
+                    continue
             raise ArchiveValidationError(
                 f"conflicting canonical fixture identity: {fixture.match.match_id}"
             )
@@ -1129,6 +1724,7 @@ def _validate_result_supersession(
     entries: tuple[_ArchiveEntry, ...],
     *,
     require_complete: bool,
+    correction_context=None,
 ) -> None:
     result_entries = _entries_of_kind(
         entries, HistoricalArchiveDatasetKind.MATCH_RESULTS
@@ -1164,7 +1760,20 @@ def _validate_result_supersession(
             )
         if not (
             parent.available_at_utc <= result.available_at_utc
-            and parent.ingested_at_utc < result.ingested_at_utc
+            and (
+                parent.ingested_at_utc < result.ingested_at_utc
+                or (
+                    correction_context is not None
+                    and parent.ingested_at_utc == result.ingested_at_utc
+                    and any(
+                        v.normalized_result is not None
+                        and v.normalized_result.match_result_id
+                        == result.match_result_id
+                        and v.snapshot.provider_revision_order is not None
+                        for v in correction_context.versions
+                    )
+                )
+            )
         ):
             raise ArchiveValidationError(
                 f"match result {result.match_result_id} must supersede an earlier "

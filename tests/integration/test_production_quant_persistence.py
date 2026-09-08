@@ -3,7 +3,7 @@
 Admission bytes/identities are genuinely persisted through the admission lane.
 The isolated bridge double is explicitly NOT a real integrity pilot. Approval
 rows are seeded only to test reads/build persistence while the public approval
-writer remains blocked by the documented V1 timestamp-attestation conflict.
+writer accepts only V2. These V1 fixtures remain for backward regressions.
 """
 
 from contextlib import contextmanager
@@ -449,21 +449,19 @@ def test_manifest_actual_admission_graph_and_exact_retry_without_new_timestamps(
         )
 
 
-def test_approval_writer_stops_instead_of_rebinding_a_prior_review(production):
-    value = manifest(production)
+def test_approval_writer_rejects_v1_instead_of_rebinding_a_prior_review(production):
+    value = seed_approval_fixture(production)
     before = counts(production)
     with pytest.raises(
-        ApprovalRecordingContractConflict, match="future|persisted_at_utc"
+        ApprovalRecordingContractConflict, match="V1 approval writing is unsupported"
     ):
         production.repo.record_approval(
             "approval",
-            value.artifact_id,
-            grants=(),
-            review=production.authority,
-            reviewer_authority=production.authority,
+            approval_payload=value.content_payload.approval_payload,
+            reviewer_attestation=value.content_payload.reviewer_attestation,
         )
     assert counts(production) == before
-    assert counts(production)["training_history_approval_events"] == 0
+    assert counts(production)["training_history_approval_events"] == 1
 
 
 def test_seeded_reviewed_approval_build_and_projection_round_trip(production):
@@ -902,9 +900,35 @@ def test_unadmitted_normalized_successor_blocks_reads_and_authorization(producti
             "ingested_at_utc": original.ingested_at_utc + timedelta(seconds=1),
         }
     )
-    SqlAlchemyHistoricalRepository(production.lane.sessions).append_match_result(
-        successor
-    )
+    with pytest.raises(IntegrityError, match="controlled correction"):
+        SqlAlchemyHistoricalRepository(production.lane.sessions).append_match_result(
+            successor
+        )
+    assert production.repo.load_release(release.artifact_id) == release
+    # Test-only DDL simulates corruption that the ordinary writer now rejects.
+    table = persistence.Base.metadata.tables["match_results"]
+    with production.lane.engine.begin() as connection:
+        connection.exec_driver_sql(
+            "DROP TRIGGER trg_match_results_controlled_stream_insert"
+        )
+        row = dict(
+            connection.execute(
+                select(table).where(
+                    table.c.match_result_id == original.match_result_id
+                )
+            )
+            .mappings()
+            .one()
+        )
+        row.update(
+            match_result_id=successor.match_result_id,
+            source_result_key=successor.source_result_key,
+            supersedes_match_result_id=original.match_result_id,
+            ingested_at_utc=successor.ingested_at_utc,
+        )
+        connection.execute(table.insert().values(**row))
+    with pytest.raises(ControlledTrainingCorrectionRequired):
+        production.repo.load_release(release.artifact_id)
     with pytest.raises(ControlledTrainingCorrectionRequired):
         production.repo.authorization(release.artifact_id, production.lane.clock())
 

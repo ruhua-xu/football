@@ -45,6 +45,11 @@ from football_system.domain.training_admission import (
     tagged_canonical_sha256,
     training_fact_order_key,
 )
+from football_system.domain.versioned_training_history import (
+    TrainingHistoryContextPinV2,
+    VersionedFactRefV2,
+    versioned_selection_root,
+)
 
 FIXED_ELO_CONFIG_HASH = (
     "c98d595d3afb03fe629e776fa9a0e70f24e31fcd49884be3ff11e9c979ca78e4"
@@ -501,11 +506,29 @@ class QuantIntegrityTargetV1(DomainModel):
         return self
 
 
+class QuantIntegrityTargetV2(QuantIntegrityTargetV1):
+    schema_version: Literal["QUANT_INTEGRITY_TARGET_V2"] = "QUANT_INTEGRITY_TARGET_V2"
+    fact: VersionedFactRefV2
+
+    @model_validator(mode="after")
+    def validate_version(self) -> Self:
+        if (
+            self.fact.match_result_id is None
+            or self.fact.base_admission.artifact_id != self.training_fact_admission_id
+        ):
+            raise ValueError(
+                "pilot target requires an exact trainable version and parent"
+            )
+        return self
+
+
 class QuantIntegritySliceContentV1(DomainModel):
     sequence: int = Field(ge=0, strict=True)
     decision_as_of_at_utc: UtcDateTime
     evaluation_as_of_at_utc: UtcDateTime
-    targets: tuple[QuantIntegrityTargetV1, ...] = Field(min_length=1)
+    targets: tuple[QuantIntegrityTargetV1 | QuantIntegrityTargetV2, ...] = Field(
+        min_length=1
+    )
     exclude_match_ids: tuple[Identifier, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -695,6 +718,31 @@ class QuantIntegrityPlanDefinitionV1(DomainModel):
         return self
 
 
+class QuantIntegrityPlanDefinitionV2(QuantIntegrityPlanDefinitionV1):
+    schema_version: Literal["QUANT_INTEGRITY_PLAN_DEFINITION_V2"] = (
+        "QUANT_INTEGRITY_PLAN_DEFINITION_V2"
+    )
+    correction_context: TrainingHistoryContextPinV2
+    context_registered_at_utc: UtcDateTime
+
+    @model_validator(mode="after")
+    def validate_context(self) -> Self:
+        if tuple(
+            (p.training_fact_admission_id, p.admission_hash) for p in self.admissions
+        ) != tuple(
+            (p.artifact_id, p.content_hash)
+            for p in self.correction_context.base_admissions
+        ):
+            raise ValueError("pilot context must pin the exact base admissions")
+        if any(
+            not isinstance(t, QuantIntegrityTargetV2)
+            for s in self.slices
+            for t in s.content_payload.targets
+        ):
+            raise ValueError("versioned pilot requires explicit versioned target refs")
+        return self
+
+
 class QuantIntegrityInputRootsV1(DomainModel):
     source_root: Sha256Digest
     season_root: Sha256Digest
@@ -702,6 +750,18 @@ class QuantIntegrityInputRootsV1(DomainModel):
 
     @classmethod
     def of(cls, definition: QuantIntegrityPlanDefinitionV1) -> Self:
+        if isinstance(definition, QuantIntegrityPlanDefinitionV2):
+            return QuantIntegrityInputRootsV2(
+                source_root=tagged_canonical_sha256(
+                    "QUANT_INTEGRITY_SOURCE_ROOT_V2", definition.admissions
+                ),
+                season_root=tagged_canonical_sha256(
+                    "QUANT_INTEGRITY_SEASON_ROOT_V2",
+                    {"scope": definition.scope, "window": definition.training_window},
+                ),
+                admitted_facts_root=definition.correction_context.base_root,
+                context_root=definition.correction_context.context_root,
+            )
         return cls(
             source_root=tagged_canonical_sha256(
                 "QUANT_INTEGRITY_SOURCE_ROOT_V1", definition.admissions
@@ -727,9 +787,16 @@ class QuantIntegrityInputRootsV1(DomainModel):
         )
 
 
+class QuantIntegrityInputRootsV2(QuantIntegrityInputRootsV1):
+    schema_version: Literal["QUANT_INTEGRITY_INPUT_ROOTS_V2"] = (
+        "QUANT_INTEGRITY_INPUT_ROOTS_V2"
+    )
+    context_root: Sha256Digest
+
+
 class QuantIntegrityPlanContentV1(DomainModel):
-    definition: QuantIntegrityPlanDefinitionV1
-    input_roots: QuantIntegrityInputRootsV1
+    definition: QuantIntegrityPlanDefinitionV1 | QuantIntegrityPlanDefinitionV2
+    input_roots: QuantIntegrityInputRootsV1 | QuantIntegrityInputRootsV2
     sealed_at_utc: UtcDateTime
 
     @model_validator(mode="after")
@@ -748,6 +815,15 @@ class QuantIntegrityPlanContentV1(DomainModel):
             raise ValueError(
                 "evaluation and local admission/review must precede plan seal"
             )
+        if isinstance(definition, QuantIntegrityPlanDefinitionV2):
+            if definition.context_registered_at_utc > self.sealed_at_utc:
+                raise ValueError("correction context must precede plan sealing")
+        elif any(
+            isinstance(t, QuantIntegrityTargetV2)
+            for s in definition.slices
+            for t in s.content_payload.targets
+        ):
+            raise ValueError("versioned targets require an explicit V2 plan context")
         return self
 
 
@@ -758,6 +834,11 @@ class QuantIntegrityPlanV1(IntegrityArtifact[QuantIntegrityPlanContentV1]):
 
 
 def admitted_selection_root(facts: Iterable[AdmittedFactRefV1]) -> str:
+    facts = tuple(facts)
+    if any(isinstance(f, VersionedFactRefV2) for f in facts):
+        if not all(isinstance(f, VersionedFactRefV2) for f in facts):
+            raise ValueError("selection cannot mix legacy bindings and versioned refs")
+        return versioned_selection_root(facts)
     return tagged_canonical_sha256(
         "QUANT_INTEGRITY_SELECTED_FACT_ROOT_V1",
         {"facts": [{"sequence": i, "fact": fact} for i, fact in enumerate(facts)]},
@@ -781,11 +862,17 @@ class TerminalEloStateCoreContentV1(DomainModel):
     teams: tuple[EloTeamState, ...]
     training_facts: tuple[EloTrainingFact, ...]
     training_data_hash: Sha256Digest
-    admitted_fact_refs: tuple[AdmittedFactRefV1, ...]
+    admitted_fact_refs: tuple[AdmittedFactRefV1 | VersionedFactRefV2, ...]
     admitted_facts_root: Sha256Digest
 
     @model_validator(mode="after")
     def validate_lineage(self) -> Self:
+        if type(self) is TerminalEloStateCoreContentV1 and any(
+            isinstance(f, VersionedFactRefV2) for f in self.admitted_fact_refs
+        ):
+            raise ValueError(
+                "versioned terminal lineage requires an explicit V2 context"
+            )
         if tuple(f.match_result_id for f in self.training_facts) != tuple(
             f.match_result_id for f in self.admitted_fact_refs
         ) or self.admitted_facts_root != admitted_selection_root(
@@ -831,8 +918,32 @@ class TerminalEloStateCoreV1(IntegrityArtifact[TerminalEloStateCoreContentV1]):
     )
 
 
+class TerminalEloStateCoreContentV2(TerminalEloStateCoreContentV1):
+    context_pin: TrainingHistoryContextPinV2
+    selected_heads: tuple[VersionedFactRefV2, ...]
+    selected_versions_root: Sha256Digest
+
+    @model_validator(mode="after")
+    def validate_heads(self) -> Self:
+        if any(not isinstance(f, VersionedFactRefV2) for f in self.admitted_fact_refs):
+            raise ValueError("V2 terminal requires versioned fact refs")
+        if self.selected_versions_root != versioned_selection_root(self.selected_heads):
+            raise ValueError("terminal selected version root mismatch")
+        if len({r.match_id for r in self.selected_heads}) != len(
+            self.selected_heads
+        ) or any(r not in self.selected_heads for r in self.admitted_fact_refs):
+            raise ValueError("terminal facts must project unique selected heads")
+        return self
+
+
+class TerminalEloStateCoreV2(IntegrityArtifact[TerminalEloStateCoreContentV2]):
+    schema_version: Literal["QUANT_INTEGRITY_TERMINAL_ELO_STATE_CORE_V2"] = (
+        "QUANT_INTEGRITY_TERMINAL_ELO_STATE_CORE_V2"
+    )
+
+
 class QuantIntegrityTargetOutputV1(DomainModel):
-    result_fact: AdmittedFactRefV1
+    result_fact: AdmittedFactRefV1 | VersionedFactRefV2
     outcome: SelectionKey
     prediction: EloBaselinePrediction
 
@@ -848,7 +959,7 @@ class QuantIntegrityTargetOutputV1(DomainModel):
 class QuantIntegritySliceOutputV1(DomainModel):
     slice_ref: IntegrityArtifactRefV1
     state: EloBaselineState
-    admitted_training_refs: tuple[AdmittedFactRefV1, ...]
+    admitted_training_refs: tuple[AdmittedFactRefV1 | VersionedFactRefV2, ...]
     targets: tuple[QuantIntegrityTargetOutputV1, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -873,7 +984,7 @@ class QuantIntegrityOutputContentV1(DomainModel):
     plan_ref: IntegrityArtifactRefV1
     provenance: QuantIntegrityProvenanceV1
     slices: tuple[QuantIntegritySliceOutputV1, ...] = Field(min_length=1)
-    terminal_state_core: TerminalEloStateCoreV1
+    terminal_state_core: TerminalEloStateCoreV1 | TerminalEloStateCoreV2
 
 
 class QuantIntegrityOutputV1(IntegrityArtifact[QuantIntegrityOutputContentV1]):
@@ -934,7 +1045,7 @@ class QuantIntegrityReportContentV1(DomainModel):
     plan_ref: IntegrityArtifactRefV1
     output_ref: IntegrityArtifactRefV1
     provenance: QuantIntegrityProvenanceV1
-    input_roots: QuantIntegrityInputRootsV1
+    input_roots: QuantIntegrityInputRootsV1 | QuantIntegrityInputRootsV2
     metric_definition: QuantIntegrityMetricDefinitionV1
     cohort_match_ids: tuple[Identifier, ...] = Field(min_length=1)
     available_match_ids: tuple[Identifier, ...]
@@ -1134,7 +1245,7 @@ class QuantIntegrityAttestationContentV1(DomainModel):
     report_ref: IntegrityArtifactRefV1
     attempt_count: int = Field(ge=1, strict=True)
     attempt_root: Sha256Digest
-    input_roots: QuantIntegrityInputRootsV1
+    input_roots: QuantIntegrityInputRootsV1 | QuantIntegrityInputRootsV2
     terminal_state_core_ref: IntegrityArtifactRefV1
     build_recipe: ModelBuildRecipePinV1
     implementation_code_revision: Identifier

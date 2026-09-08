@@ -197,7 +197,7 @@ mandatory PRODUCTION_QUANT_INTEGRITY_PILOT
 TRAINING_HISTORY_MANIFEST_V1
         |
         v
-TRAINING_HISTORY_APPROVAL_V1 event
+TRAINING_HISTORY_APPROVAL_V2 event
         |
         v
 offline PRODUCTION_QUANT_MODEL_RELEASE_V1
@@ -210,6 +210,8 @@ AVAILABLE run state -> ANALYSIS_PACKET_V3 + mandatory audit sidecar
 ```
 
 Source rights 使用两阶段门禁。`SOURCE_RIGHTS_ADMISSION_V1` 必须在 acquisition/import/pilot 前结构化证明 source identity、terms/authority hashes、research/storage uses、effective/expiry time、retention/deletion rule 和 public repository boundary。采集后的 `TRAINING_FACT_ADMISSION_V1` 再原子绑定 normalized result、status、season 和 source records；它不能追溯替代 rights admission。Integrity pilot 后的 production approval 单独记录 `PRODUCTION_MODEL_TRAINING`、`PRODUCTION_MODEL_INFERENCE`、`DERIVED_MODEL_STATE_RETENTION` 和 `AUDIT_HASH_RETENTION`，包括各自有效期及 retention 语义。`0.6` V1 只要求本地 hash-sealed reviewer attestation/evidence，不实现 PKI、CA、remote signer 或 key-management subsystem；以后如需 cryptographic signing，使用新版本扩展。该机制是内部授权审计，不是软件作出的法律判断；rights 与 append-only 最低保留要求冲突时 source 不准入。
+
+新审批采用已授权的 `TRAINING_HISTORY_APPROVAL_PAYLOAD_V2` / `TRAINING_HISTORY_APPROVAL_V2`：reviewer 确认精确授权内容与既有证据 hash，系统事件绑定原 attestation/evidence、operator、幂等请求及实际 recorded/persisted 观察时间。未来记录时间不进入事先审核的 payload；persisted 观察不是物理 commit 完成的预测。V1 hash/解析保留，不自动转换。更换请求 key 或证据排版不能重放已撤销的授权。受控 correction 通过版本化上下文保存完整前序并逐 cutoff 选择真实 season 的完整 head，withdrawal 不回退旧比分，旧工件与 V3 wire 不改写。
 
 常规时间完成状态和真实 season 不能由比分或复制字段自行证明。每个 approved fact 必须绑定 exact fixture source、`MATCH_SEASON_MEMBERSHIP_V1` 和 `MATCH_RESULT_ADMISSION_V1`。Result admission 保存 provider raw status、mapping version、regular-time score、finalized/source times、raw/full-record hashes 和 reviewer/adapter identity；season membership 必须绑定原始 bytes 中明确的 provider competition/season/fixture 关系、fixture/mapping IDs 和 canonical season。三者与 normalized MatchResult 在持久化、hash-sealed `TRAINING_FACT_ADMISSION_V1` transaction 中原子物化；裸 `match_results` row 不具备 production-training 资格。
 

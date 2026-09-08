@@ -24,9 +24,19 @@ from football_system.domain.training_admission import (
     TrainingFactAdmissionV1,
     TrainingFactBindingV1,
 )
+from football_system.domain.versioned_training_history import (
+    TrainingHistoryContextPinV2,
+    project_versioned_training_fact,
+    select_versioned_training_facts,
+    validate_versioned_context,
+)
 
 
 class AdmittedTrainingRepository(Protocol):
+    def load_verified_correction_context(
+        self, pin: TrainingHistoryContextPinV2, *, at_utc: datetime
+    ): ...
+
     def load_verified_training_admission(
         self,
         pin: TrainingAdmissionPinV1,
@@ -190,3 +200,78 @@ class AdmittedTrainingHistoryEloProvider:
         ):
             raise ValueError("training season cannot follow requested target season")
         return tuple(project_admitted_training_fact(fact) for fact in facts)
+
+
+@dataclass(frozen=True, slots=True)
+class VersionedTrainingHistoryEloProvider(AdmittedTrainingHistoryEloProvider):
+    correction_context: TrainingHistoryContextPinV2
+
+    def load_context(self):
+        context = validate_versioned_context(
+            self.repository.load_verified_correction_context(
+                self.correction_context, at_utc=normalize_utc(self.verified_at_utc)
+            )
+        )
+        if TrainingHistoryContextPinV2.of(context) != self.correction_context:
+            raise ValueError("repository returned a different correction context")
+        if tuple(
+            (p.training_fact_admission_id, p.admission_hash) for p in self.admissions
+        ) != tuple(
+            (p.artifact_id, p.content_hash)
+            for p in self.correction_context.base_admissions
+        ):
+            raise ValueError("provider base admission/context mismatch")
+        scopes = {s.canonical_season_id: s for s in self.scope.provider_seasons}
+        window = self.training_window.content_payload
+        if (
+            self.scope.competition_id != window.competition_id
+            or tuple(scopes) != window.ordered_season_ids
+        ):
+            raise ValueError("provider requires exact ordered competition/season scope")
+        for version in context.versions:
+            s = version.snapshot
+            scope = scopes.get(s.identity.season)
+            if (
+                scope is None
+                or s.identity.internal_competition_id != self.scope.competition_id
+                or s.identity.competition_type != self.scope.competition_type
+                or (
+                    s.stream.source_id,
+                    s.stream.provider_code,
+                    s.provider_competition_id,
+                    s.provider_season_id,
+                )
+                != (
+                    scope.source_id,
+                    scope.provider_code,
+                    scope.provider_competition_id,
+                    scope.provider_season_id,
+                )
+            ):
+                raise ValueError("version outside exact reviewed provider scope")
+        return context
+
+    def load_facts(self):
+        return self.load_context().versions
+
+    def fetch_elo_results(
+        self, *, cutoff_at_utc, target_season_id, exclude_match_ids, strict_cutoff=True
+    ):
+        window = self.training_window.content_payload
+        if target_season_id not in window.ordered_season_ids:
+            raise ValueError("target season outside pinned window")
+        facts = select_versioned_training_facts(
+            self.load_context(),
+            window.competition_id,
+            window.ordered_season_ids,
+            cutoff_at_utc,
+            exclude_match_ids,
+            strict_cutoff,
+        )
+        if any(
+            window.ordered_season_ids.index(v.snapshot.identity.season)
+            > window.ordered_season_ids.index(target_season_id)
+            for v in facts
+        ):
+            raise ValueError("training season cannot follow target season")
+        return tuple(project_versioned_training_fact(v) for v in facts)

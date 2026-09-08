@@ -39,8 +39,9 @@ from football_system.domain.production_release import (
     ReleasedStateCoreContentV1,
     ReleasedStateCoreV1,
     RetentionHorizonV1,
-    TrainingHistoryApprovalV1,
+    TrainingHistoryApproval,
     TrainingHistoryGraphV1,
+    TrainingHistoryGraphV2,
     TrainingHistoryManifestV1,
     approval_active_for_build,
     approved_facts_root,
@@ -51,6 +52,15 @@ from football_system.domain.production_release import (
     release_active_for_inference,
     replay_exact_facts,
     revalidate,
+    prepare_versioned_approved_facts,
+    versioned_history_summaries,
+    approved_versioned_facts_root,
+)
+from football_system.domain.versioned_training_history import (
+    TrainingHistoryContextPinV2,
+    VersionedFactRefV2,
+    select_versioned_training_heads,
+    versioned_selection_root,
 )
 from football_system.domain.review import (
     AnalysisPacketMatchSourceV3,
@@ -121,10 +131,86 @@ def prepare_training_history(
     )
 
 
+def prepare_versioned_training_history(
+    *,
+    admissions,
+    correction_context,
+    training_window,
+    integrity_pilot_scope_id,
+    selection_cutoff_at_utc,
+    exclude_match_ids=(),
+) -> TrainingHistoryGraphV2:
+    admissions = tuple(
+        sorted(
+            (revalidate(a) for a in admissions),
+            key=lambda a: a.training_fact_admission_id,
+        )
+    )
+    context, window = revalidate(correction_context), revalidate(training_window)
+    cutoff = normalize_utc(selection_cutoff_at_utc)
+    excluded = tuple(sorted(exclude_match_ids))
+    facts = prepare_versioned_approved_facts(
+        admissions, context, window, integrity_pilot_scope_id, cutoff, excluded
+    )
+    if not facts:
+        raise ValueError(
+            "a release history requires at least one trainable selected version"
+        )
+    sources, seasons = versioned_history_summaries(facts, window)
+    pin = TrainingHistoryContextPinV2.of(context)
+    heads = tuple(
+        VersionedFactRefV2.of(v)
+        for v in select_versioned_training_heads(
+            context,
+            source_cutoffs={
+                v.snapshot.stream.source_id: cutoff for v in context.versions
+            },
+            strict_cutoff=False,
+        )
+    )
+    state = replay_exact_facts(
+        tuple(f.content_payload.elo_fact for f in facts),
+        cutoff,
+        window.content_payload.production_target_season_id,
+    )
+    return TrainingHistoryGraphV2(
+        integrity_pilot_scope_id=integrity_pilot_scope_id,
+        scope=ProductionScopeV1(
+            competition_id=window.content_payload.competition_id,
+            pilot_target_season_id=window.content_payload.pilot_target_season_id,
+            production_target_season_id=window.content_payload.production_target_season_id,
+            training_window_hash=window.content_hash,
+        ),
+        training_window=window,
+        admissions=admissions,
+        facts=facts,
+        context_pin=pin,
+        correction_context=context,
+        selection_cutoff_at_utc=cutoff,
+        exclude_match_ids=excluded,
+        selected_heads=heads,
+        selected_versions_root=versioned_selection_root(heads),
+        source_summaries=sources,
+        season_summaries=seasons,
+        source_count=len(sources),
+        source_root=tagged_canonical_sha256(
+            "HISTORY_SOURCES_ROOT_V2", {"context": pin, "sources": sources}
+        ),
+        season_count=len(seasons),
+        season_root=tagged_canonical_sha256("HISTORY_SEASONS_ROOT_V2", seasons),
+        fact_count=len(facts),
+        approved_facts_hash=approved_versioned_facts_root(facts),
+        training_data_hash=state.training_data_hash,
+        max_effective_source_available_at_utc=max(
+            f.content_payload.effective_source_available_at_utc for f in facts
+        ),
+    )
+
+
 def build_production_release(
     *,
     manifest: TrainingHistoryManifestV1,
-    approval: TrainingHistoryApprovalV1,
+    approval: TrainingHistoryApproval,
     training_cutoff_at_utc: datetime,
     build_start: CurrentAuthorizationInputsV1,
     build_completion: CurrentAuthorizationInputsV1,
@@ -527,6 +613,10 @@ def _audit_content(
 
 def _assert_fact_cutoff(manifest: TrainingHistoryManifestV1, cutoff: datetime) -> None:
     for fact in manifest.content_payload.history.facts:
+        if isinstance(manifest.content_payload.history, TrainingHistoryGraphV2):
+            if fact.content_payload.effective_source_available_at_utc > cutoff:
+                raise ValueError("newer versioned source fact crosses training cutoff")
+            continue
         binding = fact.content_payload.binding.content_payload
         for source_at in (
             binding.fixture_source.source_available_at_utc,

@@ -25,6 +25,7 @@ from football_system.domain.quant_integrity import (
     QuantIntegrityOutputV1,
     QuantIntegrityPlanContentV1,
     QuantIntegrityPlanDefinitionV1,
+    QuantIntegrityPlanDefinitionV2,
     QuantIntegrityPlanV1,
     QuantIntegrityReplayV1,
     QuantIntegrityReportContentV1,
@@ -37,6 +38,8 @@ from football_system.domain.quant_integrity import (
     QuantUnavailableSliceV1,
     TerminalEloStateCoreContentV1,
     TerminalEloStateCoreV1,
+    TerminalEloStateCoreV2,
+    TerminalEloStateCoreContentV2,
     admitted_selection_root,
     integrity_attempt_root,
     project_admitted_training_fact,
@@ -54,6 +57,14 @@ from football_system.domain.services.elo_baseline import (
 from football_system.infrastructure.providers.admitted_training import (
     AdmittedTrainingHistoryEloProvider,
     AdmittedTrainingRepository,
+    VersionedTrainingHistoryEloProvider,
+)
+from football_system.domain.versioned_training_history import (
+    VersionedFactRefV2,
+    project_versioned_training_fact,
+    select_versioned_training_facts,
+    select_versioned_training_heads,
+    versioned_selection_root,
 )
 
 
@@ -328,6 +339,15 @@ class QuantIntegrityPilotService:
 
     def _provider(self, plan: QuantIntegrityPlanV1, *, at_utc: datetime):
         definition = plan.content_payload.definition
+        if isinstance(definition, QuantIntegrityPlanDefinitionV2):
+            return VersionedTrainingHistoryEloProvider(
+                repository=self.repository,
+                admissions=definition.admissions,
+                training_window=definition.training_window,
+                scope=definition.scope,
+                verified_at_utc=at_utc,
+                correction_context=definition.correction_context,
+            )
         return AdmittedTrainingHistoryEloProvider(
             repository=self.repository,
             admissions=definition.admissions,
@@ -340,6 +360,8 @@ class QuantIntegrityPilotService:
         self, plan: QuantIntegrityPlanV1, *, at_utc: datetime
     ) -> QuantIntegrityOutputV1:
         definition = plan.content_payload.definition
+        if isinstance(definition, QuantIntegrityPlanDefinitionV2):
+            return self._execute_versioned(plan, at_utc=at_utc)
         window = definition.training_window.content_payload
         facts = self._provider(plan, at_utc=at_utc).load_facts()
         by_match = {f.content_payload.normalized_result.match_id: f for f in facts}
@@ -468,6 +490,157 @@ class QuantIntegrityPilotService:
                 training_data_hash=state.training_data_hash,
                 admitted_fact_refs=refs,
                 admitted_facts_root=admitted_selection_root(refs),
+            )
+        )
+        return QuantIntegrityOutputV1.freeze(
+            content_payload=QuantIntegrityOutputContentV1(
+                plan_ref=IntegrityArtifactRefV1.of(plan),
+                provenance=definition.provenance,
+                slices=tuple(slices),
+                terminal_state_core=core,
+            )
+        )
+
+    def _execute_versioned(self, plan, *, at_utc):
+        definition = plan.content_payload.definition
+        context = self._provider(plan, at_utc=at_utc).load_context()
+        window = definition.training_window.content_payload
+        baseline = EloThreeWayBaseline()
+        slices = []
+        for item in definition.slices:
+            selected = item.content_payload
+            resolved = {
+                v.snapshot.stream.internal_match_id: v
+                for v in select_versioned_training_facts(
+                    context,
+                    window.competition_id,
+                    window.ordered_season_ids,
+                    selected.evaluation_as_of_at_utc,
+                    (),
+                    False,
+                )
+            }
+            training = select_versioned_training_facts(
+                context,
+                window.competition_id,
+                window.ordered_season_ids,
+                selected.decision_as_of_at_utc,
+                selected.exclude_match_ids,
+            )
+            if any(
+                window.ordered_season_ids.index(v.snapshot.identity.season)
+                > window.ordered_season_ids.index(window.pilot_target_season_id)
+                for v in training
+            ):
+                raise ValueError(
+                    "pilot training cannot contain later production season"
+                )
+            state = baseline.rebuild_state(
+                tuple(project_versioned_training_fact(v) for v in training),
+                selected.decision_as_of_at_utc,
+                target_season_id=window.pilot_target_season_id,
+                exclude_match_ids=selected.exclude_match_ids,
+            )
+            outputs = []
+            for target in selected.targets:
+                version = resolved.get(target.fact.match_id)
+                if version is None or VersionedFactRefV2.of(version) != target.fact:
+                    raise ValueError(
+                        "target requires exact selected version at evaluation cutoff"
+                    )
+                s, result = version.snapshot, version.normalized_result
+                if (
+                    (
+                        s.identity,
+                        s.fixture_source_available_at_utc,
+                        s.mapping_source_available_at_utc,
+                    )
+                    != (
+                        target.identity,
+                        target.fixture_source_available_at_utc,
+                        target.mapping_source_available_at_utc,
+                    )
+                    or not target.identity.kickoff_at_utc
+                    < result.available_at_utc
+                    <= selected.evaluation_as_of_at_utc
+                    <= at_utc
+                ):
+                    raise ValueError(
+                        "target metadata/result disagrees with exact version and cutoff"
+                    )
+                identity = target.identity
+                prediction = baseline.predict_from_state(
+                    EloPredictionRequest(
+                        match_id=target.fact.match_id,
+                        season_id=identity.season,
+                        home_team_id=identity.internal_home_team_id,
+                        away_team_id=identity.internal_away_team_id,
+                        kickoff_at_utc=identity.kickoff_at_utc,
+                        cutoff_at_utc=selected.decision_as_of_at_utc,
+                    ),
+                    state,
+                )
+                outcome = (
+                    SelectionKey.HOME_WIN
+                    if result.home_goals > result.away_goals
+                    else SelectionKey.AWAY_WIN
+                    if result.home_goals < result.away_goals
+                    else SelectionKey.DRAW
+                )
+                outputs.append(
+                    QuantIntegrityTargetOutputV1(
+                        result_fact=target.fact, outcome=outcome, prediction=prediction
+                    )
+                )
+            slices.append(
+                QuantIntegritySliceOutputV1(
+                    slice_ref=IntegrityArtifactRefV1.of(item),
+                    state=state,
+                    admitted_training_refs=tuple(
+                        VersionedFactRefV2.of(v) for v in training
+                    ),
+                    targets=tuple(outputs),
+                )
+            )
+        terminal = definition.terminal_projection
+        facts = select_versioned_training_facts(
+            context,
+            window.competition_id,
+            window.ordered_season_ids,
+            terminal.training_cutoff_at_utc,
+            terminal.exclude_match_ids,
+            False,
+        )
+        state = baseline.rebuild_state(
+            tuple(project_versioned_training_fact(v) for v in facts),
+            terminal.training_cutoff_at_utc,
+            target_season_id=window.production_target_season_id,
+        )
+        refs = tuple(VersionedFactRefV2.of(v) for v in facts)
+        heads = tuple(
+            VersionedFactRefV2.of(v)
+            for v in select_versioned_training_heads(
+                context,
+                source_cutoffs={
+                    v.snapshot.stream.source_id: terminal.training_cutoff_at_utc
+                    for v in context.versions
+                },
+                strict_cutoff=False,
+            )
+        )
+        core = TerminalEloStateCoreV2.freeze(
+            content_payload=TerminalEloStateCoreContentV2(
+                training_cutoff_at_utc=terminal.training_cutoff_at_utc,
+                production_target_season_id=window.production_target_season_id,
+                training_window_hash=definition.training_window.content_hash,
+                teams=state.teams,
+                training_facts=state.training_facts,
+                training_data_hash=state.training_data_hash,
+                admitted_fact_refs=refs,
+                admitted_facts_root=admitted_selection_root(refs),
+                context_pin=definition.correction_context,
+                selected_heads=heads,
+                selected_versions_root=versioned_selection_root(heads),
             )
         )
         return QuantIntegrityOutputV1.freeze(

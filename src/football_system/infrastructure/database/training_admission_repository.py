@@ -14,8 +14,9 @@ Capture times are actual LOCAL_FILE_IMPORT operations, never file mtime or
 upstream acquisition/publication. Earlier acquisition is unknown in this lane.
 Keep the evidence root and database under trusted local access control. SQLite
 hashes/guards are integrity checks, not protection against a database owner who
-can replace all data and trusted configuration. Corrections require a future
-controlled implementation; neither writes nor reads silently accept them.
+can replace all data and trusted configuration. V1 writes still refuse corrections.
+Historical reads tolerate only successors verified by the separate controlled
+correction repository; V1 artifacts and normalized originals remain unchanged.
 
 Operation times mark preparation/sealing/write events inside a transaction,
 not the later SQLite commit acknowledgement. A fresh current-time grant check
@@ -515,6 +516,11 @@ class SqlAlchemyTrainingAdmissionRepository:
             previous = _prior(session, TrainingFactAdmissionRecord, request)
             if previous is not None:
                 return self._load(session, previous.training_fact_admission_id)
+            from football_system.infrastructure.database.training_correction_repository import (
+                assert_new_v1_roots_current,
+            )
+
+            assert_new_v1_roots_current(session, facts)
             started = self._now()
             rights = self._rights(session, source_rights_admission_id)
             rights.assert_active_for(started, TRAINING_FACT_REQUIRED_USES)
@@ -583,7 +589,7 @@ class SqlAlchemyTrainingAdmissionRepository:
             session.execute(text("BEGIN"))
             return self._load(session, admission_id)
 
-    def _load(self, session, admission_id):
+    def _load(self, session, admission_id, *, _historical_root=False):
         row = _required(session, TrainingFactAdmissionRecord, admission_id)
         _verify_row(row)
         value = TrainingFactAdmissionV1.model_validate_json(row.artifact_json)
@@ -628,6 +634,7 @@ class SqlAlchemyTrainingAdmissionRepository:
                 rights,
                 row.operator_id,
                 value.content_payload.actual_started_at_utc,
+                historical=True,
             )
             result_row = _required(
                 session,
@@ -659,9 +666,15 @@ class SqlAlchemyTrainingAdmissionRepository:
                     raise ValueError("stored admission child missing")
                 _verify_row(actual)
                 _assert_row(actual, child)
+        if not _historical_root:
+            from football_system.infrastructure.database.training_correction_repository import (
+                verify_historical_result_successors,
+            )
+
+            verify_historical_result_successors(self, session, value)
         return value
 
-    def _verify_submission(self, session, item, rights, operator, started):
+    def _verify_submission(self, session, item, rights, operator, started, *, historical=False):
         candidate, evidence = item.candidate, item.source_evidence
         _reject_corrections((item,))
         fixture = candidate.fixture_source
@@ -741,10 +754,10 @@ class SqlAlchemyTrainingAdmissionRepository:
                 "candidate reviewer metadata differs from local review bytes"
             )
         provider_ids = self.evidence.verify_provider_records(item, tuple(payloads))
-        _verify_identities(session, item, provider_ids)
+        _verify_identities(session, item, provider_ids, historical=historical)
 
 
-def _verify_identities(session, item, provider_ids):
+def _verify_identities(session, item, provider_ids, *, historical=False):
     candidate, evidence = item.candidate, item.source_evidence
     identity, mapping = candidate.canonical_identity, candidate.provider_mapping
     fixture = candidate.fixture_source
@@ -876,7 +889,7 @@ def _verify_identities(session, item, provider_ids):
             != candidate.normalized_result.match_result_id,
         )
     )
-    if others is not None:
+    if others is not None and not historical:
         raise ControlledTrainingCorrectionRequired(
             "controlled result correction implementation is missing"
         )

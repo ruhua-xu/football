@@ -16,9 +16,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
 from football_system.domain.common import (
     DomainModel,
@@ -43,11 +43,23 @@ from football_system.domain.training_admission import (
     TrainingFactBindingV1,
     tagged_canonical_sha256,
 )
+from football_system.domain.training_correction import TrainingCorrectionContextV2, TrainingFactVersionV2
+from football_system.domain.versioned_training_history import (
+    TrainingHistoryContextPinV2,
+    VersionedFactRefV2,
+    project_versioned_training_fact,
+    select_versioned_training_facts,
+    select_versioned_training_heads,
+    validate_versioned_context,
+    versioned_selection_root,
+)
 
 PRODUCTION_CONFIG_HASH = (
     "c98d595d3afb03fe629e776fa9a0e70f24e31fcd49884be3ff11e9c979ca78e4"
 )
 TRAINING_HISTORY_APPROVAL_PAYLOAD_V1 = "TRAINING_HISTORY_APPROVAL_PAYLOAD_V1"
+TRAINING_HISTORY_APPROVAL_PAYLOAD_V2 = "TRAINING_HISTORY_APPROVAL_PAYLOAD_V2"
+TRAINING_HISTORY_APPROVAL_V2 = "TRAINING_HISTORY_APPROVAL_V2"
 
 
 def _plain(value: object) -> object:
@@ -341,6 +353,189 @@ class TrainingHistoryGraphV1(ReleaseSnapshotV1):
         return self
 
 
+class ApprovedTrainingFactContentV2(ReleaseSnapshotV1):
+    fact_sequence: int = Field(ge=0, strict=True)
+    season_sequence: int = Field(ge=0, strict=True)
+    integrity_pilot_scope_id: Identifier
+    training_fact_admission: ReleaseArtifactRefV1
+    source_rights_admission: ReleaseArtifactRefV1
+    terms_sha256: Sha256Digest
+    version: TrainingFactVersionV2
+    elo_fact: EloTrainingFact
+    effective_source_available_at_utc: UtcDateTime
+
+    @model_validator(mode="after")
+    def validate_projection(self) -> Self:
+        if (
+            self.elo_fact
+            != EloTrainingFact.from_result(
+                sequence=self.fact_sequence,
+                result=project_versioned_training_fact(self.version),
+            )
+            or self.effective_source_available_at_utc
+            != self.version.snapshot.effective_source_available_at_utc
+            or (
+                self.training_fact_admission.artifact_id,
+                self.training_fact_admission.content_hash,
+            )
+            != (
+                self.version.base_admission.artifact_id,
+                self.version.base_admission.content_hash,
+            )
+        ):
+            raise ValueError(
+                "approved version must exactly project its typed source version"
+            )
+        return self
+
+
+class ApprovedTrainingFactV2(SealedReleaseArtifactV1[ApprovedTrainingFactContentV2]):
+    schema_version: Literal["APPROVED_TRAINING_FACT_V2"] = "APPROVED_TRAINING_FACT_V2"
+
+
+class TrainingHistoryGraphV2(TrainingHistoryGraphV1):
+    """Full predecessor context and one terminal head per stream, not a V1 union."""
+
+    schema_version: Literal["TRAINING_HISTORY_GRAPH_V2"] = "TRAINING_HISTORY_GRAPH_V2"
+    context_pin: TrainingHistoryContextPinV2
+    correction_context: TrainingCorrectionContextV2
+    selection_cutoff_at_utc: UtcDateTime
+    exclude_match_ids: tuple[Identifier, ...]
+    selected_heads: tuple[VersionedFactRefV2, ...]
+    selected_versions_root: Sha256Digest
+    facts: tuple[ApprovedTrainingFactV2, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_graph(self) -> Self:
+        context = validate_versioned_context(self.correction_context)
+        if self.context_pin != TrainingHistoryContextPinV2.of(context):
+            raise ValueError("history correction context pin mismatch")
+        pins = tuple(
+            (a.training_fact_admission_id, a.admission_hash) for a in self.admissions
+        )
+        if pins != tuple(
+            (r.artifact_id, r.content_hash) for r in self.context_pin.base_admissions
+        ):
+            raise ValueError("history requires exact base admission context")
+        bindings = {
+            (a.training_fact_admission_id, f.training_fact_binding_id): f
+            for a in self.admissions
+            for f in a.facts
+        }
+        bases = [v for v in context.versions if not v.revision_sequence]
+        if set(bindings) != {
+            (v.base_admission.artifact_id, v.base_binding.artifact_id) for v in bases
+        }:
+            raise ValueError("context must cover every original admission binding")
+        for v in bases:
+            b = bindings[v.base_admission.artifact_id, v.base_binding.artifact_id]
+            if (
+                v.base_binding.content_hash,
+                v.snapshot.identity,
+                v.normalized_result,
+            ) != (
+                b.fact_hash,
+                b.content_payload.canonical_identity,
+                b.content_payload.normalized_result,
+            ):
+                raise ValueError("context base binding/identity/result mismatch")
+        window = self.training_window.content_payload
+        if self.scope != ProductionScopeV1(
+            competition_id=window.competition_id,
+            pilot_target_season_id=window.pilot_target_season_id,
+            production_target_season_id=window.production_target_season_id,
+            training_window_hash=self.training_window.content_hash,
+        ):
+            raise ValueError("history scope/window mismatch")
+        if self.exclude_match_ids != tuple(sorted(set(self.exclude_match_ids))):
+            raise ValueError("history exclusions must be unique and ordered")
+        # Even predecessor metadata must stay inside the explicitly reviewed scope.
+        seasons = {s.season_id: s for s in window.seasons}
+        for v in context.versions:
+            s = v.snapshot
+            season = seasons.get(s.identity.season)
+            provider = ProviderSeasonRefV1(
+                source_id=s.stream.source_id,
+                provider_code=s.stream.provider_code,
+                provider_competition_id=s.provider_competition_id,
+                provider_season_id=s.provider_season_id,
+            )
+            if (
+                season is None
+                or provider not in season.provider_seasons
+                or s.identity.internal_competition_id != window.competition_id
+            ):
+                raise ValueError(
+                    "version outside explicit competition/provider season window"
+                )
+        heads = select_versioned_training_heads(
+            context,
+            source_cutoffs={
+                v.snapshot.stream.source_id: self.selection_cutoff_at_utc
+                for v in context.versions
+            },
+            strict_cutoff=False,
+        )
+        refs = tuple(VersionedFactRefV2.of(v) for v in heads)
+        expected = prepare_versioned_approved_facts(
+            self.admissions,
+            context,
+            self.training_window,
+            self.integrity_pilot_scope_id,
+            self.selection_cutoff_at_utc,
+            self.exclude_match_ids,
+        )
+        if (
+            self.facts != expected
+            or self.selected_heads != refs
+            or self.selected_versions_root != versioned_selection_root(refs)
+        ):
+            raise ValueError("history must bind exact whole-version terminal selection")
+        sources, summaries = versioned_history_summaries(
+            self.facts, self.training_window
+        )
+        if (
+            self.source_summaries != sources
+            or self.season_summaries != summaries
+            or self.source_count != len(sources)
+            or self.season_count != len(summaries)
+            or self.fact_count != len(self.facts)
+            or self.source_root
+            != tagged_canonical_sha256(
+                "HISTORY_SOURCES_ROOT_V2",
+                {"context": self.context_pin, "sources": sources},
+            )
+            or self.season_root
+            != tagged_canonical_sha256("HISTORY_SEASONS_ROOT_V2", summaries)
+            or self.approved_facts_hash != approved_versioned_facts_root(self.facts)
+        ):
+            raise ValueError("versioned history counts/roots mismatch")
+        maximum = max(
+            f.content_payload.effective_source_available_at_utc for f in self.facts
+        )
+        state = replay_exact_facts(
+            tuple(f.content_payload.elo_fact for f in self.facts),
+            self.selection_cutoff_at_utc,
+            window.production_target_season_id,
+        )
+        if (
+            self.max_effective_source_available_at_utc != maximum
+            or self.training_data_hash != state.training_data_hash
+        ):
+            raise ValueError("versioned history math/source maximum mismatch")
+        return self
+
+
+TrainingHistoryGraph = Annotated[
+    TrainingHistoryGraphV1 | TrainingHistoryGraphV2,
+    Field(discriminator="schema_version"),
+]
+ApprovedTrainingFact = Annotated[
+    ApprovedTrainingFactV1 | ApprovedTrainingFactV2,
+    Field(discriminator="schema_version"),
+]
+
+
 class TechnicalEvidenceRefsV1(ReleaseSnapshotV1):
     """Adapter contract, deliberately independent of quant_integrity.py names.
 
@@ -387,7 +582,7 @@ class TrainingHistoryManifestContentV1(ReleaseSnapshotV1):
     source_data_mode: Literal["SOURCE_TIME_RESEARCH"] = "SOURCE_TIME_RESEARCH"
     source_classification: Literal["REAL_SOURCE_DATA"] = "REAL_SOURCE_DATA"
     retrospective: Literal[True] = True
-    history: TrainingHistoryGraphV1
+    history: TrainingHistoryGraph
     technical_evidence: TechnicalEvidenceRefsV1
     created_at_utc: UtcDateTime
     persisted_at_utc: UtcDateTime
@@ -415,6 +610,8 @@ class TrainingHistoryManifestContentV1(ReleaseSnapshotV1):
             for item in graph.admissions
         ):
             raise ValueError("fact admission must precede pilot plan sealing")
+        if isinstance(graph, TrainingHistoryGraphV2) and graph.correction_context.actual_at_utc > evidence.plan_sealed_at_utc:
+            raise ValueError("correction context must precede pilot plan sealing")
         return self
 
 
@@ -613,6 +810,208 @@ class TrainingHistoryApprovalV1(
             raise ValueError("approval cannot supersede itself")
         return self
 
+    @property
+    def subject(self) -> TrainingHistoryApprovalPayloadV1:
+        return self.content_payload.approval_payload
+
+    @property
+    def recorded_at_utc(self) -> datetime:
+        return self.subject.approved_at_utc
+
+    @property
+    def persisted_at_utc(self) -> datetime:
+        return self.subject.persisted_at_utc
+
+    def matches_technical_evidence(self, evidence: TechnicalEvidenceRefsV1) -> bool:
+        return self.subject.technical_evidence == evidence
+
+
+def approval_technical_evidence_ref(
+    evidence: TechnicalEvidenceRefsV1,
+) -> ReleaseArtifactRefV1:
+    """Pin the entire existing pilot graph, without copying observations into review."""
+    return ReleaseArtifactRefV1(
+        artifact_id=evidence.attestation.artifact_id,
+        content_hash=tagged_canonical_sha256(evidence.schema_version, evidence),
+    )
+
+
+class TrainingHistoryApprovalPayloadV2(ReleaseSnapshotV1):
+    """Human review subject. Interval/supersession times are policy, not observations.
+
+    Manifest and pilot hashes bind their exact existing observations transitively.
+    No recording timestamp, request identity, raw source or review bytes belong here.
+    """
+
+    payload_version: Literal["TRAINING_HISTORY_APPROVAL_PAYLOAD_V2"] = (
+        TRAINING_HISTORY_APPROVAL_PAYLOAD_V2
+    )
+    training_use_class: Literal["APPROVED_TRAINING_HISTORY"] = (
+        "APPROVED_TRAINING_HISTORY"
+    )
+    manifest: ReleaseArtifactRefV1
+    scope: ProductionScopeV1
+    source_rights: tuple[SourceRightsRefV1, ...] = Field(min_length=1)
+    technical_evidence: ReleaseArtifactRefV1
+    build_recipe: ReleaseArtifactRefV1
+    code_revision: Identifier
+    approver: Identifier
+    authority_reference: Reference
+    authority_sha256: Sha256Digest
+    grants: tuple[ProductionGrantV1, ...] = Field(min_length=4, max_length=4)
+    retention_compatibility: Literal["APPEND_ONLY_STATE_AND_AUDIT_COMPATIBLE"]
+    supersedes_approval: ReleaseArtifactRefV1 | None
+    supersession_effective_at_utc: UtcDateTime | None
+    superseded_grants: tuple[ProductionGrantKind, ...]
+
+    @property
+    def approval_payload_hash(self) -> str:
+        return tagged_canonical_sha256(self.payload_version, revalidate(self))
+
+    def assert_active_intervals(self, at: datetime) -> None:
+        for grant in self.grants:
+            if grant.effective_at_utc > at or (
+                grant.expires_at_utc is not None and grant.expires_at_utc <= at
+            ):
+                raise ValueError(f"{grant.grant} grant is not active at recording")
+            if grant.retention is not None:
+                _horizon_not_past(grant.retention, at)
+
+    @model_validator(mode="after")
+    def validate_subject(self) -> Self:
+        if tuple(item.grant for item in self.grants) != tuple(
+            sorted(ProductionGrantKind)
+        ):
+            raise ValueError(
+                "all four independent production grants must be unique and sorted"
+            )
+        ids = tuple(item.admission.artifact_id for item in self.source_rights)
+        if ids != tuple(sorted(set(ids))) or any(
+            item.source_ids != tuple(sorted(set(item.source_ids)))
+            for item in self.source_rights
+        ):
+            raise ValueError(
+                "approval source rights and IDs must be unique and ordered"
+            )
+        if self.supersedes_approval is None:
+            if self.supersession_effective_at_utc is not None or self.superseded_grants:
+                raise ValueError("successor metadata requires a predecessor")
+        elif self.supersession_effective_at_utc is None or not self.superseded_grants:
+            raise ValueError("successor requires explicit effective policy and grants")
+        _ordered_grants(self.superseded_grants)
+        return self
+
+
+def training_approval_request_hash(
+    request_key: str,
+    operator_id: str,
+    approval_payload: TrainingHistoryApprovalPayloadV2,
+    reviewer_attestation: LocalReviewerAttestationV1,
+) -> str:
+    # Persistence request V1 hashes JSON wire scalars, not typed datetime/Decimals.
+    return tagged_canonical_sha256(
+        "PRODUCTION_PERSISTENCE_REQUEST_V1",
+        {
+            "operation": "record_approval",
+            "request_key": request_key,
+            "operator_id": operator_id,
+            "payload": {
+                "approval_payload": approval_payload.model_dump(mode="json"),
+                "reviewer_attestation": reviewer_attestation.model_dump(mode="json"),
+            },
+        },
+    )
+
+
+class TrainingHistoryApprovalContentV2(ReleaseSnapshotV1):
+    approval_payload: TrainingHistoryApprovalPayloadV2
+    approval_payload_hash: Sha256Digest
+    reviewer_attestation: LocalReviewerAttestationV1
+    operator_id: Identifier
+    request_key: Identifier
+    request_sha256: Sha256Digest
+    recorded_at_utc: UtcDateTime
+    persisted_at_utc: UtcDateTime
+
+    @model_validator(mode="after")
+    def validate_recording(self) -> Self:
+        payload, review = (
+            self.approval_payload,
+            self.reviewer_attestation.content_payload,
+        )
+        if self.approval_payload_hash != payload.approval_payload_hash:
+            raise ValueError("approval payload hash mismatch")
+        if (
+            review.attested_schema_version != TRAINING_HISTORY_APPROVAL_PAYLOAD_V2
+            or review.attested_payload_hash != self.approval_payload_hash
+            or review.authorized_reviewer != payload.approver
+            or review.reviewer_authority_reference != payload.authority_reference
+            or review.authority_sha256 != payload.authority_sha256
+        ):
+            raise ValueError(
+                "reviewer attestation does not bind exact V2 subject/authority"
+            )
+        if self.request_sha256 != training_approval_request_hash(
+            self.request_key, self.operator_id, payload, self.reviewer_attestation
+        ):
+            raise ValueError("approval recording request hash mismatch")
+        if not review.reviewed_at_utc <= self.recorded_at_utc <= self.persisted_at_utc:
+            raise ValueError("approval actual recording timeline mismatch")
+        payload.assert_active_intervals(self.recorded_at_utc)
+        payload.assert_active_intervals(self.persisted_at_utc)
+        if (
+            payload.supersession_effective_at_utc is not None
+            and payload.supersession_effective_at_utc < self.persisted_at_utc
+        ):
+            raise ValueError("successor must be persisted before becoming effective")
+        return self
+
+
+class TrainingHistoryApprovalV2(
+    SealedReleaseArtifactV1[TrainingHistoryApprovalContentV2]
+):
+    schema_version: Literal["TRAINING_HISTORY_APPROVAL_V2"] = (
+        TRAINING_HISTORY_APPROVAL_V2
+    )
+
+    @property
+    def subject(self) -> TrainingHistoryApprovalPayloadV2:
+        return self.content_payload.approval_payload
+
+    @property
+    def recorded_at_utc(self) -> datetime:
+        return self.content_payload.recorded_at_utc
+
+    @property
+    def persisted_at_utc(self) -> datetime:
+        return self.content_payload.persisted_at_utc
+
+    def matches_technical_evidence(self, evidence: TechnicalEvidenceRefsV1) -> bool:
+        return (
+            self.subject.technical_evidence == approval_technical_evidence_ref(evidence)
+            and self.subject.scope == evidence.scope
+            and self.subject.build_recipe == evidence.build_recipe
+            and self.subject.code_revision == evidence.code_revision
+        )
+
+    @model_validator(mode="after")
+    def no_self_successor(self) -> Self:
+        previous = self.subject.supersedes_approval
+        if previous is not None and previous.artifact_id == self.artifact_id:
+            raise ValueError("approval cannot supersede itself")
+        return self
+
+
+TrainingHistoryApproval = Annotated[
+    TrainingHistoryApprovalV1 | TrainingHistoryApprovalV2,
+    Field(discriminator="schema_version"),
+]
+TRAINING_HISTORY_APPROVAL_ADAPTER = TypeAdapter(TrainingHistoryApproval)
+
+
+def parse_training_history_approval(value: object) -> TrainingHistoryApproval:
+    return TRAINING_HISTORY_APPROVAL_ADAPTER.validate_python(_plain(value))
+
 
 class GrantRevocationContentV1(ReleaseSnapshotV1):
     approval: ReleaseArtifactRefV1
@@ -704,7 +1103,11 @@ class SourceCorrectionV1(SealedReleaseArtifactV1[SourceCorrectionContentV1]):
 
 
 class CurrentAuthorizationInputsV1(ReleaseSnapshotV1):
-    """Caller-supplied complete repository view at an actual operation boundary."""
+    """Complete repository view at an actual operation boundary.
+
+    Controlled V2 events use SourceCorrectionV2.as_v1(); pinned components use
+    the identical CorrectionRefV2.as_v1() projection, never raw ROOT pointers.
+    """
 
     schema_version: Literal["CURRENT_AUTHORIZATION_INPUTS_V1"] = (
         "CURRENT_AUTHORIZATION_INPUTS_V1"
@@ -845,7 +1248,7 @@ class ProductionQuantModelReleaseContentV1(ReleaseSnapshotV1):
     build_recipe: ReleaseArtifactRefV1
     code_revision: Identifier
     released_state_core: ReleasedStateCoreV1
-    release_facts: tuple[ApprovedTrainingFactV1, ...] = Field(min_length=1)
+    release_facts: tuple[ApprovedTrainingFact, ...] = Field(min_length=1)
     build_start_authorization: BuildAuthorizationV1
     build_completion_authorization: BuildAuthorizationV1
     build_started_at_utc: UtcDateTime
@@ -868,7 +1271,7 @@ class ProductionQuantModelReleaseV1(
     )
     # Revalidated, hash-bound projections, not extra inputs to the release hash.
     training_manifest: TrainingHistoryManifestV1
-    training_approval: TrainingHistoryApprovalV1
+    training_approval: TrainingHistoryApproval
 
     @model_validator(mode="after")
     def validate_release(self) -> Self:
@@ -895,7 +1298,7 @@ class ProductionQuantModelReleaseV1(
         ):
             raise ValueError("release manifest/approval/core/fact context mismatch")
         if not (
-            approval.content_payload.approval_payload.persisted_at_utc
+            approval.persisted_at_utc
             <= core.training_cutoff_at_utc
             < content.build_started_at_utc
             <= content.build_completed_at_utc
@@ -905,6 +1308,10 @@ class ProductionQuantModelReleaseV1(
                 "release authoritative training cutoff/actual timeline mismatch"
             )
         for item in content.release_facts:
+            if isinstance(item, ApprovedTrainingFactV2):
+                if item.content_payload.effective_source_available_at_utc > core.training_cutoff_at_utc:
+                    raise ValueError("release contains newer versioned source facts")
+                continue
             binding = item.content_payload.binding.content_payload
             for source_at in (
                 binding.fixture_source.source_available_at_utc,
@@ -1286,6 +1693,111 @@ def history_summaries(
     return tuple(sources), tuple(seasons)
 
 
+def approved_versioned_facts_root(facts) -> str:
+    return tagged_canonical_sha256(
+        "APPROVED_TRAINING_FACTS_ROOT_V2", tuple(f.reference() for f in facts)
+    )
+
+
+def prepare_versioned_approved_facts(
+    admissions, context, window, pilot_scope_id, cutoff, excluded
+):
+    parents = {a.training_fact_admission_id: a for a in admissions}
+    seasons = window.content_payload.ordered_season_ids
+    versions = select_versioned_training_facts(
+        context, window.content_payload.competition_id, seasons, cutoff, excluded, False
+    )
+    facts = []
+    for sequence, version in enumerate(versions):
+        parent = parents[version.base_admission.artifact_id]
+        rights = parent.source_rights_admission
+        facts.append(
+            ApprovedTrainingFactV2.freeze(
+                content_payload=ApprovedTrainingFactContentV2(
+                    fact_sequence=sequence,
+                    season_sequence=seasons.index(version.snapshot.identity.season),
+                    integrity_pilot_scope_id=pilot_scope_id,
+                    training_fact_admission=ReleaseArtifactRefV1(
+                        artifact_id=parent.training_fact_admission_id,
+                        content_hash=parent.admission_hash,
+                    ),
+                    source_rights_admission=ReleaseArtifactRefV1(
+                        artifact_id=rights.source_rights_admission_id,
+                        content_hash=rights.admission_hash,
+                    ),
+                    terms_sha256=rights.content_payload.rights_payload.terms_sha256,
+                    version=version,
+                    elo_fact=EloTrainingFact.from_result(
+                        sequence=sequence,
+                        result=project_versioned_training_fact(version),
+                    ),
+                    effective_source_available_at_utc=version.snapshot.effective_source_available_at_utc,
+                )
+            )
+        )
+    return tuple(facts)
+
+
+def versioned_history_summaries(facts, window):
+    grouped = {}
+    for fact in facts:
+        c = fact.content_payload
+        stream = c.version.snapshot.stream
+        grouped.setdefault(
+            (
+                stream.source_id,
+                stream.provider_code,
+                c.source_rights_admission.artifact_id,
+            ),
+            [],
+        ).append(fact)
+    sources = []
+    for sequence, ((source, provider, _), values) in enumerate(sorted(grouped.items())):
+        first = values[0].content_payload
+        refs = tuple(VersionedFactRefV2.of(f.content_payload.version) for f in values)
+        sources.append(
+            HistorySourceSummaryV1(
+                source_sequence=sequence,
+                source_id=source,
+                provider_code=provider,
+                source_rights_admission=first.source_rights_admission,
+                terms_sha256=first.terms_sha256,
+                fact_count=len(values),
+                facts_hash=approved_versioned_facts_root(values),
+                fixture_source_count=len(values),
+                fixture_sources_hash=tagged_canonical_sha256(
+                    "HISTORY_FIXTURE_VERSIONS_ROOT_V2", refs
+                ),
+                mapping_source_count=len(values),
+                mapping_sources_hash=tagged_canonical_sha256(
+                    "HISTORY_MAPPING_VERSIONS_ROOT_V2", refs
+                ),
+                result_source_count=len(values),
+                result_sources_hash=tagged_canonical_sha256(
+                    "HISTORY_RESULT_VERSIONS_ROOT_V2", refs
+                ),
+            )
+        )
+    seasons = tuple(
+        HistorySeasonSummaryV1(
+            season=season,
+            fact_count=sum(
+                f.content_payload.season_sequence == season.season_sequence
+                for f in facts
+            ),
+            facts_hash=approved_versioned_facts_root(
+                tuple(
+                    f
+                    for f in facts
+                    if f.content_payload.season_sequence == season.season_sequence
+                )
+            ),
+        )
+        for season in window.content_payload.seasons
+    )
+    return tuple(sources), seasons
+
+
 def source_rights_refs(
     history: TrainingHistoryGraphV1,
 ) -> tuple[SourceRightsRefV1, ...]:
@@ -1309,7 +1821,7 @@ def source_rights_refs(
 
 def approval_active_for_build(
     *,
-    approval: TrainingHistoryApprovalV1,
+    approval: TrainingHistoryApproval,
     manifest: TrainingHistoryManifestV1,
     current: CurrentAuthorizationInputsV1,
 ) -> Literal[True]:
@@ -1393,7 +1905,7 @@ def assert_target_plan(
 
 
 def assert_retention_authorized(
-    approval: TrainingHistoryApprovalV1,
+    approval: TrainingHistoryApproval,
     current: CurrentAuthorizationInputsV1,
     state_horizon: RetentionHorizonV1,
     audit_horizon: RetentionHorizonV1,
@@ -1419,14 +1931,16 @@ def assert_retention_authorized(
 def _assert_approval_context(
     approval, manifest, current, *, require_current_source_rights=True
 ) -> None:
-    payload = approval.content_payload.approval_payload
+    payload = approval.subject
     graph = manifest.content_payload.history
     if (
         payload.manifest != manifest.reference()
         or payload.scope != graph.scope
         or payload.source_rights != source_rights_refs(graph)
-        or payload.technical_evidence != manifest.content_payload.technical_evidence
-        or current.technical_evidence != payload.technical_evidence
+        or not approval.matches_technical_evidence(
+            manifest.content_payload.technical_evidence
+        )
+        or not approval.matches_technical_evidence(current.technical_evidence)
     ):
         raise ValueError(
             "approval manifest/source/pilot terminal evidence context mismatch"
@@ -1435,8 +1949,8 @@ def _assert_approval_context(
     if not (
         manifest.content_payload.persisted_at_utc
         <= review.reviewed_at_utc
-        <= payload.approved_at_utc
-        <= payload.persisted_at_utc
+        <= approval.recorded_at_utc
+        <= approval.persisted_at_utc
         <= current.actual_at_utc
     ):
         raise ValueError(
@@ -1453,11 +1967,7 @@ def _assert_approval_context(
 
 def _assert_grant(approval, current, kind, release_ref=None) -> ProductionGrantV1:
     at = current.actual_at_utc
-    grant = next(
-        item
-        for item in approval.content_payload.approval_payload.grants
-        if item.grant == kind
-    )
+    grant = next(item for item in approval.subject.grants if item.grant == kind)
     if not grant.effective_at_utc <= at or (
         grant.expires_at_utc is not None and at >= grant.expires_at_utc
     ):
@@ -1469,10 +1979,7 @@ def _assert_grant(approval, current, kind, release_ref=None) -> ProductionGrantV
             continue
         if item.approval != approval_ref:
             raise ValueError("revocation approval hash mismatch")
-        if (
-            item.recorded_at_utc
-            < approval.content_payload.approval_payload.persisted_at_utc
-        ):
+        if item.recorded_at_utc < approval.persisted_at_utc:
             raise ValueError("revocation cannot be recorded before its approval")
         if item.release is not None:
             if (
@@ -1493,13 +2000,10 @@ def _assert_grant(approval, current, kind, release_ref=None) -> ProductionGrantV
             continue
         if (
             item.predecessor != approval_ref
-            or item.predecessor_scope != approval.content_payload.approval_payload.scope
+            or item.predecessor_scope != approval.subject.scope
         ):
             raise ValueError("successor approval hash/scope mismatch")
-        if (
-            item.successor_persisted_at_utc
-            < approval.content_payload.approval_payload.persisted_at_utc
-        ):
+        if item.successor_persisted_at_utc < approval.persisted_at_utc:
             raise ValueError("successor cannot be persisted before its predecessor")
         if (
             kind in item.affected_grants
@@ -1510,6 +2014,38 @@ def _assert_grant(approval, current, kind, release_ref=None) -> ProductionGrantV
 
 
 def _assert_no_visible_correction(graph, current) -> None:
+    if isinstance(graph, TrainingHistoryGraphV2):
+        # All predecessors remain in context for early slices, but only selected
+        # heads are current. Ancestor events are not new invalidations.
+        by_ref = {v.reference: v for v in graph.correction_context.versions}
+        selected = {r.version for r in graph.selected_heads}
+        incorporated = set()
+        for ref in selected:
+            while ref is not None:
+                version = by_ref[ref]
+                incorporated.update(c.reference.as_v1() for c in version.components)
+                ref = version.predecessor
+        scoped = {
+            (
+                v.snapshot.stream.source_id,
+                v.snapshot.stream.provider_code,
+                v.snapshot.stream.internal_match_id,
+            )
+            for v in graph.correction_context.versions
+        }
+        for event in current.corrections:
+            c = event.content_payload
+            if (c.source_id, c.provider_code, c.match_id) not in scoped:
+                continue
+            if (
+                max(c.source_available_at_utc, c.registered_at_utc)
+                <= current.actual_at_utc
+                and c.successor not in incorporated
+            ):
+                raise ValueError(
+                    "newer source-visible and locally registered correction"
+                )
+        return
     facts = {
         item.content_payload.elo_fact.match_id: item.content_payload.binding.content_payload
         for item in graph.facts

@@ -17,7 +17,16 @@ from pathlib import Path, PurePosixPath
 from tempfile import NamedTemporaryFile
 from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Discriminator,
+    Field,
+    RootModel,
+    Tag,
+    TypeAdapter,
+    model_validator,
+)
 from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
 
@@ -30,6 +39,9 @@ from football_system.application.review_bridge import validate_review_files
 from football_system.application.training_admission import (
     PrepareTrainingFactBindingsService,
 )
+from football_system.application.training_correction import (
+    TrainingCorrectionJsonAdapterV2,
+)
 from football_system.domain.archive import canonical_json
 from football_system.domain.common import UtcDateTime, utc_now
 from football_system.config import AppSettings
@@ -41,6 +53,9 @@ from football_system.domain.production_release import (
     ProductionTargetV1,
     ReleaseSnapshotV1,
     RetentionHorizonV1,
+    ReleaseArtifactRefV1,
+    TrainingHistoryApprovalPayloadV2,
+    TrainingHistoryApprovalV2,
     revalidate,
 )
 from football_system.domain.review import (
@@ -52,8 +67,10 @@ from football_system.domain.quant_integrity import (
     IntegrityArtifact,
     IntegrityArtifactRefV1,
     QuantIntegrityPlanDefinitionV1,
+    QuantIntegrityPlanDefinitionV2,
     QuantIntegrityPlanV1,
     QuantIntegrityReportV1,
+    QuantIntegrityTargetV2,
 )
 from football_system.domain.training_admission import (
     LocalReviewEvidenceV1,
@@ -62,6 +79,20 @@ from football_system.domain.training_admission import (
     RuleText,
     Sha256Digest,
     SourceRightsPayloadV1,
+    TrainingFactAdmissionV1,
+)
+from football_system.domain.training_correction import (
+    CorrectionCaptureRefV2,
+    CorrectionEvidenceV2,
+    CorrectionRefV2,
+    TrainingCorrectionAdmissionV2,
+    TrainingCorrectionIntentV2,
+    TrainingFactVersionV2,
+)
+from football_system.domain.versioned_training_history import (
+    TrainingHistoryContextPinV2,
+    VersionedFactRefV2,
+    select_versioned_training_heads,
 )
 from football_system.infrastructure.database.migrations import upgrade_database
 from football_system.infrastructure.database.production_quant_repository import (
@@ -84,6 +115,9 @@ from football_system.infrastructure.database.session import (
 from football_system.infrastructure.database.training_admission_repository import (
     ControlledTrainingCorrectionRequired,
     SqlAlchemyTrainingAdmissionRepository,
+)
+from football_system.infrastructure.database.training_correction_repository import (
+    SqlAlchemyTrainingCorrectionRepository,
 )
 from football_system.infrastructure.files.training_evidence import (
     LocalTrainingEvidence,
@@ -164,6 +198,70 @@ class AdmitRequestV1(RequestV1):
 class PilotPlanRequestV1(RequestV1):
     definition: QuantIntegrityPlanDefinitionV1
 
+    @model_validator(mode="after")
+    def validate_version(self) -> Self:
+        if any(
+            isinstance(t, QuantIntegrityTargetV2)
+            for s in self.definition.slices
+            for t in s.content_payload.targets
+        ):
+            raise ValueError("versioned targets require an explicit V2 plan context")
+        return self
+
+
+class PilotPlanRequestV2(RequestV1):
+    definition: Annotated[
+        QuantIntegrityPlanDefinitionV2, Field(discriminator="schema_version")
+    ]
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_explicit_versions(cls, value):
+        value = cls.revalidate_nested_snapshots(value)
+        if isinstance(value, dict) and isinstance(value.get("definition"), dict):
+            definition = value["definition"]
+            if definition.get("schema_version") != "QUANT_INTEGRITY_PLAN_DEFINITION_V2":
+                raise ValueError("corrected pilot requires an explicit V2 definition")
+            context = definition.get("correction_context")
+            if not isinstance(context, dict) or context.get("schema_version") != (
+                "TRAINING_HISTORY_CONTEXT_PIN_V2"
+            ):
+                raise ValueError("corrected pilot requires an explicit V2 context pin")
+            for item in definition.get("slices", ()):
+                for target in item["content_payload"]["targets"]:
+                    if target.get("schema_version") != "QUANT_INTEGRITY_TARGET_V2" or (
+                        target.get("fact", {}).get("schema_version")
+                        != "VERSIONED_FACT_REF_V2"
+                    ):
+                        raise ValueError("corrected pilot requires explicit V2 targets")
+        return value
+
+
+def _request_version(value):
+    if isinstance(value, BaseModel):
+        value = value.model_dump(mode="python")
+    if isinstance(value, dict):
+        subject = value.get("definition", value)
+        if isinstance(subject, BaseModel):
+            subject = subject.model_dump(mode="python")
+        if isinstance(subject, dict):
+            return subject.get("schema_version", "LEGACY_V1")
+    return None
+
+
+class PilotPlanRequest(
+    RootModel[
+        Annotated[
+            Annotated[PilotPlanRequestV1, Tag("LEGACY_V1")]
+            | Annotated[PilotPlanRequestV2, Tag("QUANT_INTEGRITY_PLAN_DEFINITION_V2")],
+            Discriminator(_request_version),
+        ]
+    ]
+):
+    """Untagged legacy V1 or explicitly tagged V2, never inferred from fields."""
+
+    model_config = ConfigDict(frozen=True)
+
 
 class PilotReferenceRequestV1(RequestV1):
     plan_ref: IntegrityArtifactRefV1
@@ -192,14 +290,101 @@ class ManifestRequestV1(RequestV1):
         return self
 
 
+class ManifestRequestV2(ManifestRequestV1):
+    schema_version: Literal["PRODUCTION_QUANT_MANIFEST_REQUEST_V2"]
+    correction_context: Annotated[
+        TrainingHistoryContextPinV2, Field(discriminator="schema_version")
+    ]
+    context_registered_at_utc: UtcDateTime
+    selection_cutoff_at_utc: UtcDateTime
+    exclude_match_ids: tuple[OperationId, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_context(self) -> Self:
+        if self.admission_ids != tuple(
+            p.artifact_id for p in self.correction_context.base_admissions
+        ):
+            raise ValueError("manifest requires the exact ordered context admissions")
+        if self.selection_cutoff_at_utc > self.context_registered_at_utc:
+            raise ValueError("selection cutoff follows actual context verification")
+        if self.exclude_match_ids != tuple(sorted(set(self.exclude_match_ids))):
+            raise ValueError("manifest exclusions must be ordered and unique")
+        return self
+
+
+class ManifestRequest(
+    RootModel[
+        Annotated[
+            Annotated[ManifestRequestV1, Tag("LEGACY_V1")]
+            | Annotated[ManifestRequestV2, Tag("PRODUCTION_QUANT_MANIFEST_REQUEST_V2")],
+            Discriminator(_request_version),
+        ]
+    ]
+):
+    """Legacy V1 requests retain their exact repository request identity."""
+
+    model_config = ConfigDict(frozen=True)
+
+
+class CorrectionReferenceRequestV2(RequestV1):
+    receipt_id: OperationId
+    record_pointer: str = Field(strict=True, max_length=2048, pattern=r"^(?:/.*)?$")
+
+
+class CorrectionPrepareRequestV2(RequestV1):
+    predecessor_version_id: OperationId
+    source_rights_admission_id: OperationId
+    evidence: CorrectionEvidenceV2
+    match_result_id: OperationId | None
+
+
+class CorrectionAdmitRequestV2(RequestV1):
+    request_key: OperationId
+    intent: Annotated[TrainingCorrectionIntentV2, Field(discriminator="schema_version")]
+    reviewer_evidence: LocalReviewEvidenceV1
+    reviewer_authority: LocalReviewEvidenceV1
+
+
+class CorrectionContextRequestV2(RequestV1):
+    base_admissions: tuple[CorrectionRefV2, ...] = Field(min_length=1)
+    correction_ids: tuple[OperationId, ...]
+    source_cutoffs: dict[OperationId, UtcDateTime] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_pins(self) -> Self:
+        TrainingHistoryContextPinV2(
+            base_admissions=self.base_admissions, corrections=()
+        )
+        if len(self.correction_ids) != len(set(self.correction_ids)):
+            raise ValueError("context requires unique correction IDs")
+        return self
+
+
 class ApprovalRecordRequestV1(RequestV1):
-    """Describes the blocked repository API, not a satisfiable approval envelope."""
+    """Unsupported legacy request; never automatically converted to V2."""
 
     request_key: OperationId
     manifest_id: OperationId
     grants: tuple[ProductionGrantV1, ...] = Field(min_length=1)
     review: LocalReviewEvidenceV1
     reviewer_authority: LocalReviewEvidenceV1
+
+
+class ApprovalPrepareRequestV2(RequestV1):
+    manifest_id: OperationId
+    grants: tuple[ProductionGrantV1, ...] = Field(min_length=4, max_length=4)
+    approver: OperationId
+    reviewer_authority: LocalReviewEvidenceV1
+    retention_compatibility: Literal["APPEND_ONLY_STATE_AND_AUDIT_COMPATIBLE"]
+    supersedes_approval: ReleaseArtifactRefV1 | None = None
+    supersession_effective_at_utc: UtcDateTime | None = None
+    superseded_grants: tuple[ProductionGrantKind, ...] = ()
+
+
+class ApprovalRecordRequestV2(RequestV1):
+    request_key: OperationId
+    approval_payload: TrainingHistoryApprovalPayloadV2
+    reviewer_attestation: LocalReviewerAttestationV1
 
 
 class ReleaseBuildRequestV1(RequestV1):
@@ -264,6 +449,8 @@ class InspectStoredV1(RequestV1):
         "approval",
         "release",
         "target-plan",
+        "correction",
+        "correction-version",
     ]
     artifact_id: OperationId
 
@@ -321,11 +508,16 @@ COMMAND_MODELS = {
     "rights-record": RightsRecordRequestV1,
     "capture": CaptureRequestV1,
     "admit": AdmitRequestV1,
-    "pilot-plan": PilotPlanRequestV1,
+    "correction-reference": CorrectionReferenceRequestV2,
+    "correction-prepare": CorrectionPrepareRequestV2,
+    "correction-admit": CorrectionAdmitRequestV2,
+    "correction-context": CorrectionContextRequestV2,
+    "pilot-plan": PilotPlanRequest,
     "pilot-run": PilotReferenceRequestV1,
     "pilot-attest": PilotReferenceRequestV1,
-    "manifest": ManifestRequestV1,
-    "approval-record": ApprovalRecordRequestV1,
+    "manifest": ManifestRequest,
+    "approval-prepare": ApprovalPrepareRequestV2,
+    "approval-record": ApprovalRecordRequestV2,
     "release-build": ReleaseBuildRequestV1,
     "target-plan": TargetPlanRequestV1,
     "revoke-prepare": RevokePrepareRequestV1,
@@ -340,6 +532,21 @@ SCHEMA_TYPES = {
     model.__name__: model
     for model in (
         *COMMAND_MODELS.values(),
+        PilotPlanRequestV1,
+        PilotPlanRequestV2,
+        ManifestRequestV1,
+        ManifestRequestV2,
+        QuantIntegrityPlanDefinitionV1,
+        QuantIntegrityPlanDefinitionV2,
+        QuantIntegrityTargetV2,
+        TrainingCorrectionJsonAdapterV2,
+        CorrectionCaptureRefV2,
+        CorrectionEvidenceV2,
+        TrainingCorrectionIntentV2,
+        TrainingCorrectionAdmissionV2,
+        TrainingFactVersionV2,
+        TrainingHistoryContextPinV2,
+        VersionedFactRefV2,
         AuthorityPinsV1,
         ReviewerAuthorityV1,
         TrainingReviewDocumentV1,
@@ -354,9 +561,20 @@ SCHEMA_TYPES = {
         AnalysisPacketV3,
         LLMReviewSubmissionV3,
         ApprovedTrainingHistoryAuditV1,
+        TrainingHistoryApprovalPayloadV2,
+        TrainingHistoryApprovalV2,
     )
 }
-READ_COMMANDS = frozenset({"inspect", "revoke-prepare"})
+READ_COMMANDS = frozenset(
+    {
+        "inspect",
+        "revoke-prepare",
+        "approval-prepare",
+        "correction-reference",
+        "correction-prepare",
+        "correction-context",
+    }
+)
 
 
 class _SafeParser(argparse.ArgumentParser):
@@ -383,6 +601,35 @@ def _read_settings(path: Path) -> AppSettings:
     return AppSettings.model_validate(
         tomllib.loads(_read_local_bytes(path, MAX_CONFIG_BYTES).decode("utf-8"))
     )
+
+
+def _preflight_correction(request, evidence, document, authority) -> None:
+    # Only supplied descriptors/reviews, never captured provider bytes. Persisted
+    # rights and historical receipt authorization remain repository checks.
+    if isinstance(request, (CorrectionPrepareRequestV2, CorrectionAdmitRequestV2)):
+        source = (
+            request.evidence
+            if isinstance(request, CorrectionPrepareRequestV2)
+            else request.intent.evidence
+        )
+        raw = strict_json_bytes(
+            evidence.read(
+                source.adapter.evidence_reference, source.adapter.evidence_sha256
+            )
+        )
+        if not isinstance(raw, dict) or raw.get("schema_version") != (
+            "TRAINING_CORRECTION_JSON_ADAPTER_V2"
+        ):
+            raise ValueError("correction requires an explicitly versioned V2 adapter")
+        TrainingCorrectionJsonAdapterV2.model_validate(raw)
+    if isinstance(request, CorrectionAdmitRequestV2):
+        authority(request.reviewer_authority)
+        review = document(request.reviewer_evidence, TrainingReviewDocumentV1)
+        if (review.attested_schema_version, review.attested_payload_hash) != (
+            request.intent.schema_version,
+            request.intent.intent_hash,
+        ):
+            raise ValueError("review must bind the exact time-free correction intent")
 
 
 def _preflight_evidence(request: RequestV1, evidence: LocalTrainingEvidence) -> None:
@@ -426,7 +673,12 @@ def _preflight_evidence(request: RequestV1, evidence: LocalTrainingEvidence) -> 
             document(item.source_evidence.adapter, TrainingJsonAdapterV1)
             if item.candidate.normalized_result.supersedes_match_result_id is not None:
                 raise ControlledTrainingCorrectionRequired()
-    elif isinstance(request, PilotPlanRequestV1):
+    elif isinstance(
+        request,
+        (CorrectionPrepareRequestV2, CorrectionAdmitRequestV2),
+    ):
+        _preflight_correction(request, evidence, document, authority)
+    elif isinstance(request, (PilotPlanRequestV1, PilotPlanRequestV2)):
         definition = request.definition
         scope, cohort = definition.scope, definition.cohort
         authority(
@@ -463,9 +715,17 @@ def _preflight_evidence(request: RequestV1, evidence: LocalTrainingEvidence) -> 
             *(e.evidence for e in cohort.completeness_exceptions),
         ):
             document(review, QuantIntegrityReviewDocumentV1)
-    elif isinstance(request, ApprovalRecordRequestV1):
+    elif isinstance(request, ApprovalPrepareRequestV2):
         authority(request.reviewer_authority)
-        document(request.review, TrainingReviewDocumentV1)
+    elif isinstance(request, ApprovalRecordRequestV2):
+        review = request.reviewer_attestation.content_payload
+        authority(
+            LocalReviewEvidenceV1(
+                evidence_reference=review.reviewer_authority_reference,
+                evidence_sha256=review.authority_sha256,
+            )
+        )
+        document(review.evidence, TrainingReviewDocumentV1)
     elif isinstance(request, RevokePrepareRequestV1):
         authority(request.reviewer_authority)
     elif isinstance(request, RevokeRequestV1):
@@ -564,13 +824,48 @@ def _execute(
     command, request, admissions, pilots, production, *, sessions=None, auditor=None
 ):
     # Keep validated nested models, rather than converting repository arguments to dicts.
-    values = {name: getattr(request, name) for name in type(request).model_fields}
+    values = {
+        name: getattr(request, name)
+        for name in type(request).model_fields
+        if name != "schema_version"
+    }
     if command == "rights-record":
         return admissions.record(**values)
     if command == "capture":
         return admissions.capture_local_json(**values)
     if command == "admit":
         return admissions.admit(**values)
+    if command.startswith("correction-"):
+        corrections = SqlAlchemyTrainingCorrectionRepository(admissions)
+        if command == "correction-reference":
+            return corrections.capture_reference(**values)
+        if command == "correction-prepare":
+            return corrections.prepare(**values)
+        if command == "correction-admit":
+            return corrections.admit(**values)
+        context = corrections.load_context(
+            base_admissions=request.base_admissions,
+            correction_ids=request.correction_ids,
+            actual_at=admissions._now(),
+        )
+        if set(request.source_cutoffs) != {
+            v.snapshot.stream.source_id for v in context.versions
+        }:
+            raise ValueError("context requires the exact set of per-source cutoffs")
+        selected = select_versioned_training_heads(
+            context, source_cutoffs=request.source_cutoffs, strict_cutoff=False
+        )
+        pin = TrainingHistoryContextPinV2.of(context)
+        return {
+            "context": context,
+            "correction_context": pin,
+            "context_registered_at_utc": context.actual_at_utc,
+            "context_root": pin.context_root,
+            "base_root": pin.base_root,
+            "source_cutoffs": request.source_cutoffs,
+            "selected_versions": selected,
+            "selected_heads": tuple(VersionedFactRefV2.of(v) for v in selected),
+        }
     if command in {"pilot-plan", "pilot-run", "pilot-attest"}:
         service = QuantIntegrityPilotService(pilots, clock=utc_now)
         if command == "pilot-plan":
@@ -580,6 +875,10 @@ def _execute(
         return service.seal_terminal_attestation(request.plan_ref)
     if command == "manifest":
         return production.create_manifest(**values)
+    if command == "approval-prepare":
+        return production.prepare_approval(**values)
+    if command == "approval-record":
+        return production.record_approval(**values)
     if command == "release-build":
         return production.build_release(**values)
     if command == "target-plan":
@@ -641,6 +940,13 @@ def _execute(
     if target.kind == "capture":
         return admissions.load_capture(target.artifact_id)[0]  # Never export raw bytes.
     if isinstance(target, InspectStoredV1):
+        if target.kind in {"correction", "correction-version"}:
+            corrections = SqlAlchemyTrainingCorrectionRepository(admissions)
+            return (
+                corrections.load_admission
+                if target.kind == "correction"
+                else corrections.load_version
+            )(target.artifact_id)
         return {
             "rights": admissions.load_rights,
             "admission": admissions.load,
@@ -661,17 +967,28 @@ def dispatch_production_quant(arguments: Sequence[str]) -> int:
         prog="football-system production-quant",
         description=(
             "Local-only admitted history, retrospective integrity pilots and production "
-            "release contracts. No provider API, authority/approval creation or raw export. "
-            "approval-record is BLOCKED by the existing approval timestamp contract."
+            "release contracts. No provider API, authority creation or raw export. "
+            "approval-prepare and correction-prepare are read-only previews, not reviews "
+            "or authorization. Obtain an external authorized review of the exact returned "
+            "review_subject before approval-record or correction-admit. V1 approval writing is unsupported."
         ),
         epilog=(
             "Every operation requires --request, --database-url, --evidence-root, "
-            "--authority-pins and --operator. inspect/revoke-prepare never migrate. "
+            "--authority-pins and --operator. inspect, *-prepare, correction-reference "
+            "and correction-context open SQLite mode=ro and never migrate. "
             "Other writes may migrate after preflight. Paths are relative to the current "
             "directory; evidence references are contained POSIX paths. Output is local "
             "JSON, not a current inference authorization. Request/evidence: 64 MiB each; "
             "pins/config/review/each bundle member: 1 MiB; output: 256 MiB. "
             "Capture provider bytes are read only after persisted rights checks. "
+            "correction-reference audits an existing receipt, even after rights expiry; "
+            "new capture/prepare/admit require current rights. correction-context uses "
+            "the repository's actual clock, not a caller time; source_cutoffs select "
+            "whole historical versions inclusively, including nontrainable withdrawals. "
+            "Use its correction_context pin and context_registered_at_utc in an explicit "
+            "V2 pilot definition or PRODUCTION_QUANT_MANIFEST_REQUEST_V2. Untagged V1 "
+            "requests are preserved, never converted. Historical source cutoffs and "
+            "the context knowledge time are distinct. "
             "Output parents must exist; no overwrite."
         ),
         allow_abbrev=False,
@@ -738,7 +1055,10 @@ def dispatch_production_quant(arguments: Sequence[str]) -> int:
                             "config": MAX_CONFIG_BYTES,
                             "review_and_bundle_member": MAX_CONTRACT_FILE_BYTES,
                         },
-                        "blocked_commands": ["approval-record"],
+                        "blocked_commands": [],
+                        "unsupported_approval_payload_versions": [
+                            "TRAINING_HISTORY_APPROVAL_PAYLOAD_V1"
+                        ],
                     }
                 )
             )
@@ -759,9 +1079,21 @@ def dispatch_production_quant(arguments: Sequence[str]) -> int:
         ):
             raise ValueError("explicit operation arguments are required")
         operator = TypeAdapter(OperationId).validate_python(args.operator)
-        request = COMMAND_MODELS[command].model_validate(
-            _read_json(args.request, MAX_REQUEST_BYTES)
-        )
+        document = _read_json(args.request, MAX_REQUEST_BYTES)
+        if (
+            command == "approval-record"
+            and isinstance(document, dict)
+            and (
+                "manifest_id" in document
+                or isinstance(document.get("approval_payload"), dict)
+                and document["approval_payload"].get("payload_version")
+                == "TRAINING_HISTORY_APPROVAL_PAYLOAD_V1"
+            )
+        ):
+            raise ApprovalRecordingContractConflict()
+        request = COMMAND_MODELS[command].model_validate(document)
+        if isinstance(request, RootModel):
+            request = request.root
         request = revalidate(request)
         pins = AuthorityPinsV1.model_validate(
             _read_json(args.authority_pins, MAX_PINS_BYTES)
@@ -790,10 +1122,6 @@ def dispatch_production_quant(arguments: Sequence[str]) -> int:
             request, BundleExportRequestV1
         ) and request.bundle_directory.resolve() in {database, output}:
             raise ValueError("bundle directory must not alias database or output")
-        if command == "approval-record":
-            # The core method unconditionally raises this conflict. Stop BEFORE migration,
-            # without synthesizing a future persisted_at_utc or a reviewer attestation.
-            raise ApprovalRecordingContractConflict()
         stage = "database"
         if command in READ_COMMANDS:
             if not database.is_file():
@@ -830,9 +1158,9 @@ def dispatch_production_quant(arguments: Sequence[str]) -> int:
         stage = "output"
         status = (
             "PREPARED"
-            if command == "revoke-prepare"
+            if command.endswith("-prepare")
             else "VERIFIED"
-            if command == "inspect"
+            if command in READ_COMMANDS
             else "RECORDED"
         )
         response = {
@@ -843,12 +1171,31 @@ def dispatch_production_quant(arguments: Sequence[str]) -> int:
         }
         if isinstance(result, IntegrityArtifact):
             response["reference"] = IntegrityArtifactRefV1.of(result)
+        elif isinstance(result, TrainingFactAdmissionV1):
+            response["reference"] = CorrectionRefV2(
+                schema_version=result.schema_version,
+                artifact_id=result.training_fact_admission_id,
+                content_hash=result.admission_hash,
+            )
+        elif isinstance(result, TrainingFactVersionV2):
+            response["reference"] = result.reference
+            response["fact_reference"] = VersionedFactRefV2.of(result)
         elif callable(getattr(result, "reference", None)):
             response["reference"] = result.reference()
         if isinstance(result, ProductionRevocationRequestV1):
             response["review_subject"] = {
                 "schema_version": result.schema_version,
                 "payload_hash": result.request_hash,
+            }
+        if isinstance(result, TrainingHistoryApprovalPayloadV2):
+            response["review_subject"] = {
+                "schema_version": result.payload_version,
+                "payload_hash": result.approval_payload_hash,
+            }
+        if isinstance(result, TrainingCorrectionIntentV2):
+            response["review_subject"] = {
+                "schema_version": result.schema_version,
+                "payload_hash": result.intent_hash,
             }
         if isinstance(result, QuantIntegrityPlanV1):
             response["integrity_pilot_scope_id"] = (
@@ -868,18 +1215,18 @@ def dispatch_production_quant(arguments: Sequence[str]) -> int:
     except ApprovalRecordingContractConflict:
         code, exit_code, status = "APPROVAL_RECORDING_CONTRACT_CONFLICT", 3, "BLOCKED"
         message = (
-            "TRAINING_HISTORY_APPROVAL_PAYLOAD_V1 includes future persisted_at_utc "
-            "and approved_at_utc in the reviewer-attested hash. Approval writing is "
-            "stopped. Obtain explicit authorization for a new review/recording envelope "
-            "and implement/review that core contract first. Do not invent timestamps, "
-            "synthesize attestations or insert approval rows. No database was opened."
+            "V1 approval writing is unsupported and is not automatically converted. "
+            "Use approval-prepare and obtain a new local review of the exact "
+            "TRAINING_HISTORY_APPROVAL_PAYLOAD_V2 subject. Do not reuse or rebind V1 "
+            "attestations or invent recording timestamps. No database was opened."
         )
     except ControlledTrainingCorrectionRequired:
         code, exit_code, status = "CONTROLLED_CORRECTION_REQUIRED", 3, "BLOCKED"
         message = (
-            "The controlled predecessor/source-correction path is not implemented. "
-            "Stop affected production work and obtain an authorized core correction "
-            "implementation; do not edit old evidence or bypass immutable records."
+            "Use the controlled correction-reference, correction-prepare and "
+            "correction-admit path with an externally authorized review of the exact "
+            "V2 intent. An unregistered successor or unsupported identity reassignment "
+            "still blocks affected work; do not edit old evidence or bypass immutable records."
         )
     except Exception:
         # Never print exception text, Pydantic input/locations, SQL parameters, paths or URLs.
@@ -906,12 +1253,56 @@ def dispatch_production_quant(arguments: Sequence[str]) -> int:
                 "OUTPUT_NOT_WRITTEN",
                 1,
                 "REJECTED",
-                "The operation may already be persisted, but output was not confirmed. Inspect persisted artifacts before retrying; do not rerun a pilot blindly. Check the output bound, free space and a new unused local filename.",
+                "The operation may already be persisted, but output was not confirmed. An approval-record retry must use the exact same request key, subject, attestation and operator; it will not duplicate the approval. Inspect persisted artifacts; do not rerun a pilot blindly. Check the output bound, free space and a new unused local filename.",
             ),
         }[stage]
     finally:
         if engine is not None:
             engine.dispose()
+    persistence = (
+        "NO_DATABASE_OPENED"
+        if stage == "input"
+        else "NO_NEW_ROWS"
+        if command in READ_COMMANDS
+        else "MIGRATION_MAY_HAVE_RUN"
+        if stage == "database"
+        else "ATOMIC_NO_NEW_ROWS"
+        if command == "correction-admit" and stage == "operation"
+        else "MAY_HAVE_PERSISTED"
+    )
+    if stage == "operation" and command == "correction-admit":
+        message = (
+            "Correction admission failed atomically; no new correction or normalized "
+            "result rows were committed by this attempt. Previously committed rows may "
+            "exist. Check exact predecessor, current rights, original review and raw "
+            "evidence. A retry must use the exact same request key, intent, review, "
+            "authority and operator; changed requests cannot reuse the key."
+        )
+    elif stage == "database" and command in READ_COMMANDS:
+        message = (
+            "Read-only commands require an existing local SQLite database. No database "
+            "was created or migrated. Check the file and arrange an explicit authorized "
+            "migration if its schema is older."
+        )
+    elif stage == "operation" and command in READ_COMMANDS:
+        message = (
+            "Read-only verification failed; no new database rows were written. Check "
+            "the schema, exact persisted pins, complete predecessor chain, source "
+            "cutoffs, retained raw evidence, rights and externally authorized reviews."
+        )
+    elif stage == "output" and command in READ_COMMANDS:
+        message = (
+            "Read-only verification or preparation completed without new database rows, "
+            "but output was not confirmed. No review or authorization was created. "
+            "Check the output bound, free space and a new unused local filename."
+        )
+    elif stage == "output" and command == "correction-admit":
+        message = (
+            "The correction may already be persisted, but output was not confirmed. "
+            "Inspect the correction or retry with the exact same request key, intent, "
+            "review, authority and operator; an exact retry will not duplicate rows. "
+            "Use a new unused output filename; do not create a replacement review."
+        )
     print(
         canonical_json(
             {
@@ -920,6 +1311,7 @@ def dispatch_production_quant(arguments: Sequence[str]) -> int:
                 "status": status,
                 "code": code,
                 "message": message,
+                "persistence": persistence,
             }
         ),
         file=sys.stderr,

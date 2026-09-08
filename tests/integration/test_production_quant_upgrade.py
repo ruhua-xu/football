@@ -315,6 +315,7 @@ def test_production_quant_upgrade_preserves_populated_baseline(tmp_path) -> None
 
         # Alembic cannot sort the known deferred-FK cycles for autogeneration.
         # Keep the explicit row/FK/trigger checks rather than relying on autogenerate.
+        command.upgrade(config, "head")
         with pytest.warns(SAWarning, match="Cannot correctly sort tables;.*cycles"):
             command.check(config)
         with engine.connect() as connection:
