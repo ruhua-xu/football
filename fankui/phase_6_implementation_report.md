@@ -2,9 +2,11 @@
 
 ## 结论与范围
 
-**真实生产运行状态：等待来源材料与权限确认，尚未完成真实 0.6 验收。** 本次已按外部裁决实现 V2 审批正式记录路径、受控 correction、显式 season/correction 上下文及其 pilot/release/live/audit 集成。完成代码和隔离测试不等于获得真实生产授权、完成 Bundesliga pilot 或形成模型效果证据；没有生成真实 AVAILABLE Packet 或替代网页 Review。
+**本轮已取得并离线核验 3 场 completed Bundesliga 真实样本，但尚未完成真实 0.6 生产验收。** 有限字段核验用途经用户明确确认并通过现有 rights-record 记录；当前可证明已持有 FT 常规时间比分快照及 provider 报告的 period 结束时间，不能证明历史结果版本的发布时间/可用时间。严格历史 pilot 保持阻断，没有生成真实 AVAILABLE Packet 或替代网页 Review，也未增加新的快照资格通道。
 
-本次基线为 `c9083e59a5fd3ad3a2528b5d4997b5cbcabcc415`；该提交保留且其 CI 已由外部裁决确认成功。继续使用 `feature/0.6.0-production-quant-bootstrap`，不合并 main、不发布版本；package 仍为 `0.5.0`。报告保留前批门禁记录，并单列本次结果。提交 SHA 与 CI 状态在交付消息中列明，避免报告自引用。
+V2 实现扩展的基线为 `c9083e59a5fd3ad3a2528b5d4997b5cbcabcc415`；该提交保留且其 CI 已由外部裁决确认成功。继续使用 `feature/0.6.0-production-quant-bootstrap`，不合并 main、不发布版本；package 仍为 `0.5.0`。报告保留前批门禁记录，并单列各轮结果。提交 SHA 与 CI 状态在交付消息中列明，避免报告自引用。
+
+本轮取证基线为 `5c783e39f55b3405e2324a6e0d44ed9531670970`，保留其实现。其远端 [CI #17 / 34183713167](https://github.com/ruhua-xu/football/actions/runs/34183713167) 最终为 **Failure，57m15s**，公开 annotation 指向 Test 步骤并报告 exit code 1。完整日志需要 GitHub 登录；本轮未取得完整失败 traceback，不能据此声称具体根因。此前本地测试通过不等于远端 CI 通过，本轮不扩展 CI/审批框架或修订生产合同。
 
 本次实现提交为 `970fb2d76c8959927e8ef4efdedf307761ecb519`（`feat: add approval v2 and controlled history corrections`）；报告单独提交。代码、测试、迁移和已授权 ADR 修订共 53 个文件，`+16218 / -456`，不含本报告的独立文档更新。
 
@@ -33,21 +35,21 @@
 
 共享 context 以 `clock=None` 为默认，在调用时解析当前 `utc_now`，将同一个时钟依赖传给 admission、pilot、production、inference、audit 仓库；测试可显式注入受控时钟，CLI 没有伪造操作时钟的选项。
 
-## 真实来源核验
+## 真实来源核验更新
 
 | 分类 | 具体结论 | 恢复条件 |
 | --- | --- | --- |
-| `MATERIAL_NOT_PROVIDED` | 未发现新提供的已结束 Bundesliga 赛季小样本、对应历史时间证据或完整 cohort 包；已有的是赛前 response | 先提供权利允许的最小 completed fixture 原始样本与 field dictionary，验证后再扩大 |
-| `RIGHTS_UNCONFIRMED` | Sportmonks 公共条款有允许保存/使用数据的正面描述；但尚未提供适用于本账号/导出、历史赛季和 retention 的授权 reviewer 决定 | 提供准确 terms/version/hash、authority 与逐项 research/storage 权限及保留/删除规则，不需要提供 Key |
-| `FIELD_MISSING` | 已有 Bundesliga 赛前 response 没有 scores/periods/timeline/finalization/publication 字段；status 存在且为 NS，并非 status 字段缺失 | 取得已授权 finished 小样本核对实际字段及其来源定义，不推断该 provider 永久没有相关能力 |
-| `HISTORICAL_TIME_UNPROVABLE` | 现有证据不能将某个 finished/corrected result version 绑定到历史 finalized/observed/available 时间 | 需要真实版本/发布时间或当时已归档观察证明；现在 receipt、kickoff、period ending 和文件 mtime 不能替代 |
-| 真实 production review | V2 写入口已解除固定合同阻断，但没有真实 manifest/pilot 与授权 review，仍不能成功生成真实审批 | 先完成来源准入和 pilot，再由真正获授权 reviewer 审核精确 V2 payload |
+| `MATERIAL_NOT_PROVIDED` | 最小 completed 样本已主动取得 3 场；完整 cohort 未下载，历史结果版本时间链材料仍未提供 | 先解决时间资格，不因已拿到比分就扩大下载 |
+| `RIGHTS_UNCONFIRMED` | 仅本轮字段核验已获用户精确确认并正式记录；生产训练、pilot、release、长期/订阅后保留仍未授权 | 供应商条款与内部审核分开保存，不将有限检查许可扩张成生产权限 |
+| `FIELD_MISSING` | 本轮 3/3 有 FT、常规时间 score 和 period 时间；在这些响应中未找到结果版本 ID/order、publication 或明确 provider-finalized 字段 | 这是已取得响应的具体缺失，不认定供应商所有产品都缺少这些能力 |
+| `HISTORICAL_TIME_UNPROVABLE` | 不能将历史 finished/corrected result version 绑定到当时的 source publication/availability；HTTP Last-Modified 位于当前请求时刻 | 需要真实版本/发布时间或当时已归档观察证明；现在 receipt、kickoff、period ending 和文件 mtime 不能替代 |
+| 真实 production review | 有限 sample rights 不等于 V2 production approval；没有合格真实 manifest/pilot | 先满足现行资格，再独立审核生产 grant；不生成替代审核 |
 
 已有 ignored Scottish 228 条结果使用 `kickoff + 2h` 作为 observed 时间，不是 provider source/finalization 的原始时间证据，且不是所要求的 Bundesliga 历史。不得修改这些旧数据、补造时间戳、重新标记用途或将其用于本 pilot。既有 `0.5` acceptance 与其 `MODEL_UNAVAILABLE` 事实保持不变。
 
 本次没有真实 Log Loss、Brier、ECE、命中率、ROI 或可用性指标可报告，没有生成真实 `AVAILABLE` packet、生产 P_quant、投注或收益声明。测试内计算值只验证契约，不是现实表现或授权依据。
 
-### 最小样本字段与证据
+### 前批赛前样本记录
 
 只读核验引用本地已归档的 `data/raw/SPORTMONKS/2026-09-05/e939cef320abe6176ba501e912cb6cacd6a4108f6512008da88eb7c2416ca74f.raw` 与同名 metadata。原始 bytes 留在本地；本报告仅列字段位置、语义和缺口，不复制原始记录。校验的 payload SHA-256 为 `8ceeb95dd39e5bc4ea93e8cf9f6ce7fc149c99a21f826ce549a120eb22b57bc7`，只证明与归档 metadata 一致，不证明数据权利或历史发布时间。
 
@@ -65,7 +67,67 @@
 
 只读查阅的公开资料包括 [Sportmonks fixture entity](https://docs.sportmonks.com/v3/endpoints-and-entities/entities/fixture.md)、[scores](https://docs.sportmonks.com/v3/tutorials-and-guides/tutorials/includes/scores.md)、[states](https://docs.sportmonks.com/v3/definitions/states.md)、[periods](https://docs.sportmonks.com/v3/tutorials-and-guides/tutorials/includes/periods.md)、[latest-updated fixtures](https://docs.sportmonks.com/v3/endpoints-and-entities/endpoints/fixtures/get-latest-updated-fixtures.md)、[changelog](https://docs.sportmonks.com/v3/changelog/changelog.md) 和 [terms](https://www.sportmonks.com/terms-of-service/)。10 秒 latest-updated feed 不是历史版本 ledger；历史 period 数据可能 backfill，`last_processed_at` 已在旧 changelog 中移除。这些是字段解释线索，不是对账户权限或缺失原始样本的替代证明。
 
-本轮没有账号/付费 API 请求或新数据采集。原生 Sportmonks numeric IDs、UNIX timestamps、participant/score 数组需要经核验的 provider adapter 转换；当前通用 verifier 的显式字符串/ISO 时间字段要求不能通过补造缺失值满足。Pilot 元数据与 result 共用同一 capture、相同 payload 或路径别名的文档会在打开 result-bearing bytes 前被拒绝，需先有独立 metadata 证据包。该限制是当前适配边界，不是 provider 不合格的结论。历史赔率缺失仅令独立 benchmark unavailable，不阻断合格 Quant integrity pilot。
+以上为前批 NS 样本诊断，不能覆盖本轮新取得的 FT 样本结论。本轮原生 numeric IDs、UNIX timestamps 和数组关联已由纯离线诊断工具完成明确转换，生产 verifier 未放宽。Pilot 元数据与 result 共用同一 capture 的限制属于系统适配边界；未通过复制、改名或隐藏原始来源规避。历史赔率缺失仅令独立 benchmark unavailable，不阻断合格 Quant integrity pilot。
+
+## 2026-09-08 实样取证
+
+### 用途与条款
+
+先做账号/赛季只读 metadata 核对，再准备 `DRAFT_NOT_APPROVED`。用户明确回答“确认，仅本轮字段核验”后，才通过现有 `production-quant rights-record` 正式记录有限 source rights，所有 fixture 请求均发生在该记录之后。供应商 Terms HTML、账号响应、用户确认、内部 authority/review 文件与数据库分别保存在私有目录，没有要求供应商配合内部 Schema。
+
+- 允许事项仅限：现有套餐内最多 3 场 completed 样本、最多 5 次 fixture HTTP sends、0 自动重试、本地字段/转换核验。
+- 不包含：订阅变更、增购、生产训练、integrity pilot、release、inference、源数据转售、订阅结束后继续使用或无限期保留。
+- 原始和派生样本、账号与内部审核材料保留上限为 `2026-09-15T00:00:00Z`，更早失去账号访问时提前停止使用并删除。本轮没有安排自动删除任务；由操作人落实，不改变旧 Scottish/0.5 材料。
+- 官方 Terms 的 Copyright 条款明确允许保存服务提供的数据；Terms of use 允许基于数据构建应用且禁止未经同意直接转售。未找到明确的订阅终止后保留期限，因此没有把未知内容填为允许。
+- 公开 pricing/FAQ 表示近期三个赛季与更早历史 add-on 的区别；实际账号 metadata 又返回所需已结束 season。完整账号/试用/额度材料仅在本地，不以营销描述替代账号实查。
+- Terms 关于付费 trial 需卡及自动续费的说明与部分 FAQ “无需卡”的表述存在冲突。本轮未开通 trial、改订阅、购买或授权续费，不以 FAQ 作为免付费保证。
+
+### 请求结果
+
+| 操作 | 次数/HTTP | 事实 |
+| --- | --- | --- |
+| 官方 My Leagues、My Resources、League + seasons | 3 次，均 200 | 账号返回 Bundesliga、两个已结束历史 season 和当前 season；具体 ID/套餐材料保持本地 |
+| 官方 Terms 直接 HTTP / 浏览器 | 直接 403；浏览器 200 | 403 已保留失败 audit；浏览器 response body 与 headers 分开保留，未把 403 当成条款不允许 |
+| Fixture metadata index | 1 次，200 | 在最新返回的 finished season 内按 ID 升序，FT filter、per_page=3，只取第一页；has_more=true 不翻页 |
+| Multi-fixture details | 1 次，422 | 原封装只保留失败 audit，未保留错误正文，不能精确归因；后续仍使用同一组已选 ID |
+| Single-fixture details | 3 次，均 200 | 实际取得 participants、league.country、season、state、scores、periods.type；没有根据比分或模型结果换样 |
+
+Provider API sends 合计 8，其中 fixture 恰好 5，已经达到本轮确认上限。没有继续采集完整赛季。失败 multi 请求与单 fixture 成功均如实保留，不删除不利请求结果。
+
+私有 inspection 数据库只新增了 1 条有限 source-rights 记录。只读计数确认 training-fact admissions、normalized match_results、pilot plans、production approvals、model releases 和 analysis runs 均为 0；本轮没有把取证样本导入训练系统。
+
+### 本地路径与 Hash
+
+私有根为 `data/research/bundesliga_probe_20260908/`。三个 `fixture-single-N.receipt.json`（N=1,2,3）分别记录原始路径、metadata 路径、bytes、完整 payload SHA-256 和实际 requested/received UTC。原始文件在该根的 `raw/SPORTMONKS_DISCOVERY/2026-09-08/` 下，每个 raw 有同名 `.metadata.json`。文件名是 metadata bytes hash，不是 result-version ID。完整路径/hash 与实际时间表已交付在本地 `SOURCE_USE_AND_SAMPLE_DIAGNOSIS.md`；为遵守有限保留范围，本公开报告不持久化样本级清单或账户原始材料。
+
+`SOURCE_USE_AND_SAMPLE_DIAGNOSIS.md`、`sample-use-review.DRAFT.json`、实际确认/rights-record 工件及 `supplier-clarification.DRAFT.md` 同在私有根。后者只是待询供应商的问题，没有发送，也不包含 Key 或要求供应商实现内部合同。
+
+详细离线诊断为 `fixture-sample-inspection-reviewed.json`，其 SHA-256 和详细比分/字段 pointer 保留在本地说明中。第一次诊断也保留原状；两个诊断只是同一 response 的派生结果，不是独立证据。
+
+### 字段证据与三个时间
+
+| 事实 | 原生证据与离线转换 | 结论 |
+| --- | --- | --- |
+| Fixture/competition/season | `/data/id`, `/league_id`, `/season_id` 与嵌套 league/season IDs 相等，country DE、season.finished=true | 3/3 可验证明确关系；数字 ID 无损转十进制字符串，不制造 canonical mapping |
+| 主客队 | participants 按 ID 与 `meta.location` 关联；score.fixture_id/participant_id 校验 | 3/3 可确定性关联；不能按数组位置猜主客 |
+| 终态 | `state_id` 与嵌套 `state.id`、`state/short_name/developer_name` 一致，均 FT | 当前响应报告 FT，不等于存在历史终态发布时间证明 |
+| 常规时间比分 | 每场 8 score rows；type 2 / `2ND_HALF` 为 cumulative，type 48996 / `2ND_HALF_ONLY` 为单半场 | 3/3 可提取；CURRENT 与常规时间本样本相等，但不推广为所有加时赛通用；第 3 场数组顺序不同 |
+| 比赛阶段结束 | 每场 2 periods，`started/ended` 为 UNIX seconds，type 1/2 为两半场；原始时间与 UTC 转换并存 | 能记录 provider 报告的 sporting-period event time；不由 minutes/length/time_added 推导或修补 |
+| 来源何时发布此结果版本 | 在取得的 fixture/result 图中未找到可证实语义的版本 ID/order、publication、provider-finalized 或历史可用时间 | **不能证明**。team/league last_played_at、season standings_recalculated_at 均不是该结果版本发布时间 |
+| 本系统何时取得该版本 | 原始 bytes/hash、metadata/receipt 相互一致，actual received 见本地时间表 | **可以证明当前本地持有观察**；不是 2025 年的系统持有或来源发布事实 |
+| HTTP Date / Last-Modified | 三个响应均在本次 2026-09-08 请求时刻附近 | 只保留 HTTP metadata，不当作历史 result publication |
+
+`scripts/inspect_sportmonks_sample.py` 是小型纯离线诊断工具，无网络/Key/数据库/审批调用。它保留 missing/null/zero 的区别，按真实 array index 输出证据 pointer，并保持 provider finalization 和 result-version publication 为 UNPROVEN。它不产出训练准入或未来预测快照资格。通用 verifier 的字符串/ISO 时间/固定 pointer 要求属于格式适配；缺失的时间语义不是格式转换能够补足的。
+
+当前 pilot 共享 metadata/result capture 的限制也单独报告。原生 response 中 metadata 与 score/result_info 共存，transport `.metadata.json` 不构成独立 fixture/season 证据；本轮没有复制、改名或隐藏 response 来绕过它。现行严格历史 pilot 保持阻断。是否另增“当前已取得历史快照用于未来预测”的资格需要外部裁决，本轮不实施新通道或伪造指标。
+
+离线重放命令（使用私有根中 metadata 确认的 IDs，输出新文件名，不覆盖）：
+
+```text
+python scripts/inspect_sportmonks_sample.py --evidence-root data/research/bundesliga_probe_20260908 --receipt fixture-single-1.receipt.json --receipt fixture-single-2.receipt.json --receipt fixture-single-3.receipt.json --league-id LEAGUE_ID --season-id SEASON_ID --output-relative NEW_DIAGNOSTIC.json
+```
+
+本轮定向验证：`python -m pytest -o pythonpath=src tests/unit/test_sportmonks_sample_inspection.py tests/unit/test_review_bridge.py tests/unit/test_quant_model.py -q` 为 **168 passed**。没有重新将前批整仓计数当作本轮测试，也没有把它写成远端 CI 通过。
 
 ## 命令入口
 
@@ -256,7 +318,7 @@ python -m ruff check .
 - capture spy 覆盖缺失/越界/过期 rights、过期 key 修改 reference 和原 receipt 精确重试；malformed downstream bundle/review/config 必须在数据库和 provider raw 读取之前拒绝，错误不泄露测试 secret。
 - 前批 seeded approval 和测试生成 review 仅限 pytest 临时存储，当时正式写入口仍有合同阻断。本次另增正式 V2 approval-record 写路径测试；两类测试都不能声称真实生产链路已验收。
 
-未运行真实 production pilot、release-build 或 AVAILABLE packet 验收，未修改 ignored raw/Scottish 历史或 `0.5` acceptance 数据。本报告不替代来源取证、法律授权、授权审核和主代理的最终全量发布门禁。
+未运行真实 production pilot、release-build 或 AVAILABLE packet 验收，未修改既有 ignored raw/Scottish 历史或 `0.5` acceptance 数据。本报告不替代来源取证、法律授权、授权审核和最终发布门禁。
 
 ## 前批本地门禁
 
@@ -279,14 +341,14 @@ python -m ruff check .
 
 此节是 `c9083e5` 前批证据，不冒充本次测试计数。本次进一步完成 V2 写入、受控 correction 和显式 season 接口，并复核 review replay、最终时钟、withdrawal logical-key 归属、revision 顺序、base alias 重放、typed FK 和 pre-plan 读源边界。真实来源/权限缺口仍按前述四类分别记录。
 
-## 本次边界与验收
+## V2 实现边界与验收（前批）
 
 - 实现范围内的 correction 保持同一 `internal_match_id` anchor，支持比分、时间、球队关联、赛季、mapping policy、status withdrawal/restoration；跨 canonical match 的 provider 重指仍明确拒绝，不把它伪装成普通结果修订。此边界不是通过第二套比赛/赛果表解决。
 - 原生 source 混合 metadata/result 文档不能用于 plan 前 metadata 读取。需要分离的、可核验 metadata capture；共用 receipt、同 payload 或路径别名在读取前拒绝。源数据完整字节仍在 admission 和 reservation 之后复验。
-- 真实样本、真实 rights/authority、真实 integrity pilot 和生产审核尚未具备，所以没有真实性能数字、sealed production release 或新的 AVAILABLE Packet 交付。不会自动购买接口、创建许可或生成网页 Review。
+- 前批尚无真实样本；本轮已按有限用途取得 3 场，但真实 integrity pilot/生产审核及其时间资格仍未具备，所以没有真实性能数字、sealed production release 或新的 AVAILABLE Packet。不会自动购买接口、创建许可或生成网页 Review。
 - V1 approval 保留 golden/hash/解析与升级回归；旧记录、旧运行和 Packet/Review V3 不自动转换。新的正式 writer/CLI 与 corrected workflow 结果只作为隔离测试证据。
 
-### 本次完整门禁
+### V2 实现完整门禁（前批本地）
 
 | 门禁 | 结果 |
 | --- | --- |
@@ -311,4 +373,4 @@ python -m ruff check .
 - 同一来源事实在不同 admission/batch-local sequence 下有不同 audit binding，但来源版本 fingerprint 只排除局部 sequence，保留全部来源/审核内容。子集重新准入不会破坏原 base pin；旧 release 正确变 stale，完整新 corrected release 可用。原始 V1 bytes 不改写。
 - 纠正后的 context rows 必须有非空、真实存在的 typed correction FK；共享 result-bearing capture 在 plan 前读取前拒绝；f51 空图 downgrade 保留真正的 populated V1 plans/reports/attestation，V2/未知图拒绝降级。独立审查复现的问题均有针对性修复和回查。
 
-运行真实 pilot 的下一项外部输入仍是**适用历史来源的权限审核材料与最小 completed Bundesliga 原始样本/时间证据**，不是开发授权或 Key。具备后先核验字段再扩大完整 cohort；在真正 AVAILABLE Packet 生成前不进入网页 GPT Review 验收，也不伪造真实指标。
+本轮已完成有限用途确认与最小 completed 样本获取，不能继续使用“未提供最小样本”作为统一阻塞原因。下一步需要供应商可证实的历史版本时间证据，或对“当前持有历史快照用于未来预测”另作明确资格裁决；本轮不自行放宽现行严格时间合同，也不把有限核验 rights 扩大为生产权限。真正 AVAILABLE Packet 尚未生成，不进入网页 GPT Review 验收。
