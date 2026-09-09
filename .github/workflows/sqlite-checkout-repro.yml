@@ -1,0 +1,31 @@
+name: SQLite Checkout Reproduction
+
+on:
+  push:
+    branches: [feature/0.6.0-production-quant-bootstrap]
+    paths:
+      - .github/workflows/sqlite-checkout-repro.yml
+      - scripts/sqlite_checkout_probe.py
+      - src/football_system/infrastructure/database/session.py
+      - tests/integration/test_sqlite_checkout_lifecycle.py
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - name: Original failing parameter alone
+        run: python -m pytest -q 'tests/integration/test_database_schema.py::test_external_sqlite_engines_restore_pragmas_on_every_checkout[create_session_factory]'
+      - name: Original test and preceding schema parameters
+        run: python -m pytest -q tests/integration/test_database_schema.py -k 'fixture_ingestion or external_sqlite_engines_restore_pragmas'
+      - name: Bounded original-test and pool-lifetime reproduction
+        if: always()
+        run: python scripts/sqlite_checkout_probe.py --expect-defect
