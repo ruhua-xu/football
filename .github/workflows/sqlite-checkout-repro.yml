@@ -1,4 +1,4 @@
-name: SQLite Checkout Reproduction
+name: SQLite Checkout Regression
 
 on:
   push:
@@ -26,6 +26,8 @@ jobs:
         run: python -m pytest -q 'tests/integration/test_database_schema.py::test_external_sqlite_engines_restore_pragmas_on_every_checkout[create_session_factory]'
       - name: Original test and preceding schema parameters
         run: python -m pytest -q tests/integration/test_database_schema.py -k 'fixture_ingestion or external_sqlite_engines_restore_pragmas'
-      - name: Bounded original-test and pool-lifetime reproduction
+      - name: Checkout lifecycle and illegal foreign-key writes
+        run: python -m pytest -q tests/integration/test_sqlite_checkout_lifecycle.py
+      - name: Bounded original-test and pool-lifetime regression
         if: always()
-        run: python scripts/sqlite_checkout_probe.py --expect-defect
+        run: python scripts/sqlite_checkout_probe.py

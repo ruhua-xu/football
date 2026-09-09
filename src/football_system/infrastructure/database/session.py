@@ -29,7 +29,8 @@ def create_database_engine(database_url: str, echo: bool = False) -> Engine:
 
 def configure_sqlite_engine(engine: Engine) -> Engine:
     _require_sqlite_backend(engine.dialect.name)
-    if not event.contains(engine.pool, "checkout", _configure_sqlite_connection):
+    # Registry membership can be stale after pool disposal/recreation.
+    if _configure_sqlite_connection not in engine.pool.dispatch.checkout:
         event.listen(engine.pool, "checkout", _configure_sqlite_connection)
     return engine
 
@@ -82,7 +83,15 @@ def _configure_sqlite_connection(
     del connection_record, connection_proxy
     cursor = dbapi_connection.cursor()  # type: ignore[attr-defined]
     try:
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.execute("PRAGMA recursive_triggers=ON")
+        for pragma in ("foreign_keys", "recursive_triggers"):
+            cursor.execute(f"PRAGMA {pragma}=ON")
+            # SQLite silently ignores foreign_keys=ON in an active transaction.
+            cursor.execute(f"PRAGMA {pragma}")
+            result = cursor.fetchone()
+            if result is None or result[0] != 1:
+                raise RuntimeError(
+                    f"SQLite PRAGMA {pragma} could not be enabled; "
+                    "an active transaction may prevent changes."
+                )
     finally:
         cursor.close()

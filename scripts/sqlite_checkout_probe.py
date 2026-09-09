@@ -61,8 +61,10 @@ def main():
     args = parser.parse_args()
     if not 1 <= args.pairs <= 200 or not 1 <= args.lifetime_iterations <= 10000:
         parser.error("probe bounds exceeded")
-    print(json.dumps({"python": sys.version, "platform": platform.platform(),
-                      "sqlalchemy": sqlalchemy.__version__, "sqlite": sqlite3.sqlite_version}), flush=True)
+    versions = {"python": sys.version, "platform": platform.platform(),
+                "sqlalchemy": sqlalchemy.__version__, "sqlite": sqlite3.sqlite_version}
+    print(json.dumps(versions), flush=True)
+    print("::notice title=SQLite checkout environment::" + json.dumps(versions), flush=True)
     original_configure = database.configure_sqlite_engine
     original_contains = event.contains
     last_engine = None
