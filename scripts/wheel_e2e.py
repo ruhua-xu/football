@@ -17,7 +17,7 @@ from typing import Sequence
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_VERSION = "0.5.0"
-EXPECTED_MIGRATION_HEAD = "f51e294b0687"
+EXPECTED_MIGRATION_HEAD = "17304b6d28a9"
 PROVIDER_CODE = "SYNTHETIC_ACCEPTANCE_V1"
 QUANT_RUN_ID = "wheel-e2e-quant"
 BLEND_RUN_ID = "wheel-e2e-blend"
@@ -96,6 +96,8 @@ EXPECTED_RESOURCE_FILES = frozenset(
         "migrations/versions/d3fc0729e465_add_training_approval_v2.py",
         "migrations/versions/e40d183af576_add_controlled_training_corrections.py",
         "migrations/versions/f51e294b0687_bind_corrected_quant_history.py",
+        "migrations/versions/062f3a5c1798_add_observed_training.py",
+        "migrations/versions/17304b6d28a9_bind_observed_quant_integrity.py",
     }
 )
 
@@ -479,6 +481,12 @@ print(json.dumps({
             "correction-prepare",
             "correction-admit",
             "correction-context",
+            "observed-scope-prepare",
+            "observed-scope-record",
+            "observed-prepare",
+            "observed-admit",
+            "observed-context",
+            "observed-inspect",
         ),
     )
     _run_checked(
@@ -490,6 +498,7 @@ print(json.dumps({
             "QuantIntegrityPlanDefinitionV1",
             "QuantIntegrityPlanDefinitionV2",
             "QuantIntegrityTargetV2",
+            "ObservedQuantIntegrityPlanDefinitionV1",
             "additionalProperties",
         ),
     )
@@ -502,6 +511,18 @@ print(json.dumps({
             "TrainingCorrectionIntentV2",
             "reviewer_evidence",
             "reviewer_authority",
+        ),
+    )
+    _run_checked(
+        "production quant observed scope request schema",
+        [executable, "production-quant", "observed-scope-record", "--print-schema"],
+        cwd=work_dir,
+        environment=environment,
+        markers=(
+            "CURRENT_SNAPSHOT_COLLECTION_SCOPE_V1",
+            "max_capture_receipts",
+            "user_terms_resolution",
+            "reviewer_attestation",
         ),
     )
     _run_checked(

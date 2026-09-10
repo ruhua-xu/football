@@ -41,6 +41,8 @@ from football_system.domain.prediction import (
 )
 from football_system.domain.production_release import (
     CurrentAuthorizationInputsV1,
+    ObservedTrainingHistoryGraphV1,
+    authorization_at,
     ProductionQuantModelReleaseV1,
     ProductionTargetAcceptancePlanV1,
     assert_authorization_progression,
@@ -290,17 +292,16 @@ class SqlAlchemyProductionInferenceRepository:
                 )
             # All I/O is finished. Re-evaluate the complete, immutable transaction
             # snapshot at an observed final time, never a forecast or another load.
+            observed_records = self._production.observed_records_in_session(
+                session, release.training_manifest.content_payload.history
+            )
             completed_at = self._now()
             if completed_at < current.actual_at_utc:
                 raise ValueError(
                     "production inference completion clock moved backwards"
                 )
-            current = CurrentAuthorizationInputsV1(
-                actual_at_utc=completed_at,
-                technical_evidence=current.technical_evidence,
-                corrections=current.corrections,
-                revocations=current.revocations,
-                successors=current.successors,
+            current = authorization_at(
+                current, completed_at, observed_records=observed_records
             )
         assert_authorization_progression(binding.completion_authorization, current)
         release_active_for_inference(
@@ -355,11 +356,23 @@ class SqlAlchemyProductionInferenceRepository:
                 raise ValueError("production run config/manifest hash mismatch")
             request = config["request"]
             provenance = request.get("provider_runtime_provenance", {})
+            observed = isinstance(
+                release.training_manifest.content_payload.history,
+                ObservedTrainingHistoryGraphV1,
+            )
             if (
                 config["settings"]["runtime"]["environment"] != "live"
                 or request.get("model_training_use_class")
                 != "APPROVED_TRAINING_HISTORY"
-                or request.get("model_training_source_mode") != "SOURCE_TIME_RESEARCH"
+                or (
+                    request.get("model_training_evidence_basis")
+                    != "CURRENT_SNAPSHOT_OBSERVED"
+                    or "model_training_source_mode" in request
+                    if observed
+                    else request.get("model_training_source_mode")
+                    != "SOURCE_TIME_RESEARCH"
+                    or "model_training_evidence_basis" in request
+                )
                 or request.get("decision_data_mode") != "LIVE_STRICT"
                 or request.get("production_model_release_id") != release.artifact_id
                 or request.get("production_target_acceptance_plan_id")
@@ -417,8 +430,8 @@ class SqlAlchemyProductionInferenceRepository:
                 binding.start_authorization,
                 binding.completion_authorization,
             ):
-                actual = self._production.authorization_in_session(
-                    session, release.artifact_id, captured.actual_at_utc
+                actual = self._production._captured_authorization_in_session(
+                    session, release, captured
                 )
                 if actual != captured:
                     raise ValueError(

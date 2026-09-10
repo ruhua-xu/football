@@ -10,6 +10,10 @@ before sealing. Result bytes and the complete admission graph are verified only
 after a committed reservation. SQLite/trusted local evidence are internal audit
 boundaries, not protection from a database owner replacing trusted configuration.
 
+The explicitly tagged observed path instead verifies the full reviewed local
+snapshot, including shared metadata/result bytes, before sealing. It makes no
+claim about historical provider knowledge and computes no walk-forward metrics.
+
 Local descriptors below point to captured source JSON; they cannot create source
 times or assert completeness without the captured schedule. Pilot reviewer files
 use QuantIntegrityReviewDocumentV1 and the existing pinned ReviewerAuthorityV1.
@@ -43,6 +47,11 @@ from football_system.domain.common import (
     utc_now,
 )
 from football_system.domain.production_release import (
+    ObservedAdmissionPrefixV1,
+    ObservedTrainingHistoryGraphV1,
+    ObservedFactRefV1,
+    TechnicalEvidenceRefsV2,
+    StrictWalkForwardUnavailableV1,
     ReleasedStateCoreContentV1,
     ReleaseArtifactRefV1,
     TechnicalEvidenceRefsV1,
@@ -51,6 +60,7 @@ from football_system.domain.production_release import (
     replay_exact_facts,
 )
 from football_system.domain.quant_integrity import (
+    ObservedQuantIntegrityPlanDefinitionV1,
     AdmittedFactRefV1,
     IntegrityArtifact,
     IntegrityArtifactRefV1,
@@ -74,12 +84,17 @@ from football_system.domain.quant_integrity import (
     integrity_attempt_root,
     revalidate_integrity_model,
 )
+from football_system.domain.observed_training import (
+    ObservedSnapshotContextV1,
+    ObservedCollectionScopeAdmissionV1,
+)
 from football_system.domain.training_admission import (
     TRAINING_FACT_REQUIRED_USES,
     LocalReviewEvidenceV1,
     MatchSeasonMembershipV1,
     Reference,
     Sha256Digest,
+    SourceRightsAdmissionV1,
     TrainingCanonicalMatchIdentityV1,
     TrainingFactAdmissionContentV1,
     TrainingFactAdmissionV1,
@@ -133,6 +148,97 @@ from football_system.domain.versioned_training_history import (
     VersionedFactRefV2,
     validate_versioned_context,
 )
+
+
+def observed_scope_preflight(
+    session, scope_id, at, uses=("TRAINING", "VALIDATION"), *, current_rights=True
+):
+    """Sealed SQL headers first: no evidence bytes or Elo work before permission."""
+    from football_system.infrastructure.database.models import (
+        ObservedCollectionScopeRecord,
+        SourceRightsAdmissionRecord,
+    )
+
+    row = _required(session, ObservedCollectionScopeRecord, scope_id)
+    verify_training_row(row)
+    scope = ObservedCollectionScopeAdmissionV1.model_validate_json(row.artifact_json)
+    if (scope.scope_id, scope.content_hash) != (row.scope_id, row.content_hash):
+        raise ValueError("observed scope header seal mismatch")
+    if not set(uses) <= set(scope.subject.permitted_uses):
+        raise ValueError("observed scope requires permitted " + " and ".join(uses))
+    if not scope.recorded_at_utc <= at < scope.subject.retention_deadline_utc:
+        raise ValueError("observed ScopeRetention does not cover actual operation")
+    rights_row = _required(
+        session, SourceRightsAdmissionRecord, scope.subject.source_rights_admission_id
+    )
+    verify_training_row(rights_row)
+    rights = SourceRightsAdmissionV1.model_validate_json(rights_row.artifact_json)
+    if (rights.source_rights_admission_id, rights.admission_hash) != (
+        scope.subject.source_rights_admission_id,
+        scope.subject.source_rights_admission_hash,
+    ):
+        raise ValueError("observed scope source rights header mismatch")
+    if current_rights:
+        rights.assert_active_for(at, TRAINING_FACT_REQUIRED_USES)
+    return scope, rights
+
+
+def observed_admission_prefix(session, scope_id, record_ids=None):
+    from football_system.infrastructure.database.models import (
+        ObservedSnapshotAdmissionRecord,
+        ObservedSnapshotRecord,
+    )
+
+    a = ObservedSnapshotAdmissionRecord
+    query = select(a).where(a.scope_id == scope_id)
+    if record_ids is not None:
+        query = query.where(
+            a.admission_id.in_(
+                select(ObservedSnapshotRecord.admission_id).where(
+                    ObservedSnapshotRecord.version_id.in_(record_ids)
+                )
+            )
+        )
+    row = session.scalar(query.order_by(a.admission_sequence.desc()).limit(1))
+    if row is None:
+        raise ValueError("observed context requires a persisted admission prefix")
+    verify_training_row(row)
+    return ObservedAdmissionPrefixV1(
+        admission=ReleaseArtifactRefV1(
+            artifact_id=row.admission_id, content_hash=row.content_hash
+        ),
+        admission_high_watermark=row.admission_sequence,
+    )
+
+
+def observed_context_in_session(repository, session, scope_id, at, *, prefix=None):
+    """Verified complete local admission prefix, never upstream-time projection."""
+    from football_system.infrastructure.database.observed_training_repository import (
+        SqlAlchemyObservedTrainingRepository,
+    )
+    from football_system.infrastructure.database.models import (
+        ObservedSnapshotAdmissionRecord,
+    )
+
+    observed = SqlAlchemyObservedTrainingRepository(repository)
+    scope, rights = observed._scope(session, scope_id)
+    prefix = prefix or observed_admission_prefix(session, scope_id)
+    row = _required(
+        session, ObservedSnapshotAdmissionRecord, prefix.admission.artifact_id
+    )
+    verify_training_row(row)
+    if (row.scope_id, row.admission_sequence, row.content_hash) != (
+        scope_id,
+        prefix.admission_high_watermark,
+        prefix.admission.content_hash,
+    ):
+        raise ValueError("observed captured admission prefix mismatch")
+    _, records = observed._history(
+        session, scope, rights, through_sequence=prefix.admission_high_watermark
+    )
+    return ObservedSnapshotContextV1(
+        scope=scope, records=records, actual_at_utc=at
+    ), rights
 
 
 def correction_context_in_session(
@@ -349,12 +455,27 @@ class QuantIntegrityBuildRecipeV1(DomainModel):
     parameter_policy: Literal["NO_PARAMETER_TUNING"] = "NO_PARAMETER_TUNING"
 
 
+class ObservedQuantIntegrityBuildRecipeV1(QuantIntegrityBuildRecipeV1):
+    schema_version: Literal["OBSERVED_QUANT_INTEGRITY_BUILD_RECIPE_V1"] = (
+        "OBSERVED_QUANT_INTEGRITY_BUILD_RECIPE_V1"
+    )
+    projection: Literal["OBSERVED_LOCAL_ADMISSION_ELO_V1"] = (
+        "OBSERVED_LOCAL_ADMISSION_ELO_V1"
+    )
+
+
 class _PinnedReplayReader:
     """Only already reverified exact admissions, never a production-evidence adapter."""
 
-    def __init__(self, admissions, context=None):
+    def __init__(self, admissions, context=None, observed_context=None):
         self.admissions = {a.training_fact_admission_id: a for a in admissions}
         self.context = context
+        self.observed_context = observed_context
+
+    def load_verified_observed_context(self, definition, *, at_utc):
+        if self.observed_context != definition.observed_context:
+            raise ValueError("observed replay context mismatch")
+        return self.observed_context
 
     def load_verified_correction_context(self, pin, *, at_utc):
         if self.context is None or TrainingHistoryContextPinV2.of(self.context) != pin:
@@ -479,7 +600,11 @@ class SqlAlchemyQuantIntegrityRepository:
         )
         if hashlib.sha256(payload).hexdigest() != pin.recipe_hash:
             raise ValueError("build recipe bytes do not match pinned hash")
-        recipe = QuantIntegrityBuildRecipeV1.model_validate(strict_json_bytes(payload))
+        recipe = (
+            ObservedQuantIntegrityBuildRecipeV1
+            if isinstance(definition, ObservedQuantIntegrityPlanDefinitionV1)
+            else QuantIntegrityBuildRecipeV1
+        ).model_validate(strict_json_bytes(payload))
         if payload != canonical_json(recipe).encode("utf-8"):
             raise ValueError("build recipe must use the exact canonical recipe bytes")
         if (
@@ -731,18 +856,47 @@ class SqlAlchemyQuantIntegrityRepository:
             )
 
     def verify_plan_metadata(
-        self, definition: QuantIntegrityPlanDefinitionV1, *, at_utc: datetime
+        self,
+        definition: QuantIntegrityPlanDefinitionV1
+        | ObservedQuantIntegrityPlanDefinitionV1,
+        *,
+        at_utc: datetime,
     ) -> None:
         definition = revalidate_integrity_model(definition)
-        self._operation_time(at_utc)
+        now = self._operation_time(at_utc)
         with self._sessions.begin() as session:
             session.execute(text("BEGIN"))
+            if isinstance(definition, ObservedQuantIntegrityPlanDefinitionV1):
+                scope, rights = observed_scope_preflight(
+                    session, definition.observed_context.scope.scope_id, now
+                )
             self._series_plans(
                 session, definition.integrity_pilot_series_id, expected=definition
             )
-            self._metadata(session, definition, at_utc)
+            self._metadata(
+                session,
+                definition,
+                self._now()
+                if isinstance(definition, ObservedQuantIntegrityPlanDefinitionV1)
+                else at_utc,
+            )
+            if isinstance(definition, ObservedQuantIntegrityPlanDefinitionV1):
+                # All metadata/evidence I/O is complete; only pure gates follow.
+                final = self._now()
+                rights.assert_active_for(final, TRAINING_FACT_REQUIRED_USES)
+                if final >= scope.subject.retention_deadline_utc:
+                    raise ValueError(
+                        "observed ScopeRetention expired during metadata read"
+                    )
+                if not {"TRAINING", "VALIDATION"} <= set(scope.subject.permitted_uses):
+                    raise ValueError(
+                        "observed scope requires permitted TRAINING and VALIDATION"
+                    )
 
     def _metadata(self, session, definition, at):
+        if isinstance(definition, ObservedQuantIntegrityPlanDefinitionV1):
+            self._observed_metadata(session, definition, at)
+            return
         if (
             self._contract_only
             and definition.provenance.evidence_use
@@ -778,6 +932,124 @@ class SqlAlchemyQuantIntegrityRepository:
                     at,
                 )
         self._reviewed_sources(session, definition, at)
+
+    def _observed_metadata(self, session, definition, at, *, current_heads=True):
+        pin = definition.observed_context
+        observed_scope_preflight(session, pin.scope.scope_id, at)
+        if (
+            self._contract_only
+            and definition.provenance.evidence_use
+            != IntegrityEvidenceUse.SYNTHETIC_CONTRACT_ONLY
+        ):
+            raise ValueError("synthetic observed adapter cannot assert REAL_SOURCE")
+        self._recipe(definition)
+        prefix = observed_admission_prefix(
+            session, pin.scope.scope_id, tuple(r.version_id for r in pin.records)
+        )
+        if current_heads and prefix != observed_admission_prefix(
+            session, pin.scope.scope_id
+        ):
+            raise ValueError("new observed correction requires a new frozen plan")
+        context, rights = observed_context_in_session(
+            self.admission_repository,
+            session,
+            pin.scope.scope_id,
+            pin.actual_at_utc,
+            prefix=prefix,
+        )
+        if context != pin or pin.actual_at_utc > at:
+            raise ValueError("observed plan must pin exact full durable scope/context")
+        heads = {}
+        for r in context.records:
+            if max(r.capture_observed_at_utc, r.registered_at_utc) <= at:
+                heads[r.stream.stream_id] = r
+        refs = tuple(
+            ObservedFactRefV1.of(r)
+            for r in sorted(
+                heads.values(),
+                key=lambda r: (r.identity.kickoff_at_utc, r.identity.internal_match_id),
+            )
+        )
+        if current_heads and refs != definition.selected_heads:
+            raise ValueError("new observed correction requires a new frozen plan")
+        rights.assert_active_for(at, TRAINING_FACT_REQUIRED_USES)
+        if at >= pin.scope.subject.retention_deadline_utc:
+            raise ValueError("observed ScopeRetention expired")
+        for target in definition.targets:
+            match = _required(session, MatchRecord, target.internal_match_id)
+            identity = _required(
+                session, CanonicalMatchIdentityRecord, target.internal_match_id
+            )
+            if (
+                max(
+                    match.available_at_utc,
+                    match.created_at_utc,
+                    identity.available_at_utc,
+                )
+                > at
+            ):
+                raise ValueError(
+                    "observed operation target was not registered before plan"
+                )
+            if (
+                match.competition_id,
+                match.home_team_id,
+                match.away_team_id,
+                match.kickoff_at_utc,
+                identity.season,
+                identity.competition_type,
+            ) != (
+                target.internal_competition_id,
+                target.internal_home_team_id,
+                target.internal_away_team_id,
+                target.kickoff_at_utc,
+                target.season,
+                target.competition_type,
+            ):
+                raise ValueError(
+                    "observed operation target differs from registered canonical identity"
+                )
+        return context, rights
+
+    def load_verified_observed_context(
+        self, definition: ObservedQuantIntegrityPlanDefinitionV1, *, at_utc: datetime
+    ) -> ObservedSnapshotContextV1:
+        now = self._operation_time(at_utc)
+        with self._sessions.begin() as session:
+            session.execute(text("BEGIN"))
+            context, rights = self._observed_metadata(session, definition, now)
+            final = self._now()
+            rights.assert_active_for(final, TRAINING_FACT_REQUIRED_USES)
+            if final >= context.scope.subject.retention_deadline_utc:
+                raise ValueError("observed ScopeRetention expired during read")
+            return context
+
+    def _finish_observed_operation(self, session, definition, *, scope_rights=()):
+        from football_system.infrastructure.database.models import (
+            ObservedSnapshotRecord,
+        )
+
+        context, rights = self._observed_metadata(session, definition, self._now())
+        known = set(
+            session.execute(
+                select(
+                    ObservedSnapshotRecord.version_id,
+                    ObservedSnapshotRecord.content_hash,
+                ).where(ObservedSnapshotRecord.scope_id == context.scope.scope_id)
+            ).tuples()
+        )
+        if known != {(r.version_id, r.content_hash) for r in context.records}:
+            raise ValueError(
+                "final observed operation requires complete transaction version context"
+            )
+        # Earlier plans keep their captured heads, not their past authorization.
+        final = self._now()
+        for scope, rights in (*scope_rights, (context.scope, rights)):
+            rights.assert_active_for(final, TRAINING_FACT_REQUIRED_USES)
+            if final >= scope.subject.retention_deadline_utc:
+                raise ValueError(
+                    "observed ScopeRetention expired at final operation boundary"
+                )
 
     def _admission_metadata(self, session, definition, at):
         targets = {
@@ -1774,16 +2046,29 @@ class SqlAlchemyQuantIntegrityRepository:
         with self._sessions.begin() as session:
             session.execute(text("BEGIN IMMEDIATE"))
             definition = plan.content_payload.definition
+            if isinstance(definition, ObservedQuantIntegrityPlanDefinitionV1):
+                observed_scope_preflight(
+                    session, definition.observed_context.scope.scope_id, self._now()
+                )
             self._series_plans(
                 session, definition.integrity_pilot_series_id, expected=definition
             )
             previous = session.get(QuantIntegrityPlanRecord, plan.artifact_id)
             if previous is not None:
                 _same_artifact(previous, plan)
-                self._metadata(session, plan.content_payload.definition, self._now())
+                if isinstance(definition, ObservedQuantIntegrityPlanDefinitionV1):
+                    self._finish_observed_operation(session, definition)
+                else:
+                    self._metadata(session, definition, self._now())
                 return
             at = self._operation_time(plan.content_payload.sealed_at_utc, recent=True)
-            self._metadata(session, definition, plan.content_payload.sealed_at_utc)
+            self._metadata(
+                session,
+                definition,
+                at
+                if isinstance(definition, ObservedQuantIntegrityPlanDefinitionV1)
+                else plan.content_payload.sealed_at_utc,
+            )
             series = session.get(
                 QuantIntegritySeriesRecord, definition.integrity_pilot_series_id
             )
@@ -1855,6 +2140,8 @@ class SqlAlchemyQuantIntegrityRepository:
                 evidence_use=series.evidence_use,
                 sealed_at_utc=plan.content_payload.sealed_at_utc,
             )
+            if isinstance(definition, ObservedQuantIntegrityPlanDefinitionV1):
+                self._finish_observed_operation(session, definition)
 
     def load_plan(self, plan_ref: IntegrityArtifactRefV1) -> QuantIntegrityPlanV1:
         with self._sessions.begin() as session:
@@ -1944,6 +2231,11 @@ class SqlAlchemyQuantIntegrityRepository:
                     QuantIntegrityPlanV1,
                     reserved.plan_ref,
                 )
+                if isinstance(
+                    plan.content_payload.definition,
+                    ObservedQuantIntegrityPlanDefinitionV1,
+                ):
+                    continue
                 if (
                     row.operator_id == self.operator_id
                     and reserved.actual_started_at_utc <= at_utc
@@ -2209,6 +2501,10 @@ class SqlAlchemyQuantIntegrityRepository:
             output_id=None if output is None else output.artifact_id,
             report_id=None if report is None else report.artifact_id,
         )
+        if content.status == "COMPLETED" and isinstance(
+            plan.content_payload.definition, ObservedQuantIntegrityPlanDefinitionV1
+        ):
+            self._finish_observed_operation(session, plan.content_payload.definition)
 
     def recover_pending_attempt(self, reservation_id: str) -> QuantIntegrityAttemptV1:
         """Operator-triggered recovery, never automatic deletion or silent retry.
@@ -2323,7 +2619,11 @@ class SqlAlchemyQuantIntegrityRepository:
                         output,
                         report,
                         content.actual_completed_at_utc,
-                        recheck_current_research=recheck_current_research,
+                        recheck_current_research=recheck_current_research
+                        and not isinstance(
+                            plan.content_payload.definition,
+                            ObservedQuantIntegrityPlanDefinitionV1,
+                        ),
                         replay_cache=replay_cache,
                     )
         if values:
@@ -2373,7 +2673,9 @@ class SqlAlchemyQuantIntegrityRepository:
             content = attestation.content_payload
             self._owner(session, content.integrity_pilot_series_id)
             self._assert_open(session, content.integrity_pilot_series_id)
-            self._check_terminal(session, summary, attestation, at)
+            plan, _, _, _, scope_rights = self._check_terminal(
+                session, summary, attestation, at
+            )
             self._append(
                 session,
                 QuantIntegritySummaryRecord,
@@ -2396,6 +2698,12 @@ class SqlAlchemyQuantIntegrityRepository:
                 evidence_use=content.provenance.evidence_use.value,
                 attested_at_utc=content.attested_at_utc,
             )
+            if isinstance(
+                plan.content_payload.definition, ObservedQuantIntegrityPlanDefinitionV1
+            ):
+                self._finish_observed_operation(
+                    session, plan.content_payload.definition, scope_rights=scope_rights
+                )
 
     def _check_terminal(
         self, session, summary, attestation, at, *, historical_read=False
@@ -2406,13 +2714,31 @@ class SqlAlchemyQuantIntegrityRepository:
         # only inside this one verifying operation/transaction.
         replay_cache, artifact_cache = {}, {}
         pins = ()
+        scope_rights = []
         if not historical_read:
             plans = self._series_plans(
                 session, content.integrity_pilot_series_id, cache=artifact_cache
             )
+            actual = self._now()
+            for plan in plans:
+                if isinstance(
+                    plan.content_payload.definition,
+                    ObservedQuantIntegrityPlanDefinitionV1,
+                ):
+                    scope_rights.append(
+                        observed_scope_preflight(
+                            session,
+                            plan.content_payload.definition.observed_context.scope.scope_id,
+                            actual,
+                        )
+                    )
             pins = tuple(
                 pin
                 for plan in plans
+                if not isinstance(
+                    plan.content_payload.definition,
+                    ObservedQuantIntegrityPlanDefinitionV1,
+                )
                 for pin in plan.content_payload.definition.admissions
             )
             # Include even unattempted/failed plans. No earlier plan's source may
@@ -2496,7 +2822,9 @@ class SqlAlchemyQuantIntegrityRepository:
             # Each completed output was already reverified, with current read
             # guards. Finish with rights checks, not another metadata/math replay.
             self._current_research_rights(pins, at, self._now(), session=session)
-        return plan, output, report, attempts
+            if isinstance(definition, ObservedQuantIntegrityPlanDefinitionV1):
+                self._observed_metadata(session, definition, self._now())
+        return plan, output, report, attempts, tuple(scope_rights)
 
     def _verify_execution(
         self,
@@ -2510,6 +2838,38 @@ class SqlAlchemyQuantIntegrityRepository:
         replay_cache=None,
     ):
         definition = plan.content_payload.definition
+        if isinstance(definition, ObservedQuantIntegrityPlanDefinitionV1):
+            if recheck_current_research:
+                observed_scope_preflight(
+                    session, definition.observed_context.scope.scope_id, self._now()
+                )
+            context, rights = self._observed_metadata(
+                session, definition, at, current_heads=False
+            )
+            key = ("OBSERVED_REPLAY_V1", plan.content_hash, context.base_root)
+            calculated = None if replay_cache is None else replay_cache.get(key)
+            if calculated is None:
+                service = QuantIntegrityPilotService(
+                    _PinnedReplayReader((), observed_context=context), self._now
+                )
+                expected = service._execute(plan, at_utc=at)
+                calculated = expected, service._report(plan, expected, expected)
+            if calculated != (output, report):
+                raise ValueError(
+                    "observed output/report differs from exact fixed replay"
+                )
+            if replay_cache is not None:
+                replay_cache[key] = calculated
+            self._recipe(definition)
+            if recheck_current_research:
+                self._observed_metadata(session, definition, self._now())
+                final = self._now()
+                rights.assert_active_for(final, TRAINING_FACT_REQUIRED_USES)
+                if final >= context.scope.subject.retention_deadline_utc:
+                    raise ValueError(
+                        "observed ScopeRetention expired during completion"
+                    )
+            return
         if recheck_current_research:
             self._current_research_rights(
                 definition.admissions, at, self._now(), session=session
@@ -2579,18 +2939,18 @@ class SqlAlchemyQuantIntegrityRepository:
             QuantIntegritySummaryV1,
             attestation.content_payload.summary_ref,
         )
-        graph = self._check_terminal(
+        plan, output, report, attempts, _ = self._check_terminal(
             session, summary, attestation, at, historical_read=True
         )
-        return attestation, summary, *graph
+        return attestation, summary, plan, output, report, attempts
 
     def technical_evidence(
         self,
         attestation_id: str,
-        history: TrainingHistoryGraphV1,
+        history: TrainingHistoryGraphV1 | ObservedTrainingHistoryGraphV1,
         *,
         session: Session | None = None,
-    ) -> TechnicalEvidenceRefsV1:
+    ) -> TechnicalEvidenceRefsV1 | TechnicalEvidenceRefsV2:
         """Verified bridge; terminal_state_core_hash references the PILOT core schema.
 
         Its hash is not renamed RELEASED_STATE_CORE_V1. Exact facts/math are compared
@@ -2629,7 +2989,19 @@ class SqlAlchemyQuantIntegrityRepository:
             self._bridge_history(plan, output, history)
             definition = plan.content_payload.definition
             self._recipe(definition)
-            return TechnicalEvidenceRefsV1(
+            observed = isinstance(history, ObservedTrainingHistoryGraphV1)
+            return (TechnicalEvidenceRefsV2 if observed else TechnicalEvidenceRefsV1)(
+                **(
+                    dict(
+                        strict_walk_forward=StrictWalkForwardUnavailableV1(
+                            metrics=None
+                        ),
+                        observed_context_root=history.observed_context.base_root,
+                        scope_retention_deadline_utc=history.observed_context.scope.subject.retention_deadline_utc,
+                    )
+                    if observed
+                    else {}
+                ),
                 integrity_pilot_scope_id=history.integrity_pilot_scope_id,
                 integrity_pilot_series_id=definition.integrity_pilot_series_id,
                 scope=history.scope,
@@ -2666,6 +3038,44 @@ class SqlAlchemyQuantIntegrityRepository:
         history = revalidate_integrity_model(history)
         definition = plan.content_payload.definition
         core = output.content_payload.terminal_state_core.content_payload
+        if isinstance(history, ObservedTrainingHistoryGraphV1) or isinstance(
+            definition, ObservedQuantIntegrityPlanDefinitionV1
+        ):
+            if not isinstance(
+                history, ObservedTrainingHistoryGraphV1
+            ) or not isinstance(definition, ObservedQuantIntegrityPlanDefinitionV1):
+                raise ValueError("mixed historical/observed technical basis")
+            if (
+                history.observed_context != definition.observed_context
+                or history.training_window != definition.training_window
+                or history.integrity_pilot_scope_id
+                != definition.integrity_pilot_scope_id
+                or history.selection_cutoff_at_utc
+                != definition.terminal_projection.training_cutoff_at_utc
+                or history.exclude_match_ids
+                != definition.terminal_projection.exclude_match_ids
+                or history.selected_heads != core.selected_heads
+                or history.selected_versions_root != core.selected_versions_root
+                or tuple(
+                    ObservedFactRefV1.of(f.content_payload.record)
+                    for f in history.facts
+                )
+                != core.admitted_fact_refs
+                or tuple(f.content_payload.elo_fact for f in history.facts)
+                != core.training_facts
+                or history.training_data_hash != core.training_data_hash
+            ):
+                raise ValueError(
+                    "observed bridge requires exact full context/selection/terminal replay"
+                )
+            state = replay_exact_facts(
+                core.training_facts,
+                core.training_cutoff_at_utc,
+                core.production_target_season_id,
+            )
+            if state.teams != core.teams:
+                raise ValueError("observed bridge ratings/counts differ")
+            return
         versioned = isinstance(history, TrainingHistoryGraphV2)
         if versioned != isinstance(definition, QuantIntegrityPlanDefinitionV2):
             raise ValueError("pilot/release history schema mismatch")
@@ -2735,6 +3145,14 @@ class SqlAlchemyQuantIntegrityRepository:
             ):
                 raise ValueError("immutable pilot relational projection mismatch")
             return existing
+        if isinstance(artifact, QuantIntegrityPlanV1) and isinstance(
+            artifact.content_payload.definition, ObservedQuantIntegrityPlanDefinitionV1
+        ):
+            from football_system.infrastructure.database.observed_quant_schema import (
+                append_observed_plan_children,
+            )
+
+            append_observed_plan_children(session, artifact)
         row = _row(
             model,
             artifact_id=artifact.artifact_id,
@@ -2820,6 +3238,15 @@ def _artifact(row, model, *, cache=None):
     ):
         raise ValueError("stored pilot canonical artifact mismatch")
     content = artifact.content_payload
+    if isinstance(artifact, QuantIntegrityPlanV1) and isinstance(
+        content.definition, ObservedQuantIntegrityPlanDefinitionV1
+    ):
+        from sqlalchemy.orm import object_session
+        from football_system.infrastructure.database.observed_quant_schema import (
+            verify_observed_plan_children,
+        )
+
+        verify_observed_plan_children(object_session(row), artifact)
     expected = {}
     if isinstance(artifact, QuantIntegrityPlanV1):
         expected = dict(

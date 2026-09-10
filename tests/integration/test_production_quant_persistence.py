@@ -623,12 +623,12 @@ def test_build_failure_inside_commit_leaves_no_partial_release(production, monke
     original = production.repo._authorization
     calls = 0
 
-    def fail_last(session, a, m, at):
+    def fail_last(session, a, m, at, *, observed_prefix=None):
         nonlocal calls
         calls += 1
         if calls == 5:
             raise ValueError("commit boundary evidence changed")
-        return original(session, a, m, at)
+        return original(session, a, m, at, observed_prefix=observed_prefix)
 
     monkeypatch.setattr(production.repo, "_authorization", fail_last)
     with pytest.raises(ValueError, match="commit boundary"):

@@ -32,6 +32,10 @@ from football_system.infrastructure.database.training_admission_schema import (
 from football_system.infrastructure.database.training_correction_schema import (
     training_correction_tables_v2,
 )
+from football_system.infrastructure.database.observed_training_schema import (
+    observed_training_tables_v1,
+)
+from football_system.infrastructure.database.observed_quant_schema import observed_quant_tables_v1
 from football_system.infrastructure.database.versioned_quant_schema import (
     versioned_quant_tables_v2,
 )
@@ -2410,6 +2414,25 @@ class MatchResultRecord(Base):
 # never replace real ORM tables. Alembic and create_schema share this metadata.
 TRAINING_CORRECTION_TABLES = training_correction_tables_v2(Base.metadata, UTCDateTime())
 VERSIONED_QUANT_TABLES = versioned_quant_tables_v2(Base.metadata)
+
+_observed_tables = observed_training_tables_v1(Base.metadata, UTCDateTime())
+OBSERVED_QUANT_TABLES = observed_quant_tables_v1(Base.metadata)
+
+
+class ObservedCollectionScopeRecord(Base):
+    __table__ = _observed_tables["observed_collection_scopes"]
+
+
+class ObservedSnapshotAdmissionRecord(Base):
+    __table__ = _observed_tables["observed_snapshot_admissions"]
+
+
+class ObservedSnapshotRecord(Base):
+    __table__ = _observed_tables["observed_snapshot_records"]
+
+
+class ObservedResultBindingRecord(Base):
+    __table__ = _observed_tables["observed_result_bindings"]
 
 
 class TicketSettlementRecord(Base):

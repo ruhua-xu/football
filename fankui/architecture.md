@@ -189,7 +189,7 @@ SOURCE_RIGHTS_ADMISSION_V1
 SOURCE_TIME_RESEARCH archives
         |
         v
-mandatory PRODUCTION_QUANT_INTEGRITY_PILOT
+basis-specific quant integrity evidence
         |
         +----> separate MARKET_FUSION_BENCHMARK
         |
@@ -213,7 +213,9 @@ Source rights 使用两阶段门禁。`SOURCE_RIGHTS_ADMISSION_V1` 必须在 acq
 
 新审批采用已授权的 `TRAINING_HISTORY_APPROVAL_PAYLOAD_V2` / `TRAINING_HISTORY_APPROVAL_V2`：reviewer 确认精确授权内容与既有证据 hash，系统事件绑定原 attestation/evidence、operator、幂等请求及实际 recorded/persisted 观察时间。未来记录时间不进入事先审核的 payload；persisted 观察不是物理 commit 完成的预测。V1 hash/解析保留，不自动转换。更换请求 key 或证据排版不能重放已撤销的授权。受控 correction 通过版本化上下文保存完整前序并逐 cutoff 选择真实 season 的完整 head，withdrawal 不回退旧比分，旧工件与 V3 wire 不改写。
 
-常规时间完成状态和真实 season 不能由比分或复制字段自行证明。每个 approved fact 必须绑定 exact fixture source、`MATCH_SEASON_MEMBERSHIP_V1` 和 `MATCH_RESULT_ADMISSION_V1`。Result admission 保存 provider raw status、mapping version、regular-time score、finalized/source times、raw/full-record hashes 和 reviewer/adapter identity；season membership 必须绑定原始 bytes 中明确的 provider competition/season/fixture 关系、fixture/mapping IDs 和 canonical season。三者与 normalized MatchResult 在持久化、hash-sealed `TRAINING_FACT_ADMISSION_V1` transaction 中原子物化；裸 `match_results` row 不具备 production-training 资格。
+时间依据与 data mode 正交。已验证历史 source time 保持严格 lane；`CURRENT_SNAPSHOT_OBSERVED` 使用实际本地 capture/verify/admit 和本地版本顺序判定未来使用资格，仍为 `SOURCE_TIME_RESEARCH`、`retrospective=true`。未知 upstream publication/finalization 显式为 null，sporting-period end 不替代它们。新版本允许同一原始 capture 透明提供身份、season、结果角色，不制造独立来源；既有严格 shared-capture guard 不变。当前快照以完整 cohort 的固定 Elo 状态/顺序/season/目标排除及 deterministic replay 支撑审批 V2，严格历史指标明确 UNAVAILABLE/null，不填零。复用同一 manifest/release/correction/audit 和现有 normalized matches/results，不新增模式、模型或平行审批体系。真实扩大采集与训练还需要新的用户用途确认及已澄清的供应商条件，原三场样本许可不升级。
+
+常规时间完成状态和真实 season 不能由比分或复制字段自行证明。严格历史 approved fact 绑定 exact fixture source、`MATCH_SEASON_MEMBERSHIP_V1` 和 `MATCH_RESULT_ADMISSION_V1`，保存有证据的 finalized/source times。当前快照按显式 observed subject/record/context 绑定同样的身份、season、常规时间和原始角色证据，不先构造含伪造必填历史时间的 V1 admission。身份证据封存当次实际 catalog row IDs/hash；新版本检查当前冲突，旧版本可独立重放。两条路径均原子绑定既有 normalized MatchResult；裸 `match_results` row 不具备 production-training 资格。
 
 建议 additive persistence graph 为：
 

@@ -8,6 +8,7 @@ from pydantic import model_validator
 from football_system.domain.common import Identifier, UtcDateTime
 from football_system.domain.production_release import (
     CurrentAuthorizationInputsV1,
+    CurrentAuthorizationInputsV2,
     ProductionQuantModelReleaseV1,
     ProductionTargetAcceptancePlanV1,
     ReleaseArtifactRefV1,
@@ -33,8 +34,10 @@ class ProductionInferenceBindingV1(ReleaseSnapshotV1):
     training_cutoff_at_utc: UtcDateTime
     training_data_hash: Sha256Digest
     approved_facts_hash: Sha256Digest
-    start_authorization: CurrentAuthorizationInputsV1
-    completion_authorization: CurrentAuthorizationInputsV1
+    start_authorization: CurrentAuthorizationInputsV1 | CurrentAuthorizationInputsV2
+    completion_authorization: (
+        CurrentAuthorizationInputsV1 | CurrentAuthorizationInputsV2
+    )
     state_retention_horizon: RetentionHorizonV1
     audit_retention_horizon: RetentionHorizonV1
 

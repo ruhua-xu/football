@@ -23,8 +23,16 @@ from football_system.application.review_bridge import (
 )
 from football_system.domain.common import normalize_utc
 from football_system.domain.match import Match
+from football_system.domain.observed_training import (
+    ObservedSnapshotAdmissionV1,
+    ObservedSnapshotContextV1,
+)
 from football_system.domain.prediction import QuantModelStateArtifact
 from football_system.domain.production_release import (
+    ObservedTrainingHistoryGraphV1,
+    ObservedProductionReleaseContentV1,
+    ObservedTrainingHistoryAuditContentV1,
+    observed_history_projection,
     ApprovedTrainingHistoryAuditContentV1,
     ApprovedTrainingHistoryAuditV1,
     BuildAuthorizationContentV1,
@@ -76,6 +84,7 @@ from football_system.domain.services.elo_baseline import (
     EloThreeWayBaseline,
 )
 from football_system.domain.training_admission import (
+    SourceRightsAdmissionV1,
     TrainingFactAdmissionV1,
     tagged_canonical_sha256,
 )
@@ -207,6 +216,43 @@ def prepare_versioned_training_history(
     )
 
 
+def prepare_observed_training_history(
+    *,
+    admissions: tuple[ObservedSnapshotAdmissionV1, ...],
+    observed_context: ObservedSnapshotContextV1,
+    source_rights_admission: SourceRightsAdmissionV1,
+    training_window: EloTrainingWindowV1,
+    integrity_pilot_scope_id: str,
+    selection_cutoff_at_utc: datetime,
+    exclude_match_ids: tuple[str, ...],
+) -> ObservedTrainingHistoryGraphV1:
+    """Pure exact observed projection, not proof of persistence or approval."""
+    context, rights, window = map(
+        revalidate, (observed_context, source_rights_admission, training_window)
+    )
+    cutoff = normalize_utc(selection_cutoff_at_utc)
+    excluded = tuple(sorted(exclude_match_ids))
+    w = window.content_payload
+    return ObservedTrainingHistoryGraphV1(
+        integrity_pilot_scope_id=integrity_pilot_scope_id,
+        scope=ProductionScopeV1(
+            competition_id=w.competition_id,
+            pilot_target_season_id=w.pilot_target_season_id,
+            production_target_season_id=w.production_target_season_id,
+            training_window_hash=window.content_hash,
+        ),
+        training_window=window,
+        admissions=admissions,
+        observed_context=context,
+        source_rights_admission=rights,
+        selection_cutoff_at_utc=cutoff,
+        exclude_match_ids=excluded,
+        **observed_history_projection(
+            context, rights, window, integrity_pilot_scope_id, cutoff, excluded
+        ),
+    )
+
+
 def build_production_release(
     *,
     manifest: TrainingHistoryManifestV1,
@@ -269,7 +315,11 @@ def build_production_release(
     )
     evidence = manifest.content_payload.technical_evidence
     return ProductionQuantModelReleaseV1.freeze(
-        content_payload=ProductionQuantModelReleaseContentV1(
+        content_payload=(
+            ObservedProductionReleaseContentV1
+            if isinstance(history, ObservedTrainingHistoryGraphV1)
+            else ProductionQuantModelReleaseContentV1
+        )(
             approval=approval.reference(),
             manifest=manifest.reference(),
             scope=history.scope,
@@ -581,7 +631,11 @@ def _audit_content(
     )
     run, content = packet.analysis_run, release.content_payload
     history = release.training_manifest.content_payload.history
-    return ApprovedTrainingHistoryAuditContentV1(
+    return (
+        ObservedTrainingHistoryAuditContentV1
+        if isinstance(history, ObservedTrainingHistoryGraphV1)
+        else ApprovedTrainingHistoryAuditContentV1
+    )(
         analysis_run_id=run.analysis_run_id,
         input_manifest_hash=run.input_manifest_hash,
         target_acceptance_plan=plan.reference(),
@@ -612,6 +666,20 @@ def _audit_content(
 
 
 def _assert_fact_cutoff(manifest: TrainingHistoryManifestV1, cutoff: datetime) -> None:
+    graph = manifest.content_payload.history
+    if isinstance(graph, ObservedTrainingHistoryGraphV1):
+        if cutoff != graph.selection_cutoff_at_utc or any(
+            max(
+                f.content_payload.record.capture_observed_at_utc,
+                f.content_payload.record.registered_at_utc,
+            )
+            >= cutoff
+            for f in graph.facts
+        ):
+            raise ValueError(
+                "observed release requires exact frozen actual admission cutoff"
+            )
+        return
     for fact in manifest.content_payload.history.facts:
         if isinstance(manifest.content_payload.history, TrainingHistoryGraphV2):
             if fact.content_payload.effective_source_available_at_utc > cutoff:

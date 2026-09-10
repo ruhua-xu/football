@@ -9,9 +9,17 @@ from typing import Protocol
 
 from football_system.domain.backtest import RATIO_QUANTUM, BacktestMetricsConfig
 from football_system.domain.common import normalize_utc
+from football_system.domain.observed_training import ObservedSnapshotContextV1
 from football_system.domain.market import SelectionKey
 from football_system.domain.quant_integrity import (
     FIXED_ELO_CONFIG_HASH,
+    ObservedQuantIntegrityPlanDefinitionV1,
+    ObservedQuantIntegrityPlanContentV1,
+    ObservedQuantIntegrityOutputContentV1,
+    ObservedQuantIntegrityReportContentV1,
+    ObservedQuantIntegrityAttestationContentV1,
+    ObservedTerminalEloStateCoreV1,
+    ObservedTerminalEloStateCoreContentV1,
     AdmittedFactRefV1,
     IntegrityArtifactRefV1,
     QuantIntegrityAttemptContentV1,
@@ -45,6 +53,11 @@ from football_system.domain.quant_integrity import (
     project_admitted_training_fact,
     revalidate_integrity_model,
     select_admitted_training_facts,
+)
+from football_system.domain.production_release import (
+    ObservedFactRefV1,
+    StrictWalkForwardUnavailableV1,
+    observed_elo_order_key,
 )
 from football_system.domain.services.backtest_metrics import (
     calculate_probability_metrics,
@@ -81,7 +94,8 @@ class QuantIntegrityPilotRepository(AdmittedTrainingRepository, Protocol):
 
     def verify_plan_metadata(
         self,
-        definition: QuantIntegrityPlanDefinitionV1,
+        definition: QuantIntegrityPlanDefinitionV1
+        | ObservedQuantIntegrityPlanDefinitionV1,
         *,
         at_utc: datetime,
     ) -> None:
@@ -92,7 +106,18 @@ class QuantIntegrityPilotRepository(AdmittedTrainingRepository, Protocol):
         Resolve every target's fixture/mapping and opaque admitted binding ref from
         metadata projections. Check active rights and correction heads. Synthetic
         evidence is test-only and must NEVER be represented as a real pilot.
+        Explicit observed definitions verify full local snapshots, including known
+        outcomes; their separate structural assessment has no historical metrics.
         """
+        ...
+
+    def load_verified_observed_context(
+        self,
+        definition: ObservedQuantIntegrityPlanDefinitionV1,
+        *,
+        at_utc: datetime,
+    ) -> ObservedSnapshotContextV1:
+        """Resolve exact pinned observed bytes and current local admission heads."""
         ...
 
     def seal_plan(self, plan: QuantIntegrityPlanV1) -> None:
@@ -165,14 +190,23 @@ class QuantIntegrityPilotService:
         self.clock = clock
 
     def seal_plan(
-        self, definition: QuantIntegrityPlanDefinitionV1
+        self,
+        definition: QuantIntegrityPlanDefinitionV1
+        | ObservedQuantIntegrityPlanDefinitionV1,
     ) -> QuantIntegrityPlanV1:
         definition = revalidate_integrity_model(definition)
         at = normalize_utc(self.clock())
+        observed = isinstance(definition, ObservedQuantIntegrityPlanDefinitionV1)
         plan = QuantIntegrityPlanV1.freeze(
-            content_payload=QuantIntegrityPlanContentV1(
+            content_payload=(
+                ObservedQuantIntegrityPlanContentV1
+                if observed
+                else QuantIntegrityPlanContentV1
+            )(
                 definition=definition,
-                input_roots=QuantIntegrityInputRootsV1.of(definition),
+                input_roots=definition.input_roots
+                if observed
+                else QuantIntegrityInputRootsV1.of(definition),
                 sealed_at_utc=at,
             )
         )
@@ -232,7 +266,8 @@ class QuantIntegrityPilotService:
             if completed < started:
                 raise ValueError("actual clock moved backwards")
             # Rights or locally registered corrections can invalidate work mid-attempt.
-            self._provider(plan, at_utc=completed).load_facts()
+            if not isinstance(definition, ObservedQuantIntegrityPlanDefinitionV1):
+                self._provider(plan, at_utc=completed).load_facts()
             self.repository.verify_plan_metadata(definition, at_utc=completed)
             attempt = QuantIntegrityAttemptV1.freeze(
                 content_payload=QuantIntegrityAttemptContentV1(
@@ -311,14 +346,21 @@ class QuantIntegrityPilotService:
             or content.input_roots != plan.content_payload.input_roots
             or content.provenance != definition.provenance
             or content.cohort_match_ids != definition.cohort.cohort_match_ids
-            or content.metric_definition != definition.metric_definition
+            or (
+                not isinstance(definition, ObservedQuantIntegrityPlanDefinitionV1)
+                and content.metric_definition != definition.metric_definition
+            )
             or content.build_recipe != definition.build_recipe
             or content.implementation_code_revision
             != definition.implementation_code_revision
         ):
             raise ValueError("terminal report does not bind the exact plan")
         attestation = QuantIntegrityAttestationV1.freeze(
-            content_payload=QuantIntegrityAttestationContentV1(
+            content_payload=(
+                ObservedQuantIntegrityAttestationContentV1
+                if isinstance(definition, ObservedQuantIntegrityPlanDefinitionV1)
+                else QuantIntegrityAttestationContentV1
+            )(
                 integrity_pilot_series_id=definition.integrity_pilot_series_id,
                 scope_hash=definition.scope_hash,
                 plan_ref=plan_ref,
@@ -360,6 +402,55 @@ class QuantIntegrityPilotService:
         self, plan: QuantIntegrityPlanV1, *, at_utc: datetime
     ) -> QuantIntegrityOutputV1:
         definition = plan.content_payload.definition
+        if isinstance(definition, ObservedQuantIntegrityPlanDefinitionV1):
+            context = self.repository.load_verified_observed_context(
+                definition, at_utc=at_utc
+            )
+            if context != definition.observed_context:
+                raise ValueError(
+                    "observed execution context differs from pre-computation seal"
+                )
+            terminal = definition.terminal_projection
+            heads = context.select_heads(terminal.training_cutoff_at_utc)
+            facts = tuple(
+                sorted(
+                    (
+                        r
+                        for r in heads
+                        if r.normalized_result is not None
+                        and r.identity.internal_match_id
+                        not in terminal.exclude_match_ids
+                    ),
+                    key=observed_elo_order_key,
+                )
+            )
+            state = EloThreeWayBaseline().rebuild_state(
+                tuple(r.to_elo_result() for r in facts),
+                terminal.training_cutoff_at_utc,
+                target_season_id=definition.training_window.content_payload.production_target_season_id,
+                exclude_match_ids=terminal.exclude_match_ids,
+            )
+            core = ObservedTerminalEloStateCoreV1.freeze(
+                content_payload=ObservedTerminalEloStateCoreContentV1(
+                    training_cutoff_at_utc=terminal.training_cutoff_at_utc,
+                    production_target_season_id=definition.training_window.content_payload.production_target_season_id,
+                    training_window_hash=definition.training_window.content_hash,
+                    teams=state.teams,
+                    training_facts=state.training_facts,
+                    training_data_hash=state.training_data_hash,
+                    admitted_fact_refs=tuple(ObservedFactRefV1.of(r) for r in facts),
+                    observed_context_root=context.base_root,
+                    selected_heads=definition.selected_heads,
+                    selected_versions_root=definition.selected_versions_root,
+                )
+            )
+            return QuantIntegrityOutputV1.freeze(
+                content_payload=ObservedQuantIntegrityOutputContentV1(
+                    plan_ref=IntegrityArtifactRefV1.of(plan),
+                    provenance=definition.provenance,
+                    terminal_state_core=core,
+                )
+            )
         if isinstance(definition, QuantIntegrityPlanDefinitionV2):
             return self._execute_versioned(plan, at_utc=at_utc)
         window = definition.training_window.content_payload
@@ -659,6 +750,57 @@ class QuantIntegrityPilotService:
         replay_output: QuantIntegrityOutputV1,
     ) -> QuantIntegrityReportV1:
         definition = plan.content_payload.definition
+        if isinstance(definition, ObservedQuantIntegrityPlanDefinitionV1):
+            core = output.content_payload.terminal_state_core
+            other = replay_output.content_payload.terminal_state_core
+            context = definition.observed_context
+            heads = context.select_heads(
+                definition.terminal_projection.training_cutoff_at_utc
+            )
+            return QuantIntegrityReportV1.freeze(
+                content_payload=ObservedQuantIntegrityReportContentV1(
+                    plan_ref=IntegrityArtifactRefV1.of(plan),
+                    output_ref=IntegrityArtifactRefV1.of(output),
+                    provenance=definition.provenance,
+                    input_roots=plan.content_payload.input_roots,
+                    cohort_match_ids=definition.cohort.cohort_match_ids,
+                    context_version_count=len(context.records),
+                    capture_receipt_count=len(
+                        {
+                            getattr(r.subject, role + "_capture").capture_receipt_id
+                            for r in context.records
+                            for role in ("fixture", "season", "result")
+                        }
+                    ),
+                    selected_head_count=len(heads),
+                    withdrawn_head_count=sum(
+                        r.normalized_result is None for r in heads
+                    ),
+                    excluded_head_count=sum(
+                        r.normalized_result is not None
+                        and r.identity.internal_match_id
+                        in definition.terminal_projection.exclude_match_ids
+                        for r in heads
+                    ),
+                    training_fact_count=len(core.content_payload.training_facts),
+                    strict_walk_forward=StrictWalkForwardUnavailableV1(metrics=None),
+                    historical_model_availability=None,
+                    availability_denominator=None,
+                    probability_metrics=None,
+                    calibration_observation_count=None,
+                    replay=QuantIntegrityReplayV1(
+                        output_hash=output.content_hash,
+                        replay_output_hash=replay_output.content_hash,
+                        state_hashes=(),
+                        replay_state_hashes=(),
+                        terminal_core_hash=core.content_hash,
+                        replay_terminal_core_hash=other.content_hash,
+                    ),
+                    terminal_state_core_ref=IntegrityArtifactRefV1.of(core),
+                    build_recipe=definition.build_recipe,
+                    implementation_code_revision=definition.implementation_code_revision,
+                )
+            )
         replay = QuantIntegrityReplayV1(
             output_hash=output.content_hash,
             replay_output_hash=replay_output.content_hash,

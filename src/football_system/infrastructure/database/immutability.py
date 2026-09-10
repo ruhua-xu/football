@@ -1439,6 +1439,14 @@ def install_sqlite_immutability_triggers(connection: Connection) -> None:
         for name, statement in versioned_quant_trigger_sql_v2().items():
             connection.exec_driver_sql(f"DROP TRIGGER IF EXISTS {name}")
             connection.exec_driver_sql(statement)
+        from football_system.infrastructure.database.observed_training_schema import (
+            install_observed_training_triggers,
+        )
+
+        install_observed_training_triggers(connection)
+        from football_system.infrastructure.database.observed_quant_schema import install_observed_quant_schema_in_connection
+
+        install_observed_quant_schema_in_connection(connection)
 
 
 def install_quant_integrity_v1_triggers(connection: Connection) -> None:

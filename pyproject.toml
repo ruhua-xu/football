@@ -91,6 +91,8 @@ where = ["src"]
     "migrations/versions/d3fc0729e465_add_training_approval_v2.py",
     "migrations/versions/e40d183af576_add_controlled_training_corrections.py",
     "migrations/versions/f51e294b0687_bind_corrected_quant_history.py",
+    "migrations/versions/062f3a5c1798_add_observed_training.py",
+    "migrations/versions/17304b6d28a9_bind_observed_quant_integrity.py",
 ]
 
 [tool.pytest.ini_options]

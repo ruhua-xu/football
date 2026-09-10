@@ -605,6 +605,11 @@ class RunModelAnalysisService:
                 kickoff_from_utc=request.kickoff_from_utc,
                 kickoff_to_utc=request.kickoff_to_utc,
             )
+            from football_system.domain.production_release import ObservedTrainingHistoryGraphV1
+
+            if isinstance(release.training_manifest.content_payload.history, ObservedTrainingHistoryGraphV1):
+                del request_config["model_training_source_mode"]
+                request_config["model_training_evidence_basis"] = "CURRENT_SNAPSHOT_OBSERVED"
         if runtime_provenance:
             request_config["provider_runtime_provenance"] = {
                 role: provenance.model_dump(mode="json")

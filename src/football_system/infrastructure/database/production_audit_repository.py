@@ -37,6 +37,8 @@ from football_system.domain.match import Match
 from football_system.domain.production_release import (
     ApprovalSuccessorV1,
     ApprovedTrainingHistoryAuditV1,
+    ObservedTrainingHistoryGraphV1,
+    authorization_at,
     CurrentAuthorizationInputsV1,
     GrantRevocationV1,
     assert_authorization_progression,
@@ -179,11 +181,7 @@ class SqlAlchemyProductionAuditRepository:
         verified = self._authorize(session, binding, release, plan, self._now())
         # No SQL, evidence read, or other authorization loader may follow this
         # actual-time observation. Only pure gates remain before commit/rename.
-        final = CurrentAuthorizationInputsV1(
-            actual_at_utc=self._now(),
-            technical_evidence=verified.technical_evidence,
-            **events,
-        )
+        final = authorization_at(verified, self._now(), **events)
         assert_authorization_progression(verified, final)
         assert_authorization_progression(completion, final)
         release_active_for_inference(
@@ -214,6 +212,9 @@ class SqlAlchemyProductionAuditRepository:
             ),
         )
         return {
+            "observed_records": self._production.observed_records_in_session(
+                session, release.training_manifest.content_payload.history
+            ),
             "corrections": self._production.correction_events_in_session(
                 session, release.training_manifest.content_payload.history
             ),
@@ -274,6 +275,21 @@ class SqlAlchemyProductionAuditRepository:
         validate_production_audit_pair(
             stored.packet_json.encode("utf-8"), canonical_json(audit).encode("utf-8")
         )
+        if isinstance(
+            release.training_manifest.content_payload.history,
+            ObservedTrainingHistoryGraphV1,
+        ):
+            from football_system.infrastructure.database.observed_quant_schema import (
+                OBSERVED_TABLES,
+                OBSERVED_QUANT_TABLES,
+                observed_audit_row,
+            )
+
+            session.execute(
+                OBSERVED_TABLES[OBSERVED_QUANT_TABLES[6]]
+                .insert()
+                .values(**observed_audit_row(audit, release))
+            )
         session.execute(
             Base.metadata.tables["production_audit_bundles"]
             .insert()
@@ -437,6 +453,26 @@ class SqlAlchemyProductionAuditRepository:
             session, "production_audit_packet_requirements", packet_id=stored.packet_id
         ) != [{"packet_id": stored.packet_id}]:
             raise ValueError("production audit normalized columns/obligation mismatch")
+        if isinstance(
+            release.training_manifest.content_payload.history,
+            ObservedTrainingHistoryGraphV1,
+        ):
+            from football_system.infrastructure.database.observed_quant_schema import (
+                OBSERVED_TABLES,
+                OBSERVED_QUANT_TABLES,
+                observed_audit_row,
+            )
+
+            table = OBSERVED_TABLES[OBSERVED_QUANT_TABLES[6]]
+            children = (
+                session.execute(
+                    select(table).where(table.c.packet_id == stored.packet_id)
+                )
+                .mappings()
+                .all()
+            )
+            if [dict(row) for row in children] != [observed_audit_row(audit, release)]:
+                raise ValueError("observed audit typed basis child missing or changed")
         if (
             audit.content_payload.state_retention_horizon
             != binding.state_retention_horizon
@@ -511,6 +547,14 @@ class ProductionAuditGuard:
             )
         ):
             training_sql = admitted_training_sql_v2
+        if session.scalar(
+            text("SELECT 1 FROM sqlite_master WHERE name='observed_result_bindings'")
+        ):
+            from football_system.infrastructure.database.observed_quant_schema import (
+                admitted_training_sql_v3,
+            )
+
+            training_sql = admitted_training_sql_v3
         requires_audit = (
             request.get("model_training_use_class") == "APPROVED_TRAINING_HISTORY"
             or request.get("production_model_release_id") is not None

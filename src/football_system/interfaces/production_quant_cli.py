@@ -45,9 +45,23 @@ from football_system.application.training_correction import (
 from football_system.domain.archive import canonical_json
 from football_system.domain.common import UtcDateTime, utc_now
 from football_system.config import AppSettings
+from football_system.domain.observed_training import (
+    CurrentSnapshotCollectionScopeV1,
+    ObservedCapturePointerV1,
+    ObservedCollectionScopeAdmissionV1,
+    ObservedScopeSeasonV1,
+    ObservedSnapshotAdmissionV1,
+    ObservedSnapshotContextV1,
+    ObservedSnapshotInputV1,
+    ObservedSnapshotRecordV1,
+    ObservedSnapshotSubjectV1,
+    ObservedSnapshotSubmissionV1,
+    observed_snapshot_root,
+)
 from football_system.domain.production_release import (
     ApprovedTrainingHistoryAuditV1,
     EloTrainingWindowV1,
+    ObservedFactRefV1,
     ProductionGrantKind,
     ProductionGrantV1,
     ProductionTargetV1,
@@ -66,6 +80,7 @@ from football_system.domain.review import (
 from football_system.domain.quant_integrity import (
     IntegrityArtifact,
     IntegrityArtifactRefV1,
+    ObservedQuantIntegrityPlanDefinitionV1,
     QuantIntegrityPlanDefinitionV1,
     QuantIntegrityPlanDefinitionV2,
     QuantIntegrityPlanV1,
@@ -95,12 +110,16 @@ from football_system.domain.versioned_training_history import (
     select_versioned_training_heads,
 )
 from football_system.infrastructure.database.migrations import upgrade_database
+from football_system.infrastructure.database.observed_training_repository import (
+    SqlAlchemyObservedTrainingRepository,
+)
 from football_system.infrastructure.database.production_quant_repository import (
     ApprovalRecordingContractConflict,
     ProductionRevocationRequestV1,
     SqlAlchemyProductionQuantRepository,
 )
 from football_system.infrastructure.database.quant_integrity_repository import (
+    ObservedQuantIntegrityBuildRecipeV1,
     QuantIntegrityBuildRecipeV1,
     QuantIntegrityReviewDocumentV1,
     QuantIntegrityScheduleDocumentV1,
@@ -195,6 +214,108 @@ class AdmitRequestV1(RequestV1):
         return self
 
 
+class CurrentSnapshotUserTermsResolutionV1(RequestV1):
+    """Exact evidence document checked by the observed repository, never generated."""
+
+    schema_version: Literal["CURRENT_SNAPSHOT_USER_TERMS_RESOLUTION_V1"]
+    source_rights_admission_id: OperationId
+    source_rights_admission_hash: Sha256Digest
+    source_id: OperationId
+    terms_sha256: Sha256Digest
+    permitted_uses: tuple[Literal["TRAINING", "VALIDATION"], ...] = Field(min_length=1)
+    retention_deadline_utc: UtcDateTime
+    resolution: Literal["RESOLVED_FOR_DECLARED_SNAPSHOT_SCOPE"]
+
+
+class ObservedScopePrepareRequestV1(RequestV1):
+    schema_version: Literal["PRODUCTION_QUANT_OBSERVED_SCOPE_PREPARE_REQUEST_V1"]
+    source_rights_admission_id: OperationId
+    source_id: OperationId
+    provider_competition_id: str = Field(strict=True, pattern=r"^[1-9][0-9]*$")
+    canonical_competition_id: OperationId
+    seasons: tuple[ObservedScopeSeasonV1, ...] = Field(min_length=1)
+    max_capture_receipts: int = Field(
+        ge=1,
+        strict=True,
+        description="Distinct referenced LOCAL_FILE_IMPORT receipts, NOT HTTP sends/budget.",
+    )
+    max_snapshot_records: int = Field(ge=1, strict=True)
+    permitted_uses: tuple[Literal["TRAINING", "VALIDATION"], ...] = Field(min_length=1)
+    retention_deadline_utc: UtcDateTime
+    user_terms_resolution: LocalReviewEvidenceV1
+
+
+class ObservedScopeRecordRequestV1(RequestV1):
+    schema_version: Literal["PRODUCTION_QUANT_OBSERVED_SCOPE_RECORD_REQUEST_V1"]
+    request_key: OperationId
+    subject: Annotated[
+        CurrentSnapshotCollectionScopeV1, Field(discriminator="schema_version")
+    ]
+    reviewer_attestation: LocalReviewerAttestationV1
+
+
+class ObservedPrepareRequestV1(RequestV1):
+    schema_version: Literal["PRODUCTION_QUANT_OBSERVED_PREPARE_REQUEST_V1"]
+    scope_id: OperationId
+    snapshots: tuple[ObservedSnapshotInputV1, ...] = Field(min_length=1)
+
+
+class ObservedAdmitRequestV1(RequestV1):
+    schema_version: Literal["PRODUCTION_QUANT_OBSERVED_ADMIT_REQUEST_V1"]
+    request_key: OperationId
+    scope_id: OperationId
+    submissions: tuple[ObservedSnapshotSubmissionV1, ...] = Field(min_length=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_subject_versions(cls, value):
+        value = cls.revalidate_nested_snapshots(value)
+        if isinstance(value, dict):
+            for item in value.get("submissions", ()):
+                if item.get("subject", {}).get("schema_version") != (
+                    ObservedSnapshotSubjectV1.model_fields["schema_version"].default
+                ):
+                    raise ValueError(
+                        "observed admission requires explicitly tagged subjects"
+                    )
+        return value
+
+    @model_validator(mode="after")
+    def validate_scope(self) -> Self:
+        subjects = tuple(s.subject for s in self.submissions)
+        if any(s.scope_id != self.scope_id for s in subjects) or len(
+            {s.stream.internal_match_id for s in subjects}
+        ) != len(subjects):
+            raise ValueError(
+                "observed admission requires unique matches in its exact scope"
+            )
+        return self
+
+
+class ObservedContextRequestV1(RequestV1):
+    schema_version: Literal["PRODUCTION_QUANT_OBSERVED_CONTEXT_REQUEST_V1"]
+    scope: IntegrityArtifactRefV1
+    selection_cutoff_at_utc: UtcDateTime
+    exclude_match_ids: tuple[OperationId, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_selection(self) -> Self:
+        if self.scope.schema_version != (
+            ObservedCollectionScopeAdmissionV1.model_fields["schema_version"].default
+        ):
+            raise ValueError(
+                "observed context requires an exact collection scope reference"
+            )
+        if self.exclude_match_ids != tuple(sorted(set(self.exclude_match_ids))):
+            raise ValueError("observed exclusions must be ordered and unique")
+        return self
+
+
+class ObservedInspectRequestV1(RequestV1):
+    schema_version: Literal["PRODUCTION_QUANT_OBSERVED_INSPECT_REQUEST_V1"]
+    admission_id: OperationId
+
+
 class PilotPlanRequestV1(RequestV1):
     definition: QuantIntegrityPlanDefinitionV1
 
@@ -237,6 +358,24 @@ class PilotPlanRequestV2(RequestV1):
         return value
 
 
+class ObservedPilotPlanRequestV1(RequestV1):
+    definition: Annotated[
+        ObservedQuantIntegrityPlanDefinitionV1, Field(discriminator="schema_version")
+    ]
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_context_version(cls, value):
+        value = cls.revalidate_nested_snapshots(value)
+        if isinstance(value, dict) and isinstance(value.get("definition"), dict):
+            context = value["definition"].get("observed_context", {})
+            if context.get("schema_version") != (
+                ObservedSnapshotContextV1.model_fields["schema_version"].default
+            ):
+                raise ValueError("observed pilot requires an explicit observed context")
+        return value
+
+
 def _request_version(value):
     if isinstance(value, BaseModel):
         value = value.model_dump(mode="python")
@@ -253,12 +392,16 @@ class PilotPlanRequest(
     RootModel[
         Annotated[
             Annotated[PilotPlanRequestV1, Tag("LEGACY_V1")]
-            | Annotated[PilotPlanRequestV2, Tag("QUANT_INTEGRITY_PLAN_DEFINITION_V2")],
+            | Annotated[PilotPlanRequestV2, Tag("QUANT_INTEGRITY_PLAN_DEFINITION_V2")]
+            | Annotated[
+                ObservedPilotPlanRequestV1,
+                Tag("OBSERVED_QUANT_INTEGRITY_PLAN_DEFINITION_V1"),
+            ],
             Discriminator(_request_version),
         ]
     ]
 ):
-    """Untagged legacy V1 or explicitly tagged V2, never inferred from fields."""
+    """Legacy V1 or explicitly tagged corrected/observed definitions, never guessed."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -312,11 +455,33 @@ class ManifestRequestV2(ManifestRequestV1):
         return self
 
 
+class ObservedManifestRequestV1(ManifestRequestV1):
+    schema_version: Literal["PRODUCTION_QUANT_OBSERVED_MANIFEST_REQUEST_V1"]
+    observed_context: Annotated[
+        ObservedSnapshotContextV1, Field(discriminator="schema_version")
+    ]
+    selection_cutoff_at_utc: UtcDateTime
+    exclude_match_ids: tuple[OperationId, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_selection(self) -> Self:
+        self.observed_context.select_heads(
+            self.selection_cutoff_at_utc, self.exclude_match_ids
+        )
+        if self.exclude_match_ids != tuple(sorted(set(self.exclude_match_ids))):
+            raise ValueError("observed exclusions must be ordered and unique")
+        return self
+
+
 class ManifestRequest(
     RootModel[
         Annotated[
             Annotated[ManifestRequestV1, Tag("LEGACY_V1")]
-            | Annotated[ManifestRequestV2, Tag("PRODUCTION_QUANT_MANIFEST_REQUEST_V2")],
+            | Annotated[ManifestRequestV2, Tag("PRODUCTION_QUANT_MANIFEST_REQUEST_V2")]
+            | Annotated[
+                ObservedManifestRequestV1,
+                Tag("PRODUCTION_QUANT_OBSERVED_MANIFEST_REQUEST_V1"),
+            ],
             Discriminator(_request_version),
         ]
     ]
@@ -508,6 +673,12 @@ COMMAND_MODELS = {
     "rights-record": RightsRecordRequestV1,
     "capture": CaptureRequestV1,
     "admit": AdmitRequestV1,
+    "observed-scope-prepare": ObservedScopePrepareRequestV1,
+    "observed-scope-record": ObservedScopeRecordRequestV1,
+    "observed-prepare": ObservedPrepareRequestV1,
+    "observed-admit": ObservedAdmitRequestV1,
+    "observed-context": ObservedContextRequestV1,
+    "observed-inspect": ObservedInspectRequestV1,
     "correction-reference": CorrectionReferenceRequestV2,
     "correction-prepare": CorrectionPrepareRequestV2,
     "correction-admit": CorrectionAdmitRequestV2,
@@ -534,8 +705,25 @@ SCHEMA_TYPES = {
         *COMMAND_MODELS.values(),
         PilotPlanRequestV1,
         PilotPlanRequestV2,
+        ObservedPilotPlanRequestV1,
         ManifestRequestV1,
         ManifestRequestV2,
+        ObservedManifestRequestV1,
+        CurrentSnapshotUserTermsResolutionV1,
+        CurrentSnapshotCollectionScopeV1,
+        ObservedCollectionScopeAdmissionV1,
+        ObservedCapturePointerV1,
+        ObservedSnapshotInputV1,
+        ObservedSnapshotSubjectV1,
+        ObservedSnapshotSubmissionV1,
+        ObservedSnapshotRecordV1,
+        ObservedSnapshotAdmissionV1,
+        ObservedSnapshotContextV1,
+        ObservedFactRefV1,
+        ObservedQuantIntegrityPlanDefinitionV1,
+        ObservedQuantIntegrityBuildRecipeV1,
+        QuantIntegrityPlanV1,
+        QuantIntegrityReportV1,
         QuantIntegrityPlanDefinitionV1,
         QuantIntegrityPlanDefinitionV2,
         QuantIntegrityTargetV2,
@@ -573,6 +761,10 @@ READ_COMMANDS = frozenset(
         "correction-reference",
         "correction-prepare",
         "correction-context",
+        "observed-scope-prepare",
+        "observed-prepare",
+        "observed-context",
+        "observed-inspect",
     }
 )
 
@@ -674,23 +866,50 @@ def _preflight_evidence(request: RequestV1, evidence: LocalTrainingEvidence) -> 
             if item.candidate.normalized_result.supersedes_match_result_id is not None:
                 raise ControlledTrainingCorrectionRequired()
     elif isinstance(
+        request, (ObservedScopePrepareRequestV1, ObservedScopeRecordRequestV1)
+    ):
+        subject = (
+            request.subject
+            if isinstance(request, ObservedScopeRecordRequestV1)
+            else request
+        )
+        document(subject.user_terms_resolution, CurrentSnapshotUserTermsResolutionV1)
+        if isinstance(request, ObservedScopeRecordRequestV1):
+            _preflight_observed_review(
+                subject, request.reviewer_attestation, document, authority
+            )
+    elif isinstance(request, ObservedAdmitRequestV1):
+        for submission in request.submissions:
+            _preflight_observed_review(
+                submission.subject, submission.reviewer_attestation, document, authority
+            )
+    elif isinstance(
         request,
         (CorrectionPrepareRequestV2, CorrectionAdmitRequestV2),
     ):
         _preflight_correction(request, evidence, document, authority)
-    elif isinstance(request, (PilotPlanRequestV1, PilotPlanRequestV2)):
+    elif isinstance(
+        request, (PilotPlanRequestV1, PilotPlanRequestV2, ObservedPilotPlanRequestV1)
+    ):
         definition = request.definition
-        scope, cohort = definition.scope, definition.cohort
-        authority(
-            LocalReviewEvidenceV1(
-                evidence_reference=scope.authority_reference,
-                evidence_sha256=scope.authority_sha256,
+        observed = isinstance(request, ObservedPilotPlanRequestV1)
+        if not observed:
+            scope, cohort = definition.scope, definition.cohort
+            authority(
+                LocalReviewEvidenceV1(
+                    evidence_reference=scope.authority_reference,
+                    evidence_sha256=scope.authority_sha256,
+                )
             )
-        )
-        document(scope.raw_scope, QuantIntegrityScopeDocumentV1)
-        document(cohort.raw_schedule, QuantIntegrityScheduleDocumentV1)
+            document(scope.raw_scope, QuantIntegrityScopeDocumentV1)
+            document(cohort.raw_schedule, QuantIntegrityScheduleDocumentV1)
         pin = definition.build_recipe
-        recipe = document(pin.evidence, QuantIntegrityBuildRecipeV1)
+        recipe = document(
+            pin.evidence,
+            ObservedQuantIntegrityBuildRecipeV1
+            if observed
+            else QuantIntegrityBuildRecipeV1,
+        )
         if (
             pin.recipe_hash != pin.evidence.evidence_sha256
             or hashlib.sha256(canonical_json(recipe).encode("utf-8")).hexdigest()
@@ -709,12 +928,13 @@ def _preflight_evidence(request: RequestV1, evidence: LocalTrainingEvidence) -> 
             raise ValueError(
                 "recipe requires exact canonical bytes and matching plan pins"
             )
-        for review in (
-            scope.evidence,
-            cohort.evidence,
-            *(e.evidence for e in cohort.completeness_exceptions),
-        ):
-            document(review, QuantIntegrityReviewDocumentV1)
+        if not observed:
+            for review in (
+                scope.evidence,
+                cohort.evidence,
+                *(e.evidence for e in cohort.completeness_exceptions),
+            ):
+                document(review, QuantIntegrityReviewDocumentV1)
     elif isinstance(request, ApprovalPrepareRequestV2):
         authority(request.reviewer_authority)
     elif isinstance(request, ApprovalRecordRequestV2):
@@ -745,6 +965,25 @@ def _preflight_evidence(request: RequestV1, evidence: LocalTrainingEvidence) -> 
         )
     elif isinstance(request, (FusionCreateRequestV1, PortfolioReviseRequestV1)):
         _read_settings(request.config_file)
+
+
+def _preflight_observed_review(subject, attestation, document, authority):
+    # Review descriptors only. Rights-before-provider-read remains a repository gate.
+    content = attestation.content_payload
+    authority(
+        LocalReviewEvidenceV1(
+            evidence_reference=content.reviewer_authority_reference,
+            evidence_sha256=content.authority_sha256,
+        )
+    )
+    review = document(content.evidence, TrainingReviewDocumentV1)
+    if (
+        content.attested_schema_version,
+        content.attested_payload_hash,
+        review.attested_schema_version,
+        review.attested_payload_hash,
+    ) != (subject.schema_version, subject.subject_hash) * 2:
+        raise ValueError("original review must bind the exact observed subject")
 
 
 def production_inference_context(sessions, *, evidence, operator_id, clock=None):
@@ -835,6 +1074,36 @@ def _execute(
         return admissions.capture_local_json(**values)
     if command == "admit":
         return admissions.admit(**values)
+    if command.startswith("observed-"):
+        observed = SqlAlchemyObservedTrainingRepository(admissions)
+        if command == "observed-scope-prepare":
+            return observed.prepare_scope(**values)
+        if command == "observed-scope-record":
+            return observed.record_scope(**values)
+        if command == "observed-prepare":
+            return observed.prepare(**values)
+        if command == "observed-admit":
+            return observed.admit(**values)
+        if command == "observed-inspect":
+            return observed.load_admission(**values)
+        context = observed.load_context(request.scope.artifact_id)
+        if (context.scope.scope_id, context.scope.content_hash) != (
+            request.scope.artifact_id,
+            request.scope.content_hash,
+        ):
+            raise ValueError("observed context scope pin mismatch")
+        selected = context.select_heads(
+            request.selection_cutoff_at_utc, request.exclude_match_ids
+        )
+        return {
+            "observed_context": context,
+            "scope": request.scope,
+            "context_root": context.base_root,
+            "selection_cutoff_at_utc": request.selection_cutoff_at_utc,
+            "exclude_match_ids": request.exclude_match_ids,
+            "selected_heads": tuple(ObservedFactRefV1.of(r) for r in selected),
+            "selected_versions_root": observed_snapshot_root(selected),
+        }
     if command.startswith("correction-"):
         corrections = SqlAlchemyTrainingCorrectionRepository(admissions)
         if command == "correction-reference":
@@ -975,7 +1244,7 @@ def dispatch_production_quant(arguments: Sequence[str]) -> int:
         epilog=(
             "Every operation requires --request, --database-url, --evidence-root, "
             "--authority-pins and --operator. inspect, *-prepare, correction-reference "
-            "and correction-context open SQLite mode=ro and never migrate. "
+            "and *-context/observed-inspect open SQLite mode=ro and never migrate. "
             "Other writes may migrate after preflight. Paths are relative to the current "
             "directory; evidence references are contained POSIX paths. Output is local "
             "JSON, not a current inference authorization. Request/evidence: 64 MiB each; "
@@ -989,6 +1258,32 @@ def dispatch_production_quant(arguments: Sequence[str]) -> int:
             "V2 pilot definition or PRODUCTION_QUANT_MANIFEST_REQUEST_V2. Untagged V1 "
             "requests are preserved, never converted. Historical source cutoffs and "
             "the context knowledge time are distinct. "
+            "observed-scope-prepare resolves existing SourceRights to an exact "
+            "CURRENT_SNAPSHOT_COLLECTION_SCOPE_V1 subject; it requires new genuine "
+            "SourceRights/current-scope and user-terms review for any expanded use. "
+            "An old three-sample grant is NEVER automatically extended. "
+            "observed-scope-record accepts that subject and its original external "
+            "attestation. Reuse capture only AFTER recording scope, then observed-prepare "
+            "returns ALL time-free review subjects. Obtain genuine reviews for every "
+            "subject; observed-admit takes those exact subjects and original attestations. "
+            "Native metadata/results use the same original bytes and may share one "
+            "receipt with explicit /data/N pointers. Unknown upstream times stay null. "
+            "max_capture_receipts counts referenced LOCAL_FILE_IMPORT receipts, not "
+            "HTTP sends. No HTTP budget is enforced, no provider key is read. "
+            "observed-context takes a .scope content reference and a strict local "
+            "capture/admission cutoff plus exclusions, never a caller actual time. "
+            "It returns the full observed_context and context_root after repository "
+            "clock verification. Use that exact context in the explicitly tagged "
+            "OBSERVED_QUANT_INTEGRITY_PLAN_DEFINITION_V1 and "
+            "PRODUCTION_QUANT_OBSERVED_MANIFEST_REQUEST_V1. observed-inspect audits "
+            "an existing admission, including after rights expiry. Observed replay "
+            "is structural proof, NOT historical performance: strict metrics are "
+            "UNAVAILABLE/null, never zero. Future prospective results are separate; "
+            "observed training is never LIVE_STRICT. ApprovalV2/release/live gates "
+            "remain unchanged. observed-* and observed plan/manifest requests require "
+            "--output for private local results; stdout contains only a small receipt. "
+            "Use --output for downstream private graphs as well. No DRAFT or real-data "
+            "operation is created automatically. "
             "Output parents must exist; no overwrite."
         ),
         allow_abbrev=False,
@@ -1095,6 +1390,13 @@ def dispatch_production_quant(arguments: Sequence[str]) -> int:
         if isinstance(request, RootModel):
             request = request.root
         request = revalidate(request)
+        if args.output is None and (
+            command.startswith("observed-")
+            or isinstance(
+                request, (ObservedPilotPlanRequestV1, ObservedManifestRequestV1)
+            )
+        ):
+            raise ValueError("observed requests require a private local --output file")
         pins = AuthorityPinsV1.model_validate(
             _read_json(args.authority_pins, MAX_PINS_BYTES)
         )
@@ -1171,6 +1473,16 @@ def dispatch_production_quant(arguments: Sequence[str]) -> int:
         }
         if isinstance(result, IntegrityArtifact):
             response["reference"] = IntegrityArtifactRefV1.of(result)
+        elif isinstance(
+            result, (ObservedCollectionScopeAdmissionV1, ObservedSnapshotAdmissionV1)
+        ):
+            response["reference"] = IntegrityArtifactRefV1(
+                schema_version=result.schema_version,
+                artifact_id=result.scope_id
+                if isinstance(result, ObservedCollectionScopeAdmissionV1)
+                else result.admission_id,
+                content_hash=result.content_hash,
+            )
         elif isinstance(result, TrainingFactAdmissionV1):
             response["reference"] = CorrectionRefV2(
                 schema_version=result.schema_version,
@@ -1197,6 +1509,31 @@ def dispatch_production_quant(arguments: Sequence[str]) -> int:
                 "schema_version": result.schema_version,
                 "payload_hash": result.intent_hash,
             }
+        if isinstance(
+            result,
+            (CurrentSnapshotCollectionScopeV1, ObservedCollectionScopeAdmissionV1),
+        ):
+            subject = (
+                result
+                if isinstance(result, CurrentSnapshotCollectionScopeV1)
+                else result.subject
+            )
+            response["review_subject"] = {
+                "schema_version": subject.schema_version,
+                "payload_hash": subject.subject_hash,
+            }
+            response["source_scope_subject_hash"] = subject.subject_hash
+        if command == "observed-prepare":
+            response["review_subjects"] = tuple(
+                {"schema_version": s.schema_version, "payload_hash": s.subject_hash}
+                for s in result
+            )
+            response["review_subject_count"] = len(result)
+        if isinstance(result, ObservedSnapshotAdmissionV1):
+            response["record_references"] = tuple(
+                ObservedFactRefV1.of(r) for r in result.records
+            )
+            response["record_count"] = len(result.records)
         if isinstance(result, QuantIntegrityPlanV1):
             response["integrity_pilot_scope_id"] = (
                 result.content_payload.definition.integrity_pilot_scope_id
@@ -1206,7 +1543,11 @@ def dispatch_production_quant(arguments: Sequence[str]) -> int:
             raise ValueError("output exceeds the byte limit")
         if output is not None:
             size, digest = write_local_json(output, content)
-            receipt = {key: value for key, value in response.items() if key != "result"}
+            receipt = {
+                key: value
+                for key, value in response.items()
+                if key not in {"result", "review_subjects", "record_references"}
+            }
             receipt.update(output_bytes=size, output_sha256=digest)
             print(canonical_json(receipt))
         else:
@@ -1267,10 +1608,18 @@ def dispatch_production_quant(arguments: Sequence[str]) -> int:
         else "MIGRATION_MAY_HAVE_RUN"
         if stage == "database"
         else "ATOMIC_NO_NEW_ROWS"
-        if command == "correction-admit" and stage == "operation"
+        if command in {"correction-admit", "observed-admit", "observed-scope-record"}
+        and stage == "operation"
         else "MAY_HAVE_PERSISTED"
     )
-    if stage == "operation" and command == "correction-admit":
+    if stage == "operation" and command in {"observed-admit", "observed-scope-record"}:
+        message = (
+            "Observed recording failed atomically; no new scope, admission or normalized "
+            "result rows were committed by this attempt. Previously committed rows may "
+            "exist. Check current rights, exact scope, original subjects/attestations, "
+            "complete cohort, retained bytes and authority. Do not extend old grants."
+        )
+    elif stage == "operation" and command == "correction-admit":
         message = (
             "Correction admission failed atomically; no new correction or normalized "
             "result rows were committed by this attempt. Previously committed rows may "
@@ -1302,6 +1651,13 @@ def dispatch_production_quant(arguments: Sequence[str]) -> int:
             "Inspect the correction or retry with the exact same request key, intent, "
             "review, authority and operator; an exact retry will not duplicate rows. "
             "Use a new unused output filename; do not create a replacement review."
+        )
+    elif stage == "output" and command in {"observed-admit", "observed-scope-record"}:
+        message = (
+            "Observed recording may already be persisted and an output file may exist, "
+            "but output was not confirmed. Inspect or retry with the exact same request "
+            "key, subjects, original attestations and operator, using a new unused "
+            "output filename. Do not manufacture replacement reviews."
         )
     print(
         canonical_json(

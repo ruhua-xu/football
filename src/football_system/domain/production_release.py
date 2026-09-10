@@ -39,11 +39,22 @@ from football_system.domain.training_admission import (
     Reference,
     RuleText,
     Sha256Digest,
+    SourceRightsAdmissionV1,
     TrainingFactAdmissionV1,
     TrainingFactBindingV1,
     tagged_canonical_sha256,
 )
-from football_system.domain.training_correction import TrainingCorrectionContextV2, TrainingFactVersionV2
+from football_system.domain.observed_training import (
+    EvidenceBasis,
+    ObservedSnapshotContextV1,
+    ObservedSnapshotRecordV1,
+    ObservedSnapshotAdmissionV1,
+    observed_snapshot_root,
+)
+from football_system.domain.training_correction import (
+    TrainingCorrectionContextV2,
+    TrainingFactVersionV2,
+)
 from football_system.domain.versioned_training_history import (
     TrainingHistoryContextPinV2,
     VersionedFactRefV2,
@@ -66,9 +77,28 @@ def _plain(value: object) -> object:
     if isinstance(value, BaseModel):
         return _plain(value.model_dump(mode="python"))
     if isinstance(value, Mapping):
+        if value.get("schema_version") in {
+            "OBSERVED_SNAPSHOT_SUBJECT_V1",
+            "OBSERVED_SNAPSHOT_RECORD_V1",
+            "OBSERVED_SNAPSHOT_ADMISSION_V1",
+            "OBSERVED_SNAPSHOT_CONTEXT_V1",
+        }:
+            return _observed_plain_v1(value)
         return {key: _plain(item) for key, item in value.items()}
     if isinstance(value, (tuple, list)):
         return tuple(_plain(item) for item in value)
+    return value
+
+
+def _observed_plain_v1(value):
+    # Native field evidence contains JSON arrays. The frozen historical plain
+    # projector intentionally uses tuples; do not change that old contract.
+    if isinstance(value, BaseModel):
+        return _observed_plain_v1(value.model_dump(mode="python"))
+    if isinstance(value, Mapping):
+        return {key: _observed_plain_v1(item) for key, item in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [_observed_plain_v1(item) for item in value]
     return value
 
 
@@ -526,6 +556,309 @@ class TrainingHistoryGraphV2(TrainingHistoryGraphV1):
         return self
 
 
+class ObservedFactRefV1(ReleaseSnapshotV1):
+    schema_version: Literal["OBSERVED_FACT_REF_V1"] = "OBSERVED_FACT_REF_V1"
+    version_id: Identifier
+    content_hash: Sha256Digest
+    match_id: Identifier
+    match_result_id: Identifier | None
+
+    @classmethod
+    def of(cls, record: ObservedSnapshotRecordV1) -> Self:
+        record = revalidate(record)
+        return cls(
+            version_id=record.version_id,
+            content_hash=record.content_hash,
+            match_id=record.identity.internal_match_id,
+            match_result_id=record.normalized_result.match_result_id
+            if record.normalized_result
+            else None,
+        )
+
+    @model_validator(mode="after")
+    def validate_reference(self) -> Self:
+        if self.version_id != stable_id(
+            "OBSERVED_SNAPSHOT_RECORD_V1", self.content_hash
+        ):
+            raise ValueError("observed reference seal mismatch")
+        return self
+
+
+class StrictWalkForwardUnavailableV1(ReleaseSnapshotV1):
+    status: Literal["UNAVAILABLE"] = "UNAVAILABLE"
+    reason: Literal["UNPROVEN_HISTORICAL_VERSION_TIME"] = (
+        "UNPROVEN_HISTORICAL_VERSION_TIME"
+    )
+    metrics: None
+
+
+class ObservedApprovedTrainingFactContentV1(ReleaseSnapshotV1):
+    fact_sequence: int = Field(ge=0, strict=True)
+    season_sequence: int = Field(ge=0, strict=True)
+    integrity_pilot_scope_id: Identifier
+    source_rights_admission: ReleaseArtifactRefV1
+    terms_sha256: Sha256Digest
+    record: ObservedSnapshotRecordV1
+    elo_fact: EloTrainingFact
+
+    @model_validator(mode="after")
+    def validate_projection(self) -> Self:
+        if self.elo_fact != EloTrainingFact.from_result(
+            sequence=self.fact_sequence, result=self.record.to_elo_result()
+        ) or self.source_rights_admission != ReleaseArtifactRefV1(
+            artifact_id=self.record.source_rights_admission_id,
+            content_hash=self.record.source_rights_admission_hash,
+        ):
+            raise ValueError(
+                "observed approved fact must exactly project its admission"
+            )
+        return self
+
+
+class ObservedApprovedTrainingFactV1(
+    SealedReleaseArtifactV1[ObservedApprovedTrainingFactContentV1]
+):
+    schema_version: Literal["OBSERVED_APPROVED_TRAINING_FACT_V1"] = (
+        "OBSERVED_APPROVED_TRAINING_FACT_V1"
+    )
+
+
+def observed_approved_facts_root(facts) -> str:
+    return tagged_canonical_sha256(
+        "OBSERVED_APPROVED_FACTS_ROOT_V1", tuple(f.reference() for f in facts)
+    )
+
+
+def observed_elo_order_key(record: ObservedSnapshotRecordV1):
+    result = record.normalized_result
+    if result is None:
+        raise ValueError("withdrawn observed heads have no Elo training order")
+    return (
+        record.identity.kickoff_at_utc,
+        result.available_at_utc,
+        result.ingested_at_utc,
+        result.match_id,
+        result.match_result_id,
+    )
+
+
+def observed_history_projection(
+    context, rights, window, pilot_scope_id, cutoff, excluded
+):
+    context, rights, window = map(revalidate, (context, rights, window))
+    scope, w = context.scope.subject, window.content_payload
+    if not {"TRAINING", "VALIDATION"} <= set(scope.permitted_uses):
+        raise ValueError(
+            "observed Elo history requires scoped TRAINING and VALIDATION uses"
+        )
+    if (
+        scope.canonical_competition_id != w.competition_id
+        or tuple(s.canonical_season_id for s in scope.seasons)
+        != w.ordered_season_ids[:-1]
+        or (scope.source_rights_admission_id, scope.source_rights_admission_hash)
+        != (rights.source_rights_admission_id, rights.admission_hash)
+    ):
+        raise ValueError(
+            "observed scope excludes the future zero-fact production season and must match history"
+        )
+    for season, observed in zip(w.seasons[:-1], scope.seasons, strict=True):
+        if season.provider_seasons != (
+            ProviderSeasonRefV1(
+                source_id=scope.source_id,
+                provider_code=scope.provider_code,
+                provider_competition_id=scope.provider_competition_id,
+                provider_season_id=observed.provider_season_id,
+            ),
+        ):
+            raise ValueError("observed provider season/window mismatch")
+    heads = context.select_heads(cutoff)
+    if {r.stream.provider_fixture_key for r in heads} != set(scope.cohort_ids):
+        raise ValueError(
+            "full observed cohort must be captured and admitted strictly before cutoff"
+        )
+    indices = []
+    for record in heads:
+        season = next(
+            (
+                s
+                for s in scope.seasons
+                if record.stream.provider_fixture_key in s.included_fixture_ids
+            ),
+            None,
+        )
+        if season is None or (
+            record.identity.season != season.canonical_season_id
+            or record.subject.inspection.provider_season_id != season.provider_season_id
+            or record.identity.internal_competition_id != w.competition_id
+            or record.identity.competition_type != "DOMESTIC_LEAGUE"
+        ):
+            raise ValueError("observed canonical identity/provider season mismatch")
+        indices.append(w.ordered_season_ids.index(record.identity.season))
+    if indices != sorted(indices) or any(
+        a.identity.season != b.identity.season
+        and a.identity.kickoff_at_utc >= b.identity.kickoff_at_utc
+        for a, b in zip(heads, heads[1:])
+    ):
+        raise ValueError("observed seasons must form chronological contiguous blocks")
+    facts = tuple(
+        ObservedApprovedTrainingFactV1.freeze(
+            content_payload=ObservedApprovedTrainingFactContentV1(
+                fact_sequence=i,
+                season_sequence=w.ordered_season_ids.index(r.identity.season),
+                integrity_pilot_scope_id=pilot_scope_id,
+                source_rights_admission=ReleaseArtifactRefV1(
+                    artifact_id=rights.source_rights_admission_id,
+                    content_hash=rights.admission_hash,
+                ),
+                terms_sha256=rights.content_payload.rights_payload.terms_sha256,
+                record=r,
+                elo_fact=EloTrainingFact.from_result(
+                    sequence=i, result=r.to_elo_result()
+                ),
+            )
+        )
+        for i, r in enumerate(
+            sorted(
+                (
+                    r
+                    for r in heads
+                    if r.normalized_result is not None
+                    and r.identity.internal_match_id not in excluded
+                ),
+                key=observed_elo_order_key,
+            )
+        )
+    )
+    if not facts:
+        raise ValueError("observed history requires trainable non-target heads")
+    refs = tuple(ObservedFactRefV1.of(f.content_payload.record) for f in facts)
+    sources = (
+        HistorySourceSummaryV1(
+            source_sequence=0,
+            source_id=scope.source_id,
+            provider_code=scope.provider_code,
+            source_rights_admission=facts[0].content_payload.source_rights_admission,
+            terms_sha256=rights.content_payload.rights_payload.terms_sha256,
+            fact_count=len(facts),
+            facts_hash=observed_approved_facts_root(facts),
+            fixture_source_count=len(facts),
+            fixture_sources_hash=tagged_canonical_sha256(
+                "OBSERVED_FIXTURE_REFS_V1", refs
+            ),
+            mapping_source_count=len(facts),
+            mapping_sources_hash=tagged_canonical_sha256(
+                "OBSERVED_MAPPING_REFS_V1", refs
+            ),
+            result_source_count=len(facts),
+            result_sources_hash=tagged_canonical_sha256(
+                "OBSERVED_RESULT_REFS_V1", refs
+            ),
+        ),
+    )
+    seasons = tuple(
+        HistorySeasonSummaryV1(
+            season=s,
+            fact_count=sum(
+                f.content_payload.season_sequence == s.season_sequence for f in facts
+            ),
+            facts_hash=observed_approved_facts_root(
+                tuple(
+                    f
+                    for f in facts
+                    if f.content_payload.season_sequence == s.season_sequence
+                )
+            ),
+        )
+        for s in w.seasons
+    )
+    state = replay_exact_facts(
+        tuple(f.content_payload.elo_fact for f in facts),
+        cutoff,
+        w.production_target_season_id,
+    )
+    return dict(
+        facts=facts,
+        selected_heads=tuple(ObservedFactRefV1.of(r) for r in heads),
+        selected_versions_root=observed_snapshot_root(heads),
+        source_summaries=sources,
+        season_summaries=seasons,
+        source_count=len(sources),
+        season_count=len(seasons),
+        fact_count=len(facts),
+        source_root=tagged_canonical_sha256(
+            "OBSERVED_HISTORY_SOURCES_V1",
+            {"context_root": context.base_root, "sources": sources},
+        ),
+        season_root=tagged_canonical_sha256("OBSERVED_HISTORY_SEASONS_V1", seasons),
+        approved_facts_hash=observed_approved_facts_root(facts),
+        training_data_hash=state.training_data_hash,
+    )
+
+
+class ObservedTrainingHistoryGraphV1(ReleaseSnapshotV1):
+    schema_version: Literal["OBSERVED_TRAINING_HISTORY_GRAPH_V1"] = (
+        "OBSERVED_TRAINING_HISTORY_GRAPH_V1"
+    )
+    evidence_basis: Literal[EvidenceBasis.CURRENT_SNAPSHOT_OBSERVED] = (
+        EvidenceBasis.CURRENT_SNAPSHOT_OBSERVED
+    )
+    assessment_kind: Literal["OBSERVED_COHORT_STRUCTURAL_REPLAY"] = (
+        "OBSERVED_COHORT_STRUCTURAL_REPLAY"
+    )
+    integrity_pilot_scope_id: Identifier
+    scope: ProductionScopeV1
+    training_window: EloTrainingWindowV1
+    observed_context: ObservedSnapshotContextV1
+    admissions: tuple[ObservedSnapshotAdmissionV1, ...] = Field(min_length=1)
+    source_rights_admission: SourceRightsAdmissionV1
+    selection_cutoff_at_utc: UtcDateTime
+    exclude_match_ids: tuple[Identifier, ...]
+    selected_heads: tuple[ObservedFactRefV1, ...]
+    selected_versions_root: Sha256Digest
+    facts: tuple[ObservedApprovedTrainingFactV1, ...] = Field(min_length=1)
+    source_summaries: tuple[HistorySourceSummaryV1, ...] = Field(min_length=1)
+    season_summaries: tuple[HistorySeasonSummaryV1, ...] = Field(min_length=2)
+    source_count: int = Field(ge=1, strict=True)
+    source_root: Sha256Digest
+    season_count: int = Field(ge=2, strict=True)
+    season_root: Sha256Digest
+    fact_count: int = Field(ge=1, strict=True)
+    approved_facts_hash: Sha256Digest
+    training_data_hash: Sha256Digest
+
+    @model_validator(mode="after")
+    def validate_graph(self) -> Self:
+        w = self.training_window.content_payload
+        if tuple(
+            r for a in self.admissions for r in a.records
+        ) != self.observed_context.records or tuple(
+            a.admission_sequence for a in self.admissions
+        ) != tuple(range(len(self.admissions))):
+            raise ValueError(
+                "observed history must retain complete exact admission parents"
+            )
+        if self.scope != ProductionScopeV1(
+            competition_id=w.competition_id,
+            pilot_target_season_id=w.pilot_target_season_id,
+            production_target_season_id=w.production_target_season_id,
+            training_window_hash=self.training_window.content_hash,
+        ) or self.exclude_match_ids != tuple(sorted(set(self.exclude_match_ids))):
+            raise ValueError("observed history scope/exclusions mismatch")
+        expected = observed_history_projection(
+            self.observed_context,
+            self.source_rights_admission,
+            self.training_window,
+            self.integrity_pilot_scope_id,
+            self.selection_cutoff_at_utc,
+            self.exclude_match_ids,
+        )
+        if any(getattr(self, key) != value for key, value in expected.items()):
+            raise ValueError(
+                "observed history exact heads/counts/roots/replay mismatch"
+            )
+        return self
+
+
 TrainingHistoryGraph = Annotated[
     TrainingHistoryGraphV1 | TrainingHistoryGraphV2,
     Field(discriminator="schema_version"),
@@ -578,6 +911,19 @@ class TechnicalEvidenceRefsV1(ReleaseSnapshotV1):
         return self
 
 
+class TechnicalEvidenceRefsV2(TechnicalEvidenceRefsV1):
+    schema_version: Literal["TECHNICAL_EVIDENCE_REFS_V2"] = "TECHNICAL_EVIDENCE_REFS_V2"
+    evidence_basis: Literal[EvidenceBasis.CURRENT_SNAPSHOT_OBSERVED] = (
+        EvidenceBasis.CURRENT_SNAPSHOT_OBSERVED
+    )
+    assessment_kind: Literal["OBSERVED_COHORT_STRUCTURAL_REPLAY"] = (
+        "OBSERVED_COHORT_STRUCTURAL_REPLAY"
+    )
+    strict_walk_forward: StrictWalkForwardUnavailableV1
+    observed_context_root: Sha256Digest
+    scope_retention_deadline_utc: UtcDateTime
+
+
 class TrainingHistoryManifestContentV1(ReleaseSnapshotV1):
     source_data_mode: Literal["SOURCE_TIME_RESEARCH"] = "SOURCE_TIME_RESEARCH"
     source_classification: Literal["REAL_SOURCE_DATA"] = "REAL_SOURCE_DATA"
@@ -610,8 +956,54 @@ class TrainingHistoryManifestContentV1(ReleaseSnapshotV1):
             for item in graph.admissions
         ):
             raise ValueError("fact admission must precede pilot plan sealing")
-        if isinstance(graph, TrainingHistoryGraphV2) and graph.correction_context.actual_at_utc > evidence.plan_sealed_at_utc:
+        if (
+            isinstance(graph, TrainingHistoryGraphV2)
+            and graph.correction_context.actual_at_utc > evidence.plan_sealed_at_utc
+        ):
             raise ValueError("correction context must precede pilot plan sealing")
+        return self
+
+
+class ObservedTrainingHistoryManifestContentV1(ReleaseSnapshotV1):
+    schema_version: Literal["OBSERVED_TRAINING_HISTORY_MANIFEST_CONTENT_V1"] = (
+        "OBSERVED_TRAINING_HISTORY_MANIFEST_CONTENT_V1"
+    )
+    evidence_basis: Literal[EvidenceBasis.CURRENT_SNAPSHOT_OBSERVED] = (
+        EvidenceBasis.CURRENT_SNAPSHOT_OBSERVED
+    )
+    history: ObservedTrainingHistoryGraphV1
+    technical_evidence: TechnicalEvidenceRefsV2
+    created_at_utc: UtcDateTime
+    persisted_at_utc: UtcDateTime
+
+    @model_validator(mode="after")
+    def validate_evidence(self) -> Self:
+        g, e = self.history, self.technical_evidence
+        if (
+            any(
+                getattr(g, k) != getattr(e, k)
+                for k in (
+                    "scope",
+                    "integrity_pilot_scope_id",
+                    "source_root",
+                    "season_root",
+                    "approved_facts_hash",
+                    "training_data_hash",
+                )
+            )
+            or e.observed_context_root != g.observed_context.base_root
+            or e.scope_retention_deadline_utc
+            != g.observed_context.scope.subject.retention_deadline_utc
+        ):
+            raise ValueError("observed manifest technical context mismatch")
+        if (
+            not g.observed_context.actual_at_utc
+            <= e.plan_sealed_at_utc
+            <= e.attestation_persisted_at_utc
+            <= self.created_at_utc
+            <= self.persisted_at_utc
+        ):
+            raise ValueError("observed manifest actual timeline mismatch")
         return self
 
 
@@ -620,6 +1012,9 @@ class TrainingHistoryManifestV1(
 ):
     schema_version: Literal["TRAINING_HISTORY_MANIFEST_V1"] = (
         "TRAINING_HISTORY_MANIFEST_V1"
+    )
+    content_payload: (
+        TrainingHistoryManifestContentV1 | ObservedTrainingHistoryManifestContentV1
     )
 
 
@@ -1149,6 +1544,157 @@ class CurrentAuthorizationInputsV1(ReleaseSnapshotV1):
         return self
 
 
+class ObservedAuthorizationRecordV1(ReleaseSnapshotV1):
+    fact: ObservedFactRefV1
+    stream_id: Identifier
+    revision_sequence: int = Field(ge=0, strict=True)
+    predecessor_id: Identifier | None
+    capture_observed_at_utc: UtcDateTime
+    registered_at_utc: UtcDateTime
+    kickoff_at_utc: UtcDateTime
+
+    @classmethod
+    def of(cls, record):
+        return cls(
+            fact=ObservedFactRefV1.of(record),
+            stream_id=record.stream.stream_id,
+            revision_sequence=record.revision_sequence,
+            predecessor_id=record.predecessor_id,
+            capture_observed_at_utc=record.capture_observed_at_utc,
+            registered_at_utc=record.registered_at_utc,
+            kickoff_at_utc=record.identity.kickoff_at_utc,
+        )
+
+
+class ObservedAuthorizationContextV1(ReleaseSnapshotV1):
+    """Exact local version references, not raw source bytes in authorization/audit."""
+
+    schema_version: Literal["OBSERVED_AUTHORIZATION_CONTEXT_V1"] = (
+        "OBSERVED_AUTHORIZATION_CONTEXT_V1"
+    )
+    scope: ReleaseArtifactRefV1
+    records: tuple[ObservedAuthorizationRecordV1, ...] = Field(min_length=1)
+    actual_at_utc: UtcDateTime
+
+    @classmethod
+    def of(cls, context):
+        return cls(
+            scope=ReleaseArtifactRefV1(
+                artifact_id=context.scope.scope_id,
+                content_hash=context.scope.content_hash,
+            ),
+            records=tuple(ObservedAuthorizationRecordV1.of(r) for r in context.records),
+            actual_at_utc=context.actual_at_utc,
+        )
+
+    @model_validator(mode="after")
+    def validate_versions(self) -> Self:
+        heads, seen = {}, set()
+        for r in self.records:
+            previous = heads.get(r.stream_id)
+            if (
+                r.fact.version_id in seen
+                or not r.capture_observed_at_utc
+                <= r.registered_at_utc
+                <= self.actual_at_utc
+            ):
+                raise ValueError(
+                    "observed authorization duplicate/local timeline mismatch"
+                )
+            if previous is None:
+                if r.revision_sequence or r.predecessor_id is not None:
+                    raise ValueError(
+                        "observed authorization requires complete local ancestry"
+                    )
+            elif (
+                (
+                    r.predecessor_id,
+                    r.revision_sequence,
+                    r.fact.match_id,
+                    r.kickoff_at_utc,
+                )
+                != (
+                    previous.fact.version_id,
+                    previous.revision_sequence + 1,
+                    previous.fact.match_id,
+                    previous.kickoff_at_utc,
+                )
+                or r.capture_observed_at_utc < previous.capture_observed_at_utc
+                or r.registered_at_utc < previous.registered_at_utc
+            ):
+                raise ValueError(
+                    "observed authorization fork/identity/timeline mismatch"
+                )
+            heads[r.stream_id] = r
+            seen.add(r.fact.version_id)
+        return self
+
+
+class ObservedAdmissionPrefixV1(ReleaseSnapshotV1):
+    schema_version: Literal["OBSERVED_ADMISSION_PREFIX_V1"] = (
+        "OBSERVED_ADMISSION_PREFIX_V1"
+    )
+    admission: ReleaseArtifactRefV1
+    admission_high_watermark: int = Field(ge=0, strict=True)
+
+
+class ObservedAuthorizationContextV2(ObservedAuthorizationContextV1):
+    schema_version: Literal["OBSERVED_AUTHORIZATION_CONTEXT_V2"] = (
+        "OBSERVED_AUTHORIZATION_CONTEXT_V2"
+    )
+    admission_prefix: ObservedAdmissionPrefixV1
+
+    @classmethod
+    def of(cls, context, admission_prefix):
+        return cls(
+            **ObservedAuthorizationContextV1.of(context).model_dump(
+                exclude={"schema_version"}
+            ),
+            admission_prefix=admission_prefix,
+        )
+
+
+class CurrentAuthorizationInputsV2(CurrentAuthorizationInputsV1):
+    schema_version: Literal["CURRENT_AUTHORIZATION_INPUTS_V2"] = (
+        "CURRENT_AUTHORIZATION_INPUTS_V2"
+    )
+    technical_evidence: TechnicalEvidenceRefsV2
+    observed_context: ObservedAuthorizationContextV2
+
+    @model_validator(mode="after")
+    def validate_observed_boundary(self) -> Self:
+        if (
+            self.observed_context.actual_at_utc != self.actual_at_utc
+            or self.corrections
+        ):
+            raise ValueError(
+                "observed authorization requires exact local boundary, not upstream corrections"
+            )
+        return self
+
+
+def authorization_at(current, at, *, observed_records=None, **events):
+    values = current.model_dump(mode="python")
+    values.update(actual_at_utc=at, **events)
+    if isinstance(current, CurrentAuthorizationInputsV2):
+        records = (
+            current.observed_context.records
+            if observed_records is None
+            else tuple(ObservedAuthorizationRecordV1.of(r) for r in observed_records)
+        )
+        if records != current.observed_context.records:
+            raise ValueError(
+                "observed admission prefix changed after authorization capture"
+            )
+        values["observed_context"] = ObservedAuthorizationContextV2(
+            scope=current.observed_context.scope,
+            records=records,
+            admission_prefix=current.observed_context.admission_prefix,
+            actual_at_utc=at,
+        )
+    return type(current).model_validate(values)
+
+
 def assert_authorization_progression(
     start: CurrentAuthorizationInputsV1,
     completion: CurrentAuthorizationInputsV1,
@@ -1158,6 +1704,22 @@ def assert_authorization_progression(
         raise ValueError("actual operation completion precedes start")
     if start.technical_evidence != completion.technical_evidence:
         raise ValueError("technical evidence changed during operation")
+    if isinstance(start, CurrentAuthorizationInputsV2):
+        if (
+            not isinstance(completion, CurrentAuthorizationInputsV2)
+            or start.observed_context.scope != completion.observed_context.scope
+        ):
+            raise ValueError("observed authorization basis/scope changed")
+        if (
+            start.observed_context.admission_prefix.admission_high_watermark
+            > completion.observed_context.admission_prefix.admission_high_watermark
+        ):
+            raise ValueError("observed authorization admission prefix moved backwards")
+        later = {r.fact.version_id: r for r in completion.observed_context.records}
+        if any(
+            later.get(r.fact.version_id) != r for r in start.observed_context.records
+        ):
+            raise ValueError("observed authorization records disappeared or changed")
     for name in ("corrections", "revocations", "successors"):
         later = {item.artifact_id: item for item in getattr(completion, name)}
         if any(later.get(item.artifact_id) != item for item in getattr(start, name)):
@@ -1170,7 +1732,7 @@ class BuildAuthorizationContentV1(ReleaseSnapshotV1):
     approval: ReleaseArtifactRefV1
     manifest: ReleaseArtifactRefV1
     phase: Literal["BUILD_START", "BUILD_COMPLETION"]
-    current: CurrentAuthorizationInputsV1
+    current: CurrentAuthorizationInputsV1 | CurrentAuthorizationInputsV2
     state_retention_horizon: RetentionHorizonV1
     audit_retention_horizon: RetentionHorizonV1
 
@@ -1272,6 +1834,9 @@ class ProductionQuantModelReleaseV1(
     # Revalidated, hash-bound projections, not extra inputs to the release hash.
     training_manifest: TrainingHistoryManifestV1
     training_approval: TrainingHistoryApproval
+    content_payload: (
+        ProductionQuantModelReleaseContentV1 | ObservedProductionReleaseContentV1
+    )
 
     @model_validator(mode="after")
     def validate_release(self) -> Self:
@@ -1297,9 +1862,16 @@ class ProductionQuantModelReleaseV1(
             != tuple(item.content_payload.elo_fact for item in graph.facts)
         ):
             raise ValueError("release manifest/approval/core/fact context mismatch")
+        observed = isinstance(graph, ObservedTrainingHistoryGraphV1)
+        if observed != isinstance(content, ObservedProductionReleaseContentV1):
+            raise ValueError("mixed release evidence basis")
         if not (
-            approval.persisted_at_utc
-            <= core.training_cutoff_at_utc
+            (
+                approval.persisted_at_utc <= content.build_started_at_utc
+                if observed
+                else approval.persisted_at_utc <= core.training_cutoff_at_utc
+            )
+            and core.training_cutoff_at_utc
             < content.build_started_at_utc
             <= content.build_completed_at_utc
             <= content.persisted_at_utc
@@ -1308,8 +1880,24 @@ class ProductionQuantModelReleaseV1(
                 "release authoritative training cutoff/actual timeline mismatch"
             )
         for item in content.release_facts:
+            if isinstance(item, ObservedApprovedTrainingFactV1):
+                if (
+                    graph.selection_cutoff_at_utc != core.training_cutoff_at_utc
+                    or max(
+                        item.content_payload.record.capture_observed_at_utc,
+                        item.content_payload.record.registered_at_utc,
+                    )
+                    >= core.training_cutoff_at_utc
+                ):
+                    raise ValueError(
+                        "observed release cutoff must equal frozen selection"
+                    )
+                continue
             if isinstance(item, ApprovedTrainingFactV2):
-                if item.content_payload.effective_source_available_at_utc > core.training_cutoff_at_utc:
+                if (
+                    item.content_payload.effective_source_available_at_utc
+                    > core.training_cutoff_at_utc
+                ):
                     raise ValueError("release contains newer versioned source facts")
                 continue
             binding = item.content_payload.binding.content_payload
@@ -1479,6 +2067,9 @@ class ApprovedTrainingHistoryAuditV1(
 ):
     schema_version: Literal["APPROVED_TRAINING_HISTORY_AUDIT_V1"] = (
         "APPROVED_TRAINING_HISTORY_AUDIT_V1"
+    )
+    content_payload: (
+        ApprovedTrainingHistoryAuditContentV1 | ObservedTrainingHistoryAuditContentV1
     )
 
 
@@ -1802,6 +2393,18 @@ def source_rights_refs(
     history: TrainingHistoryGraphV1,
 ) -> tuple[SourceRightsRefV1, ...]:
     refs = {}
+    if isinstance(history, ObservedTrainingHistoryGraphV1):
+        rights = history.source_rights_admission
+        return (
+            SourceRightsRefV1(
+                admission=ReleaseArtifactRefV1(
+                    artifact_id=rights.source_rights_admission_id,
+                    content_hash=rights.admission_hash,
+                ),
+                terms_sha256=rights.content_payload.rights_payload.terms_sha256,
+                source_ids=rights.content_payload.rights_payload.source_ids,
+            ),
+        )
     for admission in history.admissions:
         rights = admission.source_rights_admission
         payload = rights.content_payload.rights_payload
@@ -1890,6 +2493,11 @@ def assert_target_plan(
     release: ProductionQuantModelReleaseV1, plan: ProductionTargetAcceptancePlanV1
 ) -> None:
     content, target = release.content_payload, plan.content_payload
+    graph = release.training_manifest.content_payload.history
+    if isinstance(graph, ObservedTrainingHistoryGraphV1) and not {
+        t.match_id for t in target.targets
+    } <= set(graph.exclude_match_ids):
+        raise ValueError("ALL observed targets must belong to frozen target exclusions")
     if (
         target.release != release.reference()
         or target.competition_id != content.scope.competition_id
@@ -1911,6 +2519,13 @@ def assert_retention_authorized(
     audit_horizon: RetentionHorizonV1,
     release_ref: ReleaseArtifactRefV1 | None = None,
 ) -> None:
+    if isinstance(current, CurrentAuthorizationInputsV2):
+        deadline = current.technical_evidence.scope_retention_deadline_utc
+        if current.actual_at_utc >= deadline or any(
+            h.indefinite or h.retain_until_at_utc > deadline
+            for h in (state_horizon, audit_horizon)
+        ):
+            raise ValueError("observed ScopeRetention does not cover operation/horizon")
     for kind, horizon in (
         (ProductionGrantKind.DERIVED_MODEL_STATE_RETENTION, state_horizon),
         (ProductionGrantKind.AUDIT_HASH_RETENTION, audit_horizon),
@@ -1956,7 +2571,23 @@ def _assert_approval_context(
         raise ValueError(
             "approval/manifest not reviewed and persisted before operation"
         )
-    if require_current_source_rights:
+    if isinstance(graph, ObservedTrainingHistoryGraphV1):
+        if not isinstance(approval, TrainingHistoryApprovalV2) or not isinstance(
+            current, CurrentAuthorizationInputsV2
+        ):
+            raise ValueError(
+                "observed basis requires ApprovalV2 and observed authorization"
+            )
+        if (
+            current.actual_at_utc
+            >= graph.observed_context.scope.subject.retention_deadline_utc
+        ):
+            raise ValueError("observed ScopeRetention expired")
+        if require_current_source_rights:
+            if "TRAINING" not in graph.observed_context.scope.subject.permitted_uses:
+                raise ValueError("observed scope does not permit production TRAINING")
+            graph.source_rights_admission.assert_active_for(current.actual_at_utc, ())
+    elif require_current_source_rights:
         for admission in graph.admissions:
             # Research rights gate new builds, not independently licensed inference.
             admission.source_rights_admission.assert_active_for(
@@ -2014,6 +2645,37 @@ def _assert_grant(approval, current, kind, release_ref=None) -> ProductionGrantV
 
 
 def _assert_no_visible_correction(graph, current) -> None:
+    if isinstance(graph, ObservedTrainingHistoryGraphV1):
+        if (
+            not isinstance(current, CurrentAuthorizationInputsV2)
+            or current.observed_context.scope
+            != ReleaseArtifactRefV1(
+                artifact_id=graph.observed_context.scope.scope_id,
+                content_hash=graph.observed_context.scope.content_hash,
+            )
+            or current.corrections
+        ):
+            raise ValueError(
+                "observed authorization cannot borrow upstream correction clocks"
+            )
+        heads = {}
+        for r in current.observed_context.records:
+            if (
+                max(r.capture_observed_at_utc, r.registered_at_utc)
+                <= current.actual_at_utc
+            ):
+                heads[r.stream_id] = r
+        refs = tuple(
+            r.fact
+            for r in sorted(
+                heads.values(), key=lambda r: (r.kickoff_at_utc, r.fact.match_id)
+            )
+        )
+        if refs != graph.selected_heads:
+            raise ValueError(
+                "newer captured and actually registered observed correction requires new release"
+            )
+        return
     if isinstance(graph, TrainingHistoryGraphV2):
         # All predecessors remain in context for early slices, but only selected
         # heads are current. Ancestor events are not new invalidations.
@@ -2145,3 +2807,84 @@ def _sequence(values: tuple[int, ...], label: str) -> None:
 def _unique(values: tuple, label: str) -> None:
     if len(values) != len(set(values)):
         raise ValueError(f"{label} must be unique")
+
+
+class ObservedProductionReleaseContentV1(ReleaseSnapshotV1):
+    schema_version: Literal["OBSERVED_PRODUCTION_RELEASE_CONTENT_V1"] = (
+        "OBSERVED_PRODUCTION_RELEASE_CONTENT_V1"
+    )
+    evidence_basis: Literal[EvidenceBasis.CURRENT_SNAPSHOT_OBSERVED] = (
+        EvidenceBasis.CURRENT_SNAPSHOT_OBSERVED
+    )
+    approval: ReleaseArtifactRefV1
+    manifest: ReleaseArtifactRefV1
+    scope: ProductionScopeV1
+    technical_evidence: TechnicalEvidenceRefsV2
+    build_recipe: ReleaseArtifactRefV1
+    code_revision: Identifier
+    released_state_core: ReleasedStateCoreV1
+    release_facts: tuple[ObservedApprovedTrainingFactV1, ...] = Field(min_length=1)
+    build_start_authorization: BuildAuthorizationV1
+    build_completion_authorization: BuildAuthorizationV1
+    build_started_at_utc: UtcDateTime
+    build_completed_at_utc: UtcDateTime
+    persisted_at_utc: UtcDateTime
+    state_retention_horizon: RetentionHorizonV1
+    audit_retention_horizon: RetentionHorizonV1
+
+    @property
+    def training_cutoff_at_utc(self):
+        return self.released_state_core.content_payload.training_cutoff_at_utc
+
+
+class ObservedTrainingHistoryAuditContentV1(ReleaseSnapshotV1):
+    schema_version: Literal["OBSERVED_TRAINING_HISTORY_AUDIT_CONTENT_V1"] = (
+        "OBSERVED_TRAINING_HISTORY_AUDIT_CONTENT_V1"
+    )
+    model_training_evidence_basis: Literal[EvidenceBasis.CURRENT_SNAPSHOT_OBSERVED] = (
+        EvidenceBasis.CURRENT_SNAPSHOT_OBSERVED
+    )
+    decision_data_mode: Literal["LIVE_STRICT"] = "LIVE_STRICT"
+    model_training_use_class: Literal["APPROVED_TRAINING_HISTORY"] = (
+        "APPROVED_TRAINING_HISTORY"
+    )
+    analysis_run_id: Identifier
+    input_manifest_hash: Sha256Digest
+    target_acceptance_plan: ReleaseArtifactRefV1
+    packet: ReleaseArtifactRefV1
+    quant_model_state_id: Identifier
+    state_hash: Sha256Digest
+    state_payload_hash: Sha256Digest
+    training_data_hash: Sha256Digest
+    release: ReleaseArtifactRefV1
+    released_state_core_hash: Sha256Digest
+    approval: ReleaseArtifactRefV1
+    manifest: ReleaseArtifactRefV1
+    approved_facts_hash: Sha256Digest
+    technical_evidence: TechnicalEvidenceRefsV2
+    source_summaries: tuple[HistorySourceSummaryV1, ...] = Field(min_length=1)
+    season_summaries: tuple[HistorySeasonSummaryV1, ...] = Field(min_length=2)
+    training_cutoff_at_utc: UtcDateTime
+    decision_as_of_at_utc: UtcDateTime
+    run_started_at_utc: UtcDateTime
+    run_completed_at_utc: UtcDateTime
+    run_code_revision: Identifier
+    state_retention_horizon: RetentionHorizonV1
+    audit_retention_horizon: RetentionHorizonV1
+    generated_at_utc: UtcDateTime
+
+    @model_validator(mode="after")
+    def validate_timeline(self) -> Self:
+        if (
+            not self.training_cutoff_at_utc
+            < self.decision_as_of_at_utc
+            <= self.run_started_at_utc
+            <= self.run_completed_at_utc
+            <= self.generated_at_utc
+        ):
+            raise ValueError("observed audit timeline mismatch")
+        return self
+
+
+ProductionQuantModelReleaseV1.model_rebuild()
+ApprovedTrainingHistoryAuditV1.model_rebuild()

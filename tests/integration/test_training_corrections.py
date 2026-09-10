@@ -7,6 +7,7 @@ from threading import Barrier
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import event, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 
@@ -667,7 +668,7 @@ def test_new_migration_and_runtime_schema_guard_parity(corrected_lane, tmp_path)
     config = Config("alembic.ini")
     config.set_main_option("sqlalchemy.url", url)
     command.upgrade(config, "d3fc0729e465")
-    command.upgrade(config, "e40d183af576")
+    command.upgrade(config, "head")
     engine = create_database_engine(url)
     try:
 
@@ -694,7 +695,7 @@ def test_new_migration_and_runtime_schema_guard_parity(corrected_lane, tmp_path)
             assert c.exec_driver_sql("PRAGMA foreign_key_check").all() == []
             assert (
                 c.scalar(text("SELECT version_num FROM alembic_version"))
-                == "e40d183af576"
+                == ScriptDirectory.from_config(config).get_current_head()
             )
     finally:
         engine.dispose()

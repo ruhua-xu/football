@@ -791,7 +791,8 @@ def test_binding_parent_reuse_preserves_fresh_read_boundaries(inference, monkeyp
     artifacts = asyncio.run(service(inference).run(inference.request))
     original_load = inference.lane.repo._load
     original_authorization = inference.production.repo.authorization_in_session
-    scopes, authorization_times = [], []
+    original_captured = inference.production.repo._captured_authorization_in_session
+    scopes, authorization_times, captured_times = [], [], []
 
     def load(session, admission_id):
         scopes.append(session.info["production_verified_read"])
@@ -801,9 +802,18 @@ def test_binding_parent_reuse_preserves_fresh_read_boundaries(inference, monkeyp
         authorization_times.append(at)
         return original_authorization(session, release_id, at)
 
+    def captured_authorization(session, release, captured):
+        captured_times.append(captured.actual_at_utc)
+        return original_captured(session, release, captured)
+
     monkeypatch.setattr(inference.lane.repo, "_load", load)
     monkeypatch.setattr(
         inference.production.repo, "authorization_in_session", authorization
+    )
+    monkeypatch.setattr(
+        inference.production.repo,
+        "_captured_authorization_in_session",
+        captured_authorization,
     )
     for attempt in range(2):
         assert (
@@ -812,13 +822,15 @@ def test_binding_parent_reuse_preserves_fresh_read_boundaries(inference, monkeyp
         )
         # Historical verification, current start, and current completion are fresh.
         assert len(scopes) == 3 * (attempt + 1)
-        assert len(authorization_times) == 4 * (attempt + 1)
-        times = authorization_times[4 * attempt :]
-        assert times[:2] == [
+        assert len(authorization_times) == 2 * (attempt + 1)
+        assert len(captured_times) == 2 * (attempt + 1)
+        historical = captured_times[2 * attempt :]
+        current = authorization_times[2 * attempt :]
+        assert historical == [
             artifacts.production_binding.start_authorization.actual_at_utc,
             artifacts.production_binding.completion_authorization.actual_at_utc,
         ]
-        assert times[1] < times[2] < times[3]
+        assert historical[1] < current[0] < current[1]
         assert (
             "production_verified_read"
             not in inference.production.bridge.calls[-1][2].info

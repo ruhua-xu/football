@@ -943,6 +943,11 @@ def test_f51_migration_matches_automatic_runtime_schema(corrected, tmp_path):
             }
 
     try:
+        frozen = signature(engine)
+        for name, sql in versioned_quant_trigger_sql_v2().items():
+            expected = sql.replace("CREATE TRIGGER IF NOT EXISTS", "CREATE TRIGGER")
+            assert " ".join(frozen[name].split()) == " ".join(expected.split())
+        command.upgrade(config, "head")
         assert signature(engine) == signature(corrected.lane.engine)
         assert any(
             fk["referred_table"] == "training_fact_bindings"
@@ -1108,6 +1113,7 @@ def test_f51_populated_downgrade_refusal_leaves_graph_and_guards_intact(correcte
     config = Config("alembic.ini")
     config.set_main_option("sqlalchemy.url", str(engine.url))
     command.stamp(config, "head")
+    command.downgrade(config, "f51e294b0687")
     before = _schema_signature(engine), _trigger_signature(engine)
     with pytest.raises(RuntimeError, match="populated immutable versioned history"):
         command.downgrade(config, "e40d183af576")

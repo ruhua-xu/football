@@ -1683,6 +1683,10 @@ def test_corrupt_stored_artifact_and_wrong_terminal_roots_are_rejected(pilot):
 
 
 def _pilot_signature(engine):
+    from football_system.infrastructure.database.quant_integrity_schema import (
+        quant_integrity_trigger_sql_v1,
+    )
+
     inspector = inspect(engine)
     seal_fk = next(
         fk
@@ -1723,7 +1727,12 @@ def _pilot_signature(engine):
                 )
             )
         )
-    return tables, tuple((name, " ".join(sql.split())) for name, sql in triggers)
+    # Later observed companion guards do not belong to the frozen 9b8 V1 set.
+    frozen = quant_integrity_trigger_sql_v1()
+    assert frozen.keys() <= {name for name, _ in triggers}
+    return tables, tuple(
+        (name, " ".join(sql.split())) for name, sql in triggers if name in frozen
+    )
 
 
 def test_pilot_migration_fresh_and_existing_data_upgrade_parity(tmp_path):

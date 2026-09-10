@@ -6,6 +6,8 @@ Accepted
 
 外部架构审查对 commit `34638a3dee17c58631942da8c7a690869ff4daf5` 的结论为 `APPROVE WITH MINOR CHANGES`，无 blocker；纳入修订后接受该架构。后续实施已获独立授权。外部裁决保留 `c9083e59a5fd3ad3a2528b5d4997b5cbcabcc415`，确认其 CI 成功但整体验收未完成，并正式授权下述 approval V2 envelope 修订、受控 correction 和显式 season 接口实现。该授权不是数据许可、reviewer 审批或发布授权；不得合并 main、发布版本或改写 `0.5.0` 既有运行。
 
+基于 `f48ebe7448f66534d0946c8467a140c1d8d9301a` 的真实最小样本取证，外部裁决进一步授权 `CURRENT_SNAPSHOT_OBSERVED` 的软件训练资格：可用当前实际观察、验证并准入的历史最终赛果构建未来使用的 release，不伪造过去的结果版本发布时间。它不是账号数据用途、扩大采集、保留期或生产 grant 的批准；原三场诊断许可及其清理期限不自动升级。完整 CI 通过前不得开展真实生产写入。
+
 ## 与 ADR-0007 的关系
 
 ADR-0007 对来源事实的分类、时间语义、运行隔离和报告标签继续完整生效。`HistoricalDataMode` 仍然只有两个互斥值：
@@ -21,7 +23,7 @@ SOURCE_TIME_RESEARCH
 training_use_class = APPROVED_TRAINING_HISTORY
 ```
 
-`APPROVED_TRAINING_HISTORY` 回答的是“本系统现在是否获准用这组精确事实构建指定的生产 model release”，不是“本系统是否在历史 source time 已经持有这些事实”。每条事实永久保留 `SOURCE_TIME_RESEARCH`、`retrospective=true`、source time 和实际 local import/register time。
+`APPROVED_TRAINING_HISTORY` 回答的是“本系统现在是否获准用这组精确事实构建指定的生产 model release”，不是“本系统是否在历史 source time 已经持有这些事实”。每条事实保留 `SOURCE_TIME_RESEARCH`、`retrospective=true`、适用的时间证据类型和实际 local capture/verify/admit time；未知的 upstream publication/finalization 必须仍为未知，不能用本地观察或比赛结束时间填充。
 
 为保持 ADR-0007 的 provider/run 隔离，approved research provider 不直接进入 live AnalysisRun。生产训练在独立、mode-homogeneous 的 build operation 中完成；live AnalysisRun 只消费该 operation 产生的 hash-sealed model release，并继续只从 `LIVE_STRICT` provider 读取当前 fixture、odds、Sporttery 和其他 decision facts。
 
@@ -51,7 +53,8 @@ Production bootstrap 必须解决这些缺口，同时保持 Elo 算法、现有
 | 合格 `LIVE_STRICT` | 只能进入同 mode 运行 | 保持 `0.5.0` 既有 strict path | 可由既有 live training path 使用 | 从真实 ingestion time 起持有 |
 | 普通 `SOURCE_TIME_RESEARCH` | 可运行，必须标记 `RETROSPECTIVE_SOURCE_TIME_RESEARCH` | 禁止 | 禁止 | 仅来源时间研究 |
 | `SOURCE_TIME_RESEARCH` + active `APPROVED_TRAINING_HISTORY` | Pilot 仍是 retrospective research | 只允许构建绑定精确 approval 的 model release | 禁止直接读取；live 只消费派生 release | 当前生产预测使用经审批的回溯训练历史；不得称为 `LIVE_STRICT` training |
-| 未知 source availability | 禁止严格 point-in-time | 禁止 | 禁止 | Approval 不能补造时间 |
+| 未知 historical source availability，且无当前快照资格 | 禁止严格 point-in-time | 禁止 | 禁止 | Approval 不能补造时间 |
+| `CURRENT_SNAPSHOT_OBSERVED` + 合格完整性重放 + active production grants | 严格历史指标 UNAVAILABLE，不运行伪历史 walk-forward | 可构建已明确 pin 的未来使用 release | 禁止直接读取；live 只消费 release | 当前持有的回溯快照用于未来预测，不声称历史当时可用 |
 | `SYNTHETIC_ACCEPTANCE_DATA` | 仅合同测试 | 禁止 | 禁止 | 不构成真实历史或生产证据 |
 | Training grant 过期、撤销、stale 或 hash 不匹配 | 已封存研究不改写 | 禁止新 build | 不替代独立 inference predicate | 对 build fail closed |
 | Inference/retention grant 或 release 过期、撤销、stale 或 hash 不匹配 | 已封存研究不改写 | 不替代独立 build predicate | 禁止新 run/downstream artifact | 对 inference fail closed |
@@ -62,8 +65,8 @@ Production bootstrap 必须解决这些缺口，同时保持 Elo 算法、现有
 
 ```text
 SOURCE_RIGHTS_ADMISSION_V1
-  -> SOURCE_TIME_RESEARCH archives
-  -> mandatory PRODUCTION_QUANT_INTEGRITY_PILOT
+  -> SOURCE_TIME_RESEARCH facts with explicit evidence basis
+  -> required basis-specific integrity evidence
   -> TRAINING_HISTORY_MANIFEST_V1
   -> TRAINING_HISTORY_APPROVAL_V2 event
   -> offline PRODUCTION_QUANT_MODEL_RELEASE_V1 build
@@ -77,18 +80,59 @@ LIVE_STRICT current decision facts
   -> ANALYSIS_PACKET_V3 + mandatory approval audit sidecar
 ```
 
-所有 run、report 和 metric 必须声明完整 provenance tuple，不能只显示一个容易误解的 `LIVE_STRICT` 标签：
+### 1A. 时间证据类型，不增加 data mode
+
+`EvidenceBasis` 与 `HistoricalDataMode`、source classification、授权用途分别独立：
+
+- `VERIFIED_HISTORICAL_SOURCE_TIME`：已有严格路径的语义。逐项历史 source time 必须有证据，原 archive、walk-forward、V1/V2 工件与指标行为保持不变；旧工件不因本次修订而重新序列化或自动转换。
+- `CURRENT_SNAPSHOT_OBSERVED`：新版本明确证明本系统何时实际观察、验证并准入这一版本。`source_data_mode=SOURCE_TIME_RESEARCH`、`retrospective=true` 进入快照 subject 的封印；不得改成 `LIVE_STRICT`，也不得删除 basis 后通过旧保存/导出路径绕过资格门禁。
+
+三个时间事实必须分开：provider 报告的 sporting-period end、本身可证实或未知的结果版本 publication/finalization、以及本系统的实际 capture/verify/admit。Local-file import 只证明本地读取观察，不自动证明 HTTP acquisition、服务器新鲜度或更早的 publication。原 HTTP metadata 若存在作为独立保留的附加证据，不是随意指定的可信操作时钟。
+
+受影响的 subject、record、scope、context、plan/report、technical evidence、manifest/release content 与 audit content 明确版本化。新快照记录的未知上游字段显式为 null；禁止先构造伪造了必填历史时间的 V1 admission 再转入新路径。复用既有 `matches`、`match_results`、固定 Elo、审批 V2、release/correction/audit 体系，不创建第二套比赛、模型或通用审批平台。通用 normalized MatchResult 的观察/可用/ingested 字段在新的、mandatory basis-bound 投影中分别表达真实本地观察与准入可用事件；它们不是 provider publication/finalization 的替身，裸 normalized row 不带训练资格。
+
+### 1B. 当前快照的完整资格
+
+先通过既有 source-rights 流程核验具体来源与用途，再记录新的、精确审核的 `CURRENT_SNAPSHOT_COLLECTION_SCOPE_V1`：固定 Bundesliga、实际 provider/canonical season、完整预定 cohort/例外、训练与验证用途、record/receipt 上限及 retention deadline。Scope 审核不含尚未发生的记录时间；系统事件记录真实时间与稳定的本地 capture ordinal 边界。旧三场诊断 review 不能作为新 scope review；相同内容的新目录或再导入不能无声升级旧许可。
+
+允许同一真实 capture 提供 fixture、season 和 result 的角色证据，保留原始 payload hash、各角色 record pointer、字段位置及确定性转换。无需制造独立来源，也不得声称这些角色彼此独立。现有严格 V1/V2 的共享-capture 限制保持不变，仅新 basis 使用本条规则。
+
+每个训练 head 必须验证原生终态与常规时间比分、scope/season/team/mapping、完整 cohort、重复/冲突和实际观察顺序。FT 与 score/period 相矛盾时 fail closed；CURRENT 不替代常规时间累计比分，period ending 不作为 provider finalization。选取整个最新合格本地版本后再判断 trainability，withdrawal 不能退回更早 FT。各角色的 outcome 必须一致，不得用较新的 metadata 时间替较旧赛果刷新观察时间。
+
+身份引用必须在最早角色观察前存在，冲突检查覆盖最晚角色观察。版本封存当次实际 catalog row IDs/hash，准入 seal 核对候选选择完整性；重放独立复核这些原行，不把后来同 timestamp 的 alias 添加倒灌旧准入判断，新 head 则重新检查当前候选。Scope watermark 必须等于记录事务中的实际 capture ledger 上限，累计 record 和 distinct role receipt 限额在 SQL seal 处同样强制。
+
+所有 snapshot 角色的实际观察和 snapshot admission 都必须严格早于训练截止；该 cutoff 冻结事实选择，不要求在其前完成尚待审核的结构证据。精确 approval 必须先持久化且不晚于 build start，build 严格在训练截止之后，release 在未来 decision cutoff 之前持久化。旧严格 lane 的 approval-before-training-cutoff 规则保留。固定 Elo 参数、数学 hash 算法与目标排除不变。Manifest/context 根与 selected-head/fact 根分别封存；predecessor 只作上下文，不重复计入训练样本。
+
+新版本以真实 capture ordinal、admission sequence 和实际注册决定本地先后，不推测 upstream revision order。相同时钟值下更晚提交的修订不能反向出现在旧 build 的授权快照中；新版本授权明确 pin 当时的 admission-prefix/high-watermark。旧记录/release/预测可重放不改写，新操作检查完整当前前序集并对尚未纳入的修订失效。没有前序证明、跨 stream 冲突或直接绕过 typed binding 的 normalized 写入均拒绝。
+
+`max_capture_receipts` 的单位是受控本地 receipt，不等于 HTTP sends。真正扩大采集的请求上限必须在单独的具体用途 DRAFT/采集操作中明确并计数，包含失败和任何允许的重试；不能用 receipt 数冒充已执行的 HTTP 预算。
+
+### 1C. 当前快照的技术验收与性能边界
+
+新路线复用现有 integrity plan/reservation/attempt/summary/attestation 生命周期，以 `OBSERVED_COHORT_STRUCTURAL_REPLAY` 证明捕获、准入、身份、真实 season transition、比分、训练顺序、目标排除和 terminal-state 确定性重放。预先固定数据范围与 recipe，不按比分、预测方向或效果选择数据/正式尝试，不计算训练数据上的自我评分冒充验证。失败及不利结果仍 append-only 保留；历史 completed attempts 使用当时原 context 与权限重放，只有最终选定证据与当前新操作要求当前 head 一致。
+
+Terminal 操作保留全 series 各 plan 的 scope/rights，在全部 I/O 结束后的实际最终时钟共同复核；不能仅检查最后选定 plan 而忽略中途到期的较早 scope。精确 plan 重试同样执行最终门禁，不能因幂等返回跳过当前保留条件。
+
+缺少历史版本时间时：`strict_walk_forward.status=UNAVAILABLE`、reason 明确为历史版本时间未证实，metrics 为 null。Historical model availability、Brier、LogLoss、Calibration/ECE、bins/样本分母均不可用，不填 0，不沿用旧 zero-sample 指标含义。结构计数（capture、head、withdrawal、training facts）可报告，但不是模型历史效果。
+
+该完整性/重放证据可支撑既有审批 V2 对当前快照训练的审核，不再要求先完成无法证明的严格历史 walk-forward。技术证据必须实际存在并完整验证，typed manifest links 不允许空壳依赖或自报 hash 替代真实计划/报告/attestation。Scope 只有 VALIDATION 时不能训练模型或构建 release；更宽的 production grant 不能越过较窄的 source/scope 用途与保留条件。
+
+后续只有真正赛前封存的未来预测才可累计前瞻指标。严格历史回测、探索性历史重建和真实未来预测分别标记，不聚合为同一种效果。Packet/Review V3 的 bytes、schema 和既有 validator 不变，新 evidence basis 通过 versioned model-source 记录与 mandatory audit sidecar 表达。
+
+所有 run、report 和 metric 的完整 provenance 必须能通过版本化工件及其精确绑定图核验，不能只显示一个容易误解的 `LIVE_STRICT` 标签。以下是共同的语义要求，不是要求向旧 wire 追加字段：
 
 ```text
 decision_data_mode
-model_training_source_mode
 model_training_use_class
 training_history_approval_id / training_history_approval_hash
 production_model_release_id / production_model_release_hash
-retrospective_source_facts_present
 ```
 
+Legacy request/audit content 保留 `model_training_source_mode=SOURCE_TIME_RESEARCH` 等原字段。Observed request/audit content 使用独立的 `model_training_evidence_basis=CURRENT_SNAPSHOT_OBSERVED`，不混入 legacy `model_training_source_mode` 字段；`SOURCE_TIME_RESEARCH`、`retrospective=true` 在其绑定的 observed scope/subject 中必填并封存。它不是新 data mode，也不表示省略 retrospective 来源事实；不得把这两种 emitted content 互相当成可追加字段的同一合同。
+
 含 approved retrospective history 的 model release、当前预测和后续 prospective metric 不得与纯 `LIVE_STRICT`-trained model 静默聚合或公平比较。
+
+新 basis 通过版本化的来源/technical-evidence 记录和 audit sidecar 声明，不给已冻结的 Packet/Review V3 或旧工件补字段。`CURRENT_SNAPSHOT_OBSERVED` 结构重放不与已验证历史时间的 walk-forward 指标合并。
 
 ### 2. 两阶段 source rights 门禁
 
@@ -111,7 +155,7 @@ recorded_at_utc
 
 `SOURCE_RIGHTS_ADMISSION_V1` 使用与 training approval 相同的两级 envelope：本地 reviewer attestation 先绑定排除 attestation/ID/hash 的 rights payload hash，admission hash 再覆盖 payload hash、reviewer/authority metadata、evidence reference 和 evidence SHA-256。V1 的 hash-sealed attestation/evidence 即为充分的内部审查证据，不要求数字签名。
 
-Research/storage rights 不自动包含 production rights。Mandatory quant integrity pilot 完成后，独立 approval event 必须另外确认：
+Research/storage rights 不自动包含 production rights。相应 basis 的完整性证据完成后，独立 approval event 必须另外确认：
 
 ```text
 PRODUCTION_MODEL_TRAINING
@@ -132,7 +176,7 @@ Approval 必须绑定 exact source rights admission、terms hash、history manif
 
 ### 3. 事实、完成状态与 season admission
 
-`TRAINING_HISTORY_MANIFEST_V1` 只允许真实、已完成比赛的常规时间赛果，以及重放该赛果所需的最小 identity/provenance。每个 fact 必须绑定三个独立 source record：
+严格历史版本的 manifest 只允许真实、已完成比赛的常规时间赛果，以及重放该赛果所需的最小 identity/provenance。每个严格历史 fact 必须绑定三个独立 source record；当前快照的版本化 content 则按 1B 保留同一真实 capture 的角色关联，不伪造独立性：
 
 ```text
 fixture source record
@@ -181,7 +225,7 @@ mapping_policy_version / reviewed_by / reviewed_at_utc
 
 `persisted_at_utc` 是事务内完成校验并封存待提交事件时的实际时钟观察，不声称是物理磁盘提交完成的时间。数据库 commit 成功返回后才能报告该事件已持久化；commit 失败回滚时不得返回成功工件。提交后的文件输出失败需明确说明数据库事件可能已存在，按原幂等请求核对/重试，不重造审核或抹除 attempt。事务最后一次昂贵读取之后重新观察时间，基于同一事务完整事件集复核到期/撤销/retention，不用较早时刻掩盖处理中途失效。
 
-对 retrospective quant integrity pilot 中某个 slice，必须同时满足：
+对 VERIFIED_HISTORICAL_SOURCE_TIME 的 retrospective quant integrity pilot 中某个 slice，必须同时满足（不套用于不宣称历史可用性的当前快照结构重放）：
 
 ```text
 training kickoff
@@ -209,7 +253,7 @@ source rights admission recorded
 
 `local_imported_at_utc` 晚于历史 decision/evaluation cutoff 是合法且必须披露的 retrospective 事实。它不能被改写为 source time，也不能让 integrity pilot 被描述成历史 live performance。
 
-对当前 production target，必须满足：
+对已验证历史 source-time lane 的当前 production target，必须满足以下链；observed lane 按 1B 将事实选择 cutoff 与其后的证据审核/build 边界分开：
 
 ```text
 all release facts effective_source_available_at_utc <= training_cutoff_at_utc
@@ -230,6 +274,8 @@ integrity pilot actual_completed
 ```
 
 Source rights admission、actual local import、fact admission 和 database registration 也必须不晚于 manifest creation。每个 release fact 的 fixture record、mapping/season membership 和 result admission 都必须独立满足 `source_available_at_utc <= training_cutoff_at_utc`；`effective_source_available_at_utc` 是三者 source availability 的最大值，只用于汇总检查，不能替代逐项校验。`training_cutoff_at_utc` 是 release training knowledge 的单一权威 cutoff，必须严格早于 `build_started_at_utc`；相等只允许其他系统事件在同一真实时刻有明确顺序。Approval/release persisted 与 production decision 必须严格分离，不能在 cutoff 后补批。
+
+上段 source-time 字段与 approval-before-training-cutoff 不套用于 observed content。当前快照要求每个角色的实际 capture/admission 严格早于冻结的 selection/training cutoff，允许随后完成结构 replay、manifest 与精确审核；approval 必须在 build 开始前已持久化，release 必须在未来 decision cutoff 前持久化。两条 lane 都不允许在 production decision cutoff 后补批来追认预测。
 
 Training fact 无条件排除当前 slice/production run 的全部 target match IDs。Walk-forward 的 exclusion 是 per-slice：较早 target 只有在其 result source availability 进入后续 decision cutoff 后，才可作为后续 slice 的训练事实。
 
@@ -254,6 +300,8 @@ config_hash = c98d595d3afb03fe629e776fa9a0e70f24e31fcd49884be3ff11e9c979ca78e4
 Quant integrity pilot 前冻结 Elo config、season window、cohort 和 cutoffs；Market/Fusion benchmark 前另行冻结现有受支持的 odds/fusion policy/config。任何人或程序都不得根据 pilot/benchmark 的 Brier、LogLoss、Calibration、availability、ROI、网页 GPT review 或单场结果修改 Elo 参数、season window、cohort、cutoff、odds selection、fusion policy 或 weight。任何变更必须创建新 plan 并披露全部尝试，不得替换既有结果；本阶段不以这些变更申请 approval。
 
 ### 6. Mandatory quant integrity pilot 与独立 Market/Fusion benchmark
+
+本节严格历史 walk-forward 要求适用于已验证历史 source-time 的 lane。当前快照 lane 按 1C 的结构完整性和 deterministic replay 验收，严格历史性能不可用不阻断这一合法的未来使用路线；不能将两种证据互相冒充。
 
 第一条 mandatory `PRODUCTION_QUANT_INTEGRITY_PILOT` lane 固定为 Bundesliga，target historical season 至少是一个完整已结束赛季，优先 `2025/2026`；如需 warm-up，则加入紧邻的 `2024/2025`。最终 provider season IDs 和 expected match count 必须由 source evidence 确认，不能仅凭标签推断。标准18队完整赛季通常为306场；延期、取消、缺失或 provider scope 差异必须在 plan 中逐场列出。
 

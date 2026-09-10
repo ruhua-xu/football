@@ -417,6 +417,7 @@ def test_f51_downgrade_refuses_nonlegacy_plan_without_dropping_guards(
     config = Config("alembic.ini")
     config.set_main_option("sqlalchemy.url", str(lane.engine.url))
     command.stamp(config, "head")
+    command.downgrade(config, "f51e294b0687")
     if kind != "V2":
         document = plan.model_dump(mode="json")
         if kind == "unknown":

@@ -26,7 +26,18 @@ from football_system.domain.common import (
     stable_id,
 )
 from football_system.domain.market import SelectionKey
-from football_system.domain.production_release import EloTrainingWindowV1
+from football_system.domain.production_release import (
+    EloTrainingWindowV1,
+    ObservedFactRefV1,
+    StrictWalkForwardUnavailableV1,
+    replay_exact_facts,
+    ProviderSeasonRefV1,
+)
+from football_system.domain.observed_training import (
+    EvidenceBasis,
+    ObservedSnapshotContextV1,
+    observed_snapshot_root,
+)
 from football_system.domain.services.elo_baseline import (
     EloBaselinePrediction,
     EloBaselineState,
@@ -831,6 +842,7 @@ class QuantIntegrityPlanV1(IntegrityArtifact[QuantIntegrityPlanContentV1]):
     schema_version: Literal["PRODUCTION_QUANT_INTEGRITY_PILOT_PLAN_V1"] = (
         "PRODUCTION_QUANT_INTEGRITY_PILOT_PLAN_V1"
     )
+    content_payload: QuantIntegrityPlanContentV1 | ObservedQuantIntegrityPlanContentV1
 
 
 def admitted_selection_root(facts: Iterable[AdmittedFactRefV1]) -> str:
@@ -991,6 +1003,9 @@ class QuantIntegrityOutputV1(IntegrityArtifact[QuantIntegrityOutputContentV1]):
     schema_version: Literal["PRODUCTION_QUANT_INTEGRITY_PILOT_V1"] = (
         "PRODUCTION_QUANT_INTEGRITY_PILOT_V1"
     )
+    content_payload: (
+        QuantIntegrityOutputContentV1 | ObservedQuantIntegrityOutputContentV1
+    )
 
 
 class QuantIntegrityReplayV1(DomainModel):
@@ -1107,6 +1122,9 @@ class QuantIntegrityReportContentV1(DomainModel):
 class QuantIntegrityReportV1(IntegrityArtifact[QuantIntegrityReportContentV1]):
     schema_version: Literal["PRODUCTION_QUANT_INTEGRITY_PILOT_REPORT_V1"] = (
         "PRODUCTION_QUANT_INTEGRITY_PILOT_REPORT_V1"
+    )
+    content_payload: (
+        QuantIntegrityReportContentV1 | ObservedQuantIntegrityReportContentV1
     )
 
 
@@ -1262,3 +1280,318 @@ class QuantIntegrityAttestationV1(
     schema_version: Literal["PRODUCTION_QUANT_INTEGRITY_PILOT_ATTESTATION_V1"] = (
         "PRODUCTION_QUANT_INTEGRITY_PILOT_ATTESTATION_V1"
     )
+    content_payload: (
+        QuantIntegrityAttestationContentV1 | ObservedQuantIntegrityAttestationContentV1
+    )
+
+
+class ObservedIntegrityProvenanceV1(DomainModel):
+    schema_version: Literal["OBSERVED_INTEGRITY_PROVENANCE_V1"] = (
+        "OBSERVED_INTEGRITY_PROVENANCE_V1"
+    )
+    evidence_use: IntegrityEvidenceUse
+    evidence_basis: Literal[EvidenceBasis.CURRENT_SNAPSHOT_OBSERVED] = (
+        EvidenceBasis.CURRENT_SNAPSHOT_OBSERVED
+    )
+    assessment_kind: Literal["OBSERVED_COHORT_STRUCTURAL_REPLAY"] = (
+        "OBSERVED_COHORT_STRUCTURAL_REPLAY"
+    )
+    independent_out_of_sample_validation: Literal[False] = False
+    production_authorized: Literal[False] = False
+
+
+class ObservedQuantIntegrityCohortV1(DomainModel):
+    schema_version: Literal["OBSERVED_QUANT_INTEGRITY_COHORT_V1"] = (
+        "OBSERVED_QUANT_INTEGRITY_COHORT_V1"
+    )
+    season_id: Identifier
+    cohort_match_ids: tuple[Identifier, ...] = Field(min_length=1)
+    assessment_kind: Literal["PILOT_TARGET_COHORT_NOT_PERFORMANCE"] = (
+        "PILOT_TARGET_COHORT_NOT_PERFORMANCE"
+    )
+
+    @model_validator(mode="after")
+    def validate_cohort(self) -> Self:
+        _unique(self.cohort_match_ids, "observed cohort", sorted_values=True)
+        return self
+
+
+class ObservedQuantIntegrityPlanDefinitionV1(DomainModel):
+    schema_version: Literal["OBSERVED_QUANT_INTEGRITY_PLAN_DEFINITION_V1"] = (
+        "OBSERVED_QUANT_INTEGRITY_PLAN_DEFINITION_V1"
+    )
+    integrity_pilot_series_id: Identifier
+    previous_terminal_attestation: IntegrityArtifactRefV1 | None
+    provenance: ObservedIntegrityProvenanceV1
+    observed_context: ObservedSnapshotContextV1
+    training_window: EloTrainingWindowV1
+    cohort: ObservedQuantIntegrityCohortV1
+    targets: tuple[TrainingCanonicalMatchIdentityV1, ...] = Field(min_length=1)
+    terminal_projection: TerminalProjectionDefinitionV1
+    selected_heads: tuple[ObservedFactRefV1, ...] = Field(min_length=1)
+    selected_versions_root: Sha256Digest
+    implementation_code_revision: Identifier
+    build_recipe: ModelBuildRecipePinV1
+    model_name: Literal["ELO_THREE_WAY_BASELINE_V1"] = "ELO_THREE_WAY_BASELINE_V1"
+    model_version: Literal["1"] = "1"
+    config_hash: Literal[FIXED_ELO_CONFIG_HASH] = FIXED_ELO_CONFIG_HASH
+    parameter_policy: Literal["NO_PARAMETER_TUNING"] = "NO_PARAMETER_TUNING"
+    selection_policy: Literal["NO_ROI_MODEL_SELECTION"] = "NO_ROI_MODEL_SELECTION"
+
+    @property
+    def scope_hash(self):
+        return tagged_canonical_sha256(
+            "OBSERVED_INTEGRITY_SCOPE_V1",
+            {
+                "competition_id": self.training_window.content_payload.competition_id,
+                "pilot_target_season_id": self.cohort.season_id,
+                "evidence_use": self.provenance.evidence_use,
+                "model_name": self.model_name,
+                "evidence_basis": self.provenance.evidence_basis,
+            },
+        )
+
+    @property
+    def integrity_pilot_scope_id(self):
+        return stable_id("OBSERVED_INTEGRITY_SCOPE_V1", self.scope_hash)
+
+    @property
+    def input_roots(self):
+        return QuantIntegrityInputRootsV1(
+            source_root=self.observed_context.base_root,
+            season_root=tagged_canonical_sha256(
+                "OBSERVED_INTEGRITY_SEASONS_V1",
+                {
+                    "scope": self.observed_context.scope,
+                    "window": self.training_window,
+                },
+            ),
+            admitted_facts_root=self.selected_versions_root,
+        )
+
+    @model_validator(mode="after")
+    def validate_definition(self) -> Self:
+        context, w = self.observed_context, self.training_window.content_payload
+        scope, cutoff = (
+            context.scope.subject,
+            self.terminal_projection.training_cutoff_at_utc,
+        )
+        if not {"TRAINING", "VALIDATION"} <= set(scope.permitted_uses):
+            raise ValueError(
+                "observed Elo integrity requires scoped TRAINING and VALIDATION uses"
+            )
+        if (
+            tuple(s.canonical_season_id for s in scope.seasons)
+            != w.ordered_season_ids[:-1]
+            or scope.canonical_competition_id != w.competition_id
+        ):
+            raise ValueError(
+                "observed full scope/window mismatch; production season must be zero-fact"
+            )
+        for season, reviewed in zip(w.seasons[:-1], scope.seasons, strict=True):
+            if season.provider_seasons != (
+                ProviderSeasonRefV1(
+                    source_id=scope.source_id,
+                    provider_code=scope.provider_code,
+                    provider_competition_id=scope.provider_competition_id,
+                    provider_season_id=reviewed.provider_season_id,
+                ),
+            ):
+                raise ValueError("observed exact provider season/window mismatch")
+        heads = context.select_heads(cutoff)
+        if {r.stream.provider_fixture_key for r in heads} != set(scope.cohort_ids):
+            raise ValueError(
+                "complete scope must be observed and admitted before frozen cutoff"
+            )
+        if self.selected_heads != tuple(
+            ObservedFactRefV1.of(r) for r in heads
+        ) or self.selected_versions_root != observed_snapshot_root(heads):
+            raise ValueError("observed frozen head selection mismatch")
+        if (
+            self.cohort.season_id != w.pilot_target_season_id
+            or self.cohort.cohort_match_ids
+            != tuple(
+                sorted(
+                    r.identity.internal_match_id
+                    for r in heads
+                    if r.identity.season == w.pilot_target_season_id
+                )
+            )
+        ):
+            raise ValueError(
+                "observed pilot cohort must cover exact season, not performance observations"
+            )
+        ids = tuple(t.internal_match_id for t in self.targets)
+        _unique(ids, "observed operation targets", sorted_values=True)
+        if not set(ids) <= set(self.terminal_projection.exclude_match_ids):
+            raise ValueError("ALL observed operation targets must be excluded")
+        if any(
+            t.internal_competition_id != w.competition_id
+            or t.season != w.production_target_season_id
+            or t.competition_type != "DOMESTIC_LEAGUE"
+            or t.kickoff_at_utc <= cutoff
+            for t in self.targets
+        ):
+            raise ValueError("observed target identity/season/kickoff mismatch")
+        indices = []
+        for r in heads:
+            season = next(
+                (
+                    s
+                    for s in scope.seasons
+                    if r.stream.provider_fixture_key in s.included_fixture_ids
+                ),
+                None,
+            )
+            if (
+                season is None
+                or r.identity.season != season.canonical_season_id
+                or r.subject.inspection.provider_season_id != season.provider_season_id
+                or r.identity.competition_type != "DOMESTIC_LEAGUE"
+            ):
+                raise ValueError("observed identity/season membership mismatch")
+            indices.append(w.ordered_season_ids.index(r.identity.season))
+        if indices != sorted(indices) or any(
+            a.identity.season != b.identity.season
+            and a.identity.kickoff_at_utc >= b.identity.kickoff_at_utc
+            for a, b in zip(heads, heads[1:])
+        ):
+            raise ValueError("observed season order must form chronological blocks")
+        return self
+
+
+class ObservedQuantIntegrityPlanContentV1(DomainModel):
+    schema_version: Literal["OBSERVED_QUANT_INTEGRITY_PLAN_CONTENT_V1"] = (
+        "OBSERVED_QUANT_INTEGRITY_PLAN_CONTENT_V1"
+    )
+    definition: ObservedQuantIntegrityPlanDefinitionV1
+    input_roots: QuantIntegrityInputRootsV1
+    sealed_at_utc: UtcDateTime
+
+    @model_validator(mode="after")
+    def validate_plan(self) -> Self:
+        if (
+            self.input_roots != self.definition.input_roots
+            or self.definition.observed_context.actual_at_utc > self.sealed_at_utc
+        ):
+            raise ValueError("observed plan roots/seal mismatch")
+        return self
+
+
+class ObservedTerminalEloStateCoreContentV1(DomainModel):
+    evidence_basis: Literal[EvidenceBasis.CURRENT_SNAPSHOT_OBSERVED] = (
+        EvidenceBasis.CURRENT_SNAPSHOT_OBSERVED
+    )
+    training_cutoff_at_utc: UtcDateTime
+    production_target_season_id: Identifier
+    training_window_hash: Sha256Digest
+    config_hash: Literal[FIXED_ELO_CONFIG_HASH] = FIXED_ELO_CONFIG_HASH
+    teams: tuple[EloTeamState, ...]
+    training_facts: tuple[EloTrainingFact, ...] = Field(min_length=1)
+    training_data_hash: Sha256Digest
+    admitted_fact_refs: tuple[ObservedFactRefV1, ...]
+    observed_context_root: Sha256Digest
+    selected_heads: tuple[ObservedFactRefV1, ...]
+    selected_versions_root: Sha256Digest
+
+    @model_validator(mode="after")
+    def validate_replay(self) -> Self:
+        state = replay_exact_facts(
+            self.training_facts,
+            self.training_cutoff_at_utc,
+            self.production_target_season_id,
+        )
+        if (
+            state.teams != self.teams
+            or state.training_data_hash != self.training_data_hash
+            or tuple(f.match_result_id for f in self.training_facts)
+            != tuple(r.match_result_id for r in self.admitted_fact_refs)
+            or any(r not in self.selected_heads for r in self.admitted_fact_refs)
+        ):
+            raise ValueError(
+                "observed terminal facts/ratings/counts/hash replay mismatch"
+            )
+        return self
+
+
+class ObservedTerminalEloStateCoreV1(
+    IntegrityArtifact[ObservedTerminalEloStateCoreContentV1]
+):
+    schema_version: Literal["OBSERVED_TERMINAL_ELO_STATE_CORE_V1"] = (
+        "OBSERVED_TERMINAL_ELO_STATE_CORE_V1"
+    )
+
+
+class ObservedQuantIntegrityOutputContentV1(DomainModel):
+    schema_version: Literal["OBSERVED_QUANT_INTEGRITY_OUTPUT_CONTENT_V1"] = (
+        "OBSERVED_QUANT_INTEGRITY_OUTPUT_CONTENT_V1"
+    )
+    plan_ref: IntegrityArtifactRefV1
+    provenance: ObservedIntegrityProvenanceV1
+    terminal_state_core: ObservedTerminalEloStateCoreV1
+
+
+class ObservedQuantIntegrityReportContentV1(DomainModel):
+    schema_version: Literal["OBSERVED_QUANT_INTEGRITY_REPORT_CONTENT_V1"] = (
+        "OBSERVED_QUANT_INTEGRITY_REPORT_CONTENT_V1"
+    )
+    plan_ref: IntegrityArtifactRefV1
+    output_ref: IntegrityArtifactRefV1
+    provenance: ObservedIntegrityProvenanceV1
+    input_roots: QuantIntegrityInputRootsV1
+    cohort_match_ids: tuple[Identifier, ...]
+    context_version_count: int = Field(ge=1, strict=True)
+    capture_receipt_count: int = Field(ge=1, strict=True)
+    selected_head_count: int = Field(ge=1, strict=True)
+    withdrawn_head_count: int = Field(ge=0, strict=True)
+    excluded_head_count: int = Field(ge=0, strict=True)
+    training_fact_count: int = Field(ge=1, strict=True)
+    strict_walk_forward: StrictWalkForwardUnavailableV1
+    historical_model_availability: None
+    availability_denominator: None
+    probability_metrics: None
+    calibration_observation_count: None
+    replay: QuantIntegrityReplayV1
+    terminal_state_core_ref: IntegrityArtifactRefV1
+    build_recipe: ModelBuildRecipePinV1
+    implementation_code_revision: Identifier
+
+    @model_validator(mode="after")
+    def validate_counts(self) -> Self:
+        if (
+            self.selected_head_count
+            != self.withdrawn_head_count
+            + self.excluded_head_count
+            + self.training_fact_count
+            or self.context_version_count < self.selected_head_count
+        ):
+            raise ValueError("observed structural counts mismatch")
+        if (
+            self.replay.output_hash != self.output_ref.content_hash
+            or self.replay.terminal_core_hash
+            != self.terminal_state_core_ref.content_hash
+            or self.replay.state_hashes
+        ):
+            raise ValueError(
+                "observed report must bind exact replay without historical slice metrics"
+            )
+        return self
+
+
+class ObservedQuantIntegrityAttestationContentV1(QuantIntegrityAttestationContentV1):
+    schema_version: Literal["OBSERVED_QUANT_INTEGRITY_ATTESTATION_CONTENT_V1"] = (
+        "OBSERVED_QUANT_INTEGRITY_ATTESTATION_CONTENT_V1"
+    )
+    provenance: ObservedIntegrityProvenanceV1
+    purpose: Literal["OBSERVED_STRUCTURAL_REPLAY_ONLY_NOT_APPROVAL"] = (
+        "OBSERVED_STRUCTURAL_REPLAY_ONLY_NOT_APPROVAL"
+    )
+
+
+for _model in (
+    QuantIntegrityPlanV1,
+    QuantIntegrityOutputV1,
+    QuantIntegrityReportV1,
+    QuantIntegrityAttestationV1,
+):
+    _model.model_rebuild()

@@ -971,8 +971,10 @@ def test_build_rejects_incomplete_snapshot_even_for_future_effective_events(
     before = legacy.counts(production)
     authorize = production.repo._authorization
 
-    def omit(session, *args):
-        return authorize(session, *args).model_copy(update={withdrawal: ()})
+    def omit(session, *args, observed_prefix=None):
+        return authorize(session, *args, observed_prefix=observed_prefix).model_copy(
+            update={withdrawal: ()}
+        )
 
     monkeypatch.setattr(production.repo, "_authorization", omit)
     with pytest.raises(ValueError, match="complete transaction event snapshots"):

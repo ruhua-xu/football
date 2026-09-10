@@ -748,6 +748,9 @@ class SqlAlchemyAnalysisRepository:
                 raise ValueError(
                     "admitted research training results require a production release binding"
                 )
+        from football_system.infrastructure.database.observed_quant_schema import assert_no_unbound_training_results_v3
+
+        assert_no_unbound_training_results_v3(session, result_ids)
         for state in artifacts.quant_model_states:
             for fact in state.training_facts:
                 result = session.get(MatchResultRecord, fact.match_result_id)
