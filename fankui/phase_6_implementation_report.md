@@ -2,15 +2,19 @@
 
 ## 结论与范围
 
-**本轮已取得并离线核验 3 场 completed Bundesliga 真实样本，但尚未完成真实 0.6 生产验收。** 有限字段核验用途经用户明确确认并通过现有 rights-record 记录；当前可证明已持有 FT 常规时间比分快照及 provider 报告的 period 结束时间，不能证明历史结果版本的发布时间/可用时间。严格历史 pilot 保持阻断，没有生成真实 AVAILABLE Packet 或替代网页 Review，也未增加新的快照资格通道。
+**已实现获授权的 `CURRENT_SNAPSHOT_OBSERVED` 软件路线，尚未完成真实 0.6 生产验收。** 当前快照以真实本地 capture/verify/admit、完整 cohort 和固定 Elo 确定性结构重放支撑审批 V2，再构建供未来 live pin 使用的 sealed release；不是补造历史发布时间或扩大现有样本用途。旧严格历史 lane、V1/V2 工件、V3 wire 和数学保持不变。新的真实用途 DRAFT 未批准，未扩大采集、训练真实模型、创建真实 release/AVAILABLE Packet 或生成替代网页 Review。
 
 V2 实现扩展的基线为 `c9083e59a5fd3ad3a2528b5d4997b5cbcabcc415`；该提交保留且其 CI 已由外部裁决确认成功。继续使用 `feature/0.6.0-production-quant-bootstrap`，不合并 main、不发布版本；package 仍为 `0.5.0`。报告保留前批门禁记录，并单列各轮结果。提交 SHA 与 CI 状态在交付消息中列明，避免报告自引用。
 
-本轮取证基线为 `5c783e39f55b3405e2324a6e0d44ed9531670970`，保留其实现。其远端 [CI #17 / 34183713167](https://github.com/ruhua-xu/football/actions/runs/34183713167) 最终为 **Failure，57m15s**，公开 annotation 指向 Test 步骤并报告 exit code 1。完整日志需要 GitHub 登录；本轮未取得完整失败 traceback，不能据此声称具体根因。此前本地测试通过不等于远端 CI 通过，本轮不扩展 CI/审批框架或修订生产合同。
+真实三场字段取证已在 `f48ebe7448f66534d0946c8467a140c1d8d9301a` 提交，后续外部裁决明确授权当前快照的软件资格，不代替 source rights 或 production approval。其有限诊断许可、真实原始材料与截止期限保持原状。
 
-本次实现提交为 `970fb2d76c8959927e8ef4efdedf307761ecb519`（`feat: add approval v2 and controlled history corrections`）；报告单独提交。代码、测试、迁移和已授权 ADR 修订共 53 个文件，`+16218 / -456`，不含本报告的独立文档更新。
+前批 [CI #17 / 34183713167](https://github.com/ruhua-xu/football/actions/runs/34183713167) 的 **Failure，57m15s** 保留历史；现已根据具体失败测试，在 Linux/Python 3.12 复现并修复 SQLite checkout listener 生命周期缺陷。修复提交 `f6c40bf4825dae0bbd67837a39e8cec0612d7450` 的 [完整 CI #20 / 34298324161](https://github.com/ruhua-xu/football/actions/runs/34298324161) 与 [专用回归 / 34298324152](https://github.com/ruhua-xu/football/actions/runs/34298324152) 均为 **Success**。它们不覆盖后续快照实现；最新快照提交必须另有完整远端 CI 终态，真实生产写入前必须通过。
 
-- `src/football_system/interfaces/production_quant_cli.py` 提供 22 个本地命令及共享 `production_inference_context`，新增 approval-prepare 和四个 correction 命令。
+本轮快照实现为 `2209242ef98e98e5e00dd7ab3686f349dfd0bd28`（`feat: add observed snapshot training and production gates`），39 个代码/测试/migration/ADR/packaging 文件，`+14291 / -131`。本报告独立提交；本报告封存时远端 CI 尚待验证，最终提交 SHA、run URL 与终态在交付消息中列明，不把本地门禁或较早 green 冒充本轮 CI。
+
+下列为保留的 V2 实现范围：提交 `970fb2d76c8959927e8ef4efdedf307761ecb519`（`feat: add approval v2 and controlled history corrections`），当时代码、测试、迁移和 ADR 共 53 个文件，`+16218 / -456`，报告独立提交。当前快照新增内容与门禁在末节单列。
+
+- V2 时期 `src/football_system/interfaces/production_quant_cli.py` 提供 22 个本地命令及共享 `production_inference_context`；本轮增加六个 observed 命令，共 28 个，仍复用原 pilot/manifest/approval/release/live/downstream 入口。
 - `interfaces/cli.py` 已由主代理添加 production-quant dispatch、帮助入口及 `_run_live_analysis` 的成组 release/target-plan pins；本次续作未编辑该文件。
 - `tests/e2e/test_production_quant_cli.py` 覆盖入口、读取顺序、文件边界、SQLite、synthetic pilot 和完整 audited downstream 接线；新增 `tests/e2e/test_production_live_cli.py` 覆盖 live pins 依赖、精确 preparation/plan 绑定和禁止 training-provider fallback。
 - 运行时不访问 provider 付费 API、不提供假输入生成器、不自动创建 authority/来源许可或 reviewer 审核，不补造历史时间戳。新审批测试经正式 approval-record 写入后验证下游；旧 seeded V1 approval 仅保留作兼容回归。所有测试 review/pilot bridge 均为明确标注的隔离测试材料，不是现实授权。
@@ -39,11 +43,11 @@ V2 实现扩展的基线为 `c9083e59a5fd3ad3a2528b5d4997b5cbcabcc415`；该提�
 
 | 分类 | 具体结论 | 恢复条件 |
 | --- | --- | --- |
-| `MATERIAL_NOT_PROVIDED` | 最小 completed 样本已主动取得 3 场；完整 cohort 未下载，历史结果版本时间链材料仍未提供 | 先解决时间资格，不因已拿到比分就扩大下载 |
+| `MATERIAL_NOT_PROVIDED` | 最小 completed 样本已取得 3 场；完整 cohort 未下载，历史结果版本时间链仍未提供 | 当前快照软件资格已获授权；新采集仍先确认真实用途、预算、条款和保留期 |
 | `RIGHTS_UNCONFIRMED` | 仅本轮字段核验已获用户精确确认并正式记录；生产训练、pilot、release、长期/订阅后保留仍未授权 | 供应商条款与内部审核分开保存，不将有限检查许可扩张成生产权限 |
 | `FIELD_MISSING` | 本轮 3/3 有 FT、常规时间 score 和 period 时间；在这些响应中未找到结果版本 ID/order、publication 或明确 provider-finalized 字段 | 这是已取得响应的具体缺失，不认定供应商所有产品都缺少这些能力 |
 | `HISTORICAL_TIME_UNPROVABLE` | 不能将历史 finished/corrected result version 绑定到当时的 source publication/availability；HTTP Last-Modified 位于当前请求时刻 | 需要真实版本/发布时间或当时已归档观察证明；现在 receipt、kickoff、period ending 和文件 mtime 不能替代 |
-| 真实 production review | 有限 sample rights 不等于 V2 production approval；没有合格真实 manifest/pilot | 先满足现行资格，再独立审核生产 grant；不生成替代审核 |
+| 真实 production review | 有限 sample rights 不等于 V2 production approval；没有合格真实 manifest/结构重放证据 | 先完成获准来源的完整准入与相应 basis 的技术证据，再独立审核精确 production grants |
 
 已有 ignored Scottish 228 条结果使用 `kickoff + 2h` 作为 observed 时间，不是 provider source/finalization 的原始时间证据，且不是所要求的 Bundesliga 历史。不得修改这些旧数据、补造时间戳、重新标记用途或将其用于本 pilot。既有 `0.5` acceptance 与其 `MODEL_UNAVAILABLE` 事实保持不变。
 
@@ -67,9 +71,11 @@ V2 实现扩展的基线为 `c9083e59a5fd3ad3a2528b5d4997b5cbcabcc415`；该提�
 
 只读查阅的公开资料包括 [Sportmonks fixture entity](https://docs.sportmonks.com/v3/endpoints-and-entities/entities/fixture.md)、[scores](https://docs.sportmonks.com/v3/tutorials-and-guides/tutorials/includes/scores.md)、[states](https://docs.sportmonks.com/v3/definitions/states.md)、[periods](https://docs.sportmonks.com/v3/tutorials-and-guides/tutorials/includes/periods.md)、[latest-updated fixtures](https://docs.sportmonks.com/v3/endpoints-and-entities/endpoints/fixtures/get-latest-updated-fixtures.md)、[changelog](https://docs.sportmonks.com/v3/changelog/changelog.md) 和 [terms](https://www.sportmonks.com/terms-of-service/)。10 秒 latest-updated feed 不是历史版本 ledger；历史 period 数据可能 backfill，`last_processed_at` 已在旧 changelog 中移除。这些是字段解释线索，不是对账户权限或缺失原始样本的替代证明。
 
-以上为前批 NS 样本诊断，不能覆盖本轮新取得的 FT 样本结论。本轮原生 numeric IDs、UNIX timestamps 和数组关联已由纯离线诊断工具完成明确转换，生产 verifier 未放宽。Pilot 元数据与 result 共用同一 capture 的限制属于系统适配边界；未通过复制、改名或隐藏原始来源规避。历史赔率缺失仅令独立 benchmark unavailable，不阻断合格 Quant integrity pilot。
+以上为前批 NS 样本诊断，不能覆盖随后取得的 FT 样本结论。取证提交中的 numeric IDs、UNIX timestamps 和数组关联由纯离线诊断工具转换，没有放宽严格生产 verifier。后续获授权的 observed 版本允许同一原始 capture 的透明角色关联，不复制、改名或隐藏来源；旧严格 shared-capture guard 保留。历史赔率缺失仅令独立 benchmark unavailable，不阻断相应 basis 下合格的 Quant integrity evidence。
 
 ## 2026-09-08 实样取证
+
+本节记录 `f48ebe7` 时期的有限字段核验，不是本轮新快照采集或训练记录。
 
 ### 用途与条款
 
@@ -119,7 +125,7 @@ Provider API sends 合计 8，其中 fixture 恰好 5，已经达到本轮确认
 
 `scripts/inspect_sportmonks_sample.py` 是小型纯离线诊断工具，无网络/Key/数据库/审批调用。它保留 missing/null/zero 的区别，按真实 array index 输出证据 pointer，并保持 provider finalization 和 result-version publication 为 UNPROVEN。它不产出训练准入或未来预测快照资格。通用 verifier 的字符串/ISO 时间/固定 pointer 要求属于格式适配；缺失的时间语义不是格式转换能够补足的。
 
-当前 pilot 共享 metadata/result capture 的限制也单独报告。原生 response 中 metadata 与 score/result_info 共存，transport `.metadata.json` 不构成独立 fixture/season 证据；本轮没有复制、改名或隐藏 response 来绕过它。现行严格历史 pilot 保持阻断。是否另增“当前已取得历史快照用于未来预测”的资格需要外部裁决，本轮不实施新通道或伪造指标。
+取证当时的 pilot 共享 metadata/result capture 限制也单独报告。原生 response 中 metadata 与 score/result_info 共存，transport `.metadata.json` 不构成独立 fixture/season 证据；取证没有复制、改名或隐藏 response 来绕过它。严格历史 pilot 仍缺少时间证据。后续外部裁决已授权新增当前快照通道，具体实现见末节；此裁决没有将这三场有限诊断样本升级为训练输入。
 
 离线重放命令（使用私有根中 metadata 确认的 IDs，输出新文件名，不覆盖）：
 
@@ -153,6 +159,12 @@ football-system production-quant correction-reference --print-schema
 football-system production-quant correction-prepare --print-schema
 football-system production-quant correction-admit --print-schema
 football-system production-quant correction-context --print-schema
+football-system production-quant observed-scope-prepare --print-schema
+football-system production-quant observed-scope-record --print-schema
+football-system production-quant observed-prepare --print-schema
+football-system production-quant observed-admit --print-schema
+football-system production-quant observed-context --print-schema
+football-system production-quant observed-inspect --print-schema
 football-system production-quant pilot-plan --print-schema
 football-system production-quant inspect --print-schema
 football-system production-quant bundle-export --print-schema
@@ -182,10 +194,16 @@ football-system production-quant --print-schema --type AppSettings
 | `rights-record` | `RightsRecordRequestV1`：`request_key`, `rights_payload`, `reviewer_attestation` | 核验已有条款、trusted pins 和授权 review 后记录许可；不是生成许可 |
 | `capture` | `CaptureRequestV1`：`request_key`, `source_rights_admission_id`, `source_id`, `provider_code`, `evidence_reference` | CLI 只预检路径语法；仓库核验持久化 rights 后才读取本地 JSON，记录实际 `LOCAL_FILE_IMPORT` receipt；不声称上游获取时间 |
 | `admit` | `AdmitRequestV1`：`request_key`, `source_rights_admission_id`, `submissions` | 每项为 `TrainingFactSubmissionV1`，核对候选、capture、adapter、review 与已存在身份，原子记录事实 |
-| `pilot-plan` | `PilotPlanRequest`：`definition` | 原 V1 请求保留；含 corrections 使用明确的 `QUANT_INTEGRITY_PLAN_DEFINITION_V2`、typed context pin 和 V2 targets，不靠出现某字段猜版本 |
+| `observed-scope-prepare` | 显式 V1 tag；rights/source、competition、完整 seasons/cohort、receipt/record 上限、TRAINING/VALIDATION、retention、`user_terms_resolution` | 只读准备不含未来记录时间的精确 collection scope；不生成条款结论或审核 |
+| `observed-scope-record` | 显式 V1 tag；`request_key`, `subject`, `reviewer_attestation` | 核验真正的新审核，记录实际时间及 capture ledger high-watermark；旧诊断许可不升级 |
+| `observed-prepare` | 显式 V1 tag；`scope_id`, `snapshots` | 从 scope 后取得的 receipts/原始 pointers 解析 native 事实与现有身份，返回待审核 subject |
+| `observed-admit` | 显式 V1 tag；`request_key`, `scope_id`, `submissions` | 原子验证完整 cohort、身份目录证据、真实角色观察、前序与审核；正常结果复用 `match_results`，withdrawal 不伪造比分 |
+| `observed-context` | 显式 V1 tag；完整 `scope` ref、`selection_cutoff_at_utc`, `exclude_match_ids` | 只读核验全部前序并选择严格 cutoff 前的 whole heads，返回可复用的 typed context |
+| `observed-inspect` | 显式 V1 tag；`admission_id` | 只读复验持久化 observed admission；不是新采集或当前生产授权 |
+| `pilot-plan` | `PilotPlanRequest`：`definition` | 原 V1 与 corrected V2 保留；快照明确使用 `OBSERVED_QUANT_INTEGRITY_PLAN_DEFINITION_V1`，不靠任意字段猜版本 |
 | `pilot-run` | `PilotReferenceRequestV1`：`plan_ref` | 先持久化 reservation，再通过现有服务执行离线概率完整性计算与 replay；失败 attempt 保留 |
 | `pilot-attest` | `PilotReferenceRequestV1`：`plan_ref` | 汇总全部 attempt，绑定最后成功报告并终结 series；不授予生产许可 |
-| `manifest` | 原 V1 字段保留；V2 显式 `PRODUCTION_QUANT_MANIFEST_REQUEST_V2` 增加 `correction_context`, `context_registered_at_utc`, `selection_cutoff_at_utc`, `exclude_match_ids` | 验证 terminal selected graph 与完整 predecessor context；不接受 synthetic pilot 作为现实生产证据 |
+| `manifest` | 原 V1/corrected V2 保留；快照显式 `PRODUCTION_QUANT_OBSERVED_MANIFEST_REQUEST_V1`，绑定 `observed_context`, `selection_cutoff_at_utc`, `exclude_match_ids` | 验证 terminal selected graph、完整前序与实际持久化技术证据；不接受 synthetic pilot 或空壳依赖作为生产证据 |
 | `approval-prepare` | `ApprovalPrepareRequestV2`：manifest、四项 grants、approver、authority、retention compatibility、可选显式 supersession | 只读返回不含实际记录时间的精确 V2 review payload；不生成审核 |
 | `approval-record` | `ApprovalRecordRequestV2`：`request_key`, `approval_payload`, `reviewer_attestation` | 核对原始审核文件、authority 和精确 V2 hash，再原子记录；拒绝旧 V1 写请求、缺证据和旧审核 replay，不自动转换 |
 | `correction-reference` | `receipt_id`, `record_pointer` | 审计已存在 capture，返回完整 receipt/record hashes；不新采集、不生成审核 |
@@ -229,7 +247,7 @@ football-system live run-analysis --config FILE --database-url SQLITE_URL --prep
 
 仍可用 `--date YYYY-MM-DD` 替代 `--preparation-id`，但只能解析到唯一 ready preparation；命令不会猜测目标 plan。生产 request 的 decision/kickoff window、比赛集合、competition/season、preparation ID、fixture observation IDs 必须与选中的已持久化 preparation 和 target plan 精确一致。release 和 target plan 必须配对，不能用另一个 cutoff/目标范围的 plan 替换。生产路径不接受调用者提供的 `execution_time_utc` 来回填 run 时间；使用实际操作时钟。
 
-生产推理明确披露 `decision_data_mode=LIVE_STRICT`、`model_training_source_mode=SOURCE_TIME_RESEARCH`、`model_training_use_class=APPROVED_TRAINING_HISTORY` 和 retrospective facts，不把 research 历史改标为实时采集。服务不构造或调用 research training provider，也没有缺失 release 后的历史 provider fallback。仓库为验证已释放状态、授权和血缘而复核受控本地原始证据，属于审计，不是重新抓取或从 research provider 重新训练。
+生产推理的共同语义为 `decision_data_mode=LIVE_STRICT` 与 `model_training_use_class=APPROVED_TRAINING_HISTORY`。Legacy request/audit content 保留 `model_training_source_mode=SOURCE_TIME_RESEARCH`；observed request/audit content 改用明确的 `model_training_evidence_basis=CURRENT_SNAPSHOT_OBSERVED`，拒绝混入该 legacy 字段，不是简单追加字段。Observed scope/subject 仍必填并封存 `SOURCE_TIME_RESEARCH`、`retrospective=true`，完整绑定图保留来源语义，不往冻结的 V3 wire 或旧工件补字段。服务不构造或调用 research training provider，也没有缺失 release 后的历史 provider fallback。仓库复核受控本地原始证据属于授权/血缘审计，不是重新抓取或从 research provider 重新训练。
 
 `bundle-export` 发布的目录严格包含：
 
@@ -272,9 +290,9 @@ authority、review、adapter 和原始文件全部保留在受控本地目录。
 
 数据库 ID 才能解析到的证据仍由仓库在正确事务和 pilot reservation 门禁之后验证，不为了 CLI 预检提前读取目标结果。仓库也会复核证据，预检不是绕过其校验。
 
-`inspect` 和 `revoke-prepare` 使用 SQLite `mode=ro` 连接，绝不自动创建或迁移数据库。旧 schema 的读取失败不会修改原数据库；需另行安排获授权的迁移。其他写命令可在预检通过后迁移，后续仓库拒绝不等于迁移被回滚。
+所有 prepare/context/inspect 等只读命令使用 SQLite `mode=ro` 连接，绝不自动创建或迁移数据库，包括四个 observed 只读入口。旧 schema 的读取失败不会修改原数据库；需另行安排获授权的迁移。写命令可在预检通过后迁移，后续仓库拒绝不等于迁移被回滚。
 
-不指定 `--output` 时，stdout 输出 canonical JSON。指定时，在同目录写临时文件、flush/fsync 后通过硬链接原子发布，**任何已有文件均不覆盖，即使内容相同也拒绝**；stdout 仅返回状态、ref（如适用）、文件字节数和 SHA-256，不重复大契约。底层文件系统不支持该原子操作则失败，不退化为覆盖写。
+所有 `observed-*` 实际操作，以及 observed `pilot-plan`/`manifest` 请求，**必须显式提供私有本地 `--output`**，否则在数据库前拒绝；help/schema 查询不受此要求影响。其他请求保留原行为：未指定 `--output` 时 stdout 输出 canonical JSON。指定时，在同目录写临时文件、flush/fsync 后通过硬链接原子发布，**任何已有文件均不覆盖，即使内容相同也拒绝**；stdout 仅返回状态、ref（如适用）、文件字节数和 SHA-256，不重复大契约。底层文件系统不支持该原子操作则失败，不退化为覆盖写。即使后续共享命令未强制 `--output`，真实 derived 工件仍须保持私有。
 
 `inspect capture` 仅输出 receipt，不输出数据库中的 `payload_bytes` 或原始 provider JSON。CLI 不读取 provider key，错误不回显输入值、Pydantic input/location、SQL 参数、数据库 URL、原始异常文本或 traceback。错误输出为 sanitized `PRODUCTION_QUANT_CLI_ERROR_V1` JSON。
 
@@ -344,7 +362,7 @@ python -m ruff check .
 ## V2 实现边界与验收（前批）
 
 - 实现范围内的 correction 保持同一 `internal_match_id` anchor，支持比分、时间、球队关联、赛季、mapping policy、status withdrawal/restoration；跨 canonical match 的 provider 重指仍明确拒绝，不把它伪装成普通结果修订。此边界不是通过第二套比赛/赛果表解决。
-- 原生 source 混合 metadata/result 文档不能用于 plan 前 metadata 读取。需要分离的、可核验 metadata capture；共用 receipt、同 payload 或路径别名在读取前拒绝。源数据完整字节仍在 admission 和 reservation 之后复验。
+- 严格历史 V1/V2 的原生混合 metadata/result 文档不能用于 plan 前 metadata 读取；该 lane 需要分离的可核验 metadata capture，共用 receipt、同 payload 或路径别名在读取前拒绝。后续获授权的 observed lane 使用显式新版本，透明复用同一真实原始 capture，不声称历史 point-in-time 性能。
 - 前批尚无真实样本；本轮已按有限用途取得 3 场，但真实 integrity pilot/生产审核及其时间资格仍未具备，所以没有真实性能数字、sealed production release 或新的 AVAILABLE Packet。不会自动购买接口、创建许可或生成网页 Review。
 - V1 approval 保留 golden/hash/解析与升级回归；旧记录、旧运行和 Packet/Review V3 不自动转换。新的正式 writer/CLI 与 corrected workflow 结果只作为隔离测试证据。
 
@@ -373,4 +391,68 @@ python -m ruff check .
 - 同一来源事实在不同 admission/batch-local sequence 下有不同 audit binding，但来源版本 fingerprint 只排除局部 sequence，保留全部来源/审核内容。子集重新准入不会破坏原 base pin；旧 release 正确变 stale，完整新 corrected release 可用。原始 V1 bytes 不改写。
 - 纠正后的 context rows 必须有非空、真实存在的 typed correction FK；共享 result-bearing capture 在 plan 前读取前拒绝；f51 空图 downgrade 保留真正的 populated V1 plans/reports/attestation，V2/未知图拒绝降级。独立审查复现的问题均有针对性修复和回查。
 
-本轮已完成有限用途确认与最小 completed 样本获取，不能继续使用“未提供最小样本”作为统一阻塞原因。下一步需要供应商可证实的历史版本时间证据，或对“当前持有历史快照用于未来预测”另作明确资格裁决；本轮不自行放宽现行严格时间合同，也不把有限核验 rights 扩大为生产权限。真正 AVAILABLE Packet 尚未生成，不进入网页 GPT Review 验收。
+以上为 V2 与有限取证的历史证据。当前快照的软件资格裁决已经收到并实现，不再以“未提供最小样本”或缺少严格历史性能作为该软件路线的统一 blocker。真实新用途、供应商条件与生产 grant 仍分别待确认；真正 AVAILABLE Packet 尚未生成，不进入网页 GPT Review 验收。
+
+## SQLite CI 缺陷闭环
+
+原失败为 `tests/integration/test_database_schema.py::test_external_sqlite_engines_restore_pragmas_on_every_checkout[create_session_factory]`：`PRAGMA foreign_keys` 返回 0，原断言要求 1。没有删除断言、放宽外键或将失败转为 skip。
+
+- 未改应用的复现提交为 `4806655`；[Linux 复现 / 34296035647](https://github.com/ruhua-xu/football/actions/runs/34296035647) 在 Python 3.12 捕获预期缺陷：`event.contains()` 报 True，但新 pool 的实际 checkout dispatch 无 callback，DBAPI/SQLAlchemy 均不在事务内，两项 PRAGMA 都为 0。该任务 Success 表示预期缺陷被成功复现，不是旧实现无缺陷。
+- 根因是旧 pool 生命周期结束后对象 ID 复用，event registry 的注册判断与新 pool 实际 listener 分离。`session.py` 改为检查实际 `pool.dispatch.checkout` 的 callable membership；callback 设置并读回 `foreign_keys` 与 `recursive_triggers`，必须都为 1，否则拒绝 checkout。
+- Callback 不 commit/rollback、不切换 autocommit/isolation。新增 64 项 lifecycle 测试覆盖四种 pool、default/DEFERRED、dispose/recreation、重复配置、强制 registry false-positive、真实非法 FK 写入拒绝及活动事务；原失败测试原断言保留。本地对应两文件 99 passed，另有 2000 次生命周期探针未再复现缺陷。
+- 修复提交 `f6c40bf` 的专用 Linux 回归与完整 CI #20 均 Success；专用环境为 Python 3.12.14、SQLAlchemy 2.0.52、SQLite 3.45.1。较早 CI 的偶然成功与 Windows 本地通过都不替代此复现/修复证据。
+
+## 当前快照实施
+
+### 事实与版本
+
+新增 `EvidenceBasis`，不增加 `HistoricalDataMode`。`VERIFIED_HISTORICAL_SOURCE_TIME` 保持旧严格语义；`CURRENT_SNAPSHOT_OBSERVED` 必须显式封存 `SOURCE_TIME_RESEARCH` 与严格 boolean `retrospective=true`。未知 provider publication/finalization/version 为 null；sporting end、本地 HTTP metadata 与 LOCAL_FILE_IMPORT receipt 分别保留原义。
+
+`observed_training.py`、`observed_training_repository.py`、`observed_training_schema.py` 提供 collection scope、native snapshot subject、正式 admission 和完整本地版本 context。复用已有 canonical matches、provider mappings、aliases、competition mappings 与 normalized `match_results`，不建第二套比赛/赛果或通用审批平台。Native parser `sportmonks_observed.py` 支持完整 response bytes、显式 `/data/N`、无损 numeric IDs、主客关联、FT 常规时间比分/period 核验；CURRENT 不能代替常规时间累计比分。
+
+Scope 固定实际 provider/canonical seasons、完整来源 cohort/例外、TRAINING/VALIDATION 用途、receipt/record 上限和有界 retention。Scope 审核后记录真实时间和实际 capture-ledger high-watermark，新的 receipts 必须在其后；旧三场 review/capture 不升级。HTTP sends 在独立获批采集计划中计数，不以本地 receipt 数冒充预算。
+
+每个 subject 保留三个角色的原始 payload/record/outcome hash、pointer、真实 capture time 和 ordinal。同一 capture 可透明供给多个角色，但结果必须一致，不能用新 metadata 时间刷新旧比分；各角色都严格早于训练 cutoff。身份引用须在最早角色观察前存在，冲突检查覆盖最晚角色观察；`ObservedIdentityEvidenceV1` 封存当次实际使用的 catalog row IDs/hash，并在 admission parent seal 处由 SQL 核对完整选择。历史重放重新读取、hash 并核验这些原行，不把后来同 timestamp 的 alias 添加反向灌入旧判断；新 head 重新检查当前候选。
+
+修订沿同一 canonical anchor 保留完整前序；最新 CANCELLED、身份矛盾或未知主客形成不可训练 whole head，不回退旧 FT、不制造 normalized 比分。Root 身份必须明确。新版本按本地 capture ordinal/admission sequence/registration 生效，不推测 provider revision time。SQL 同时约束完整初始 cohort、前序 parent 已封存且更早、真实 watermark、累计版本数和跨三个角色的 distinct receipts；直接 ORM/SQL 也不能留下超限或部分 immutable 图。
+
+### 生产与审计
+
+`ObservedQuantIntegrityPlanDefinitionV1` 复用现有 plan/reservation/attempt/report/summary/attestation，绑定完整 observed context、固定 recipe/code revision、selected heads、真实 seasons 与无条件 target exclusion。`OBSERVED_COHORT_STRUCTURAL_REPLAY` 只证明完整性、顺序、season transition、Elo state/hash 与 deterministic replay，不在训练数据上自评分冒充验证。Strict walk-forward 为 `UNAVAILABLE`，reason 为 `UNPROVEN_HISTORICAL_VERSION_TIME`，metrics 为 null；availability、Brier、LogLoss、ECE/bins/分母不填零。结构 counts 不是性能数字。
+
+Observed manifest/release/technical evidence/current authorization/audit content 显式版本化。ApprovalV2 仍审核精确的既有 manifest/technical refs 与四类 grants，正式 recorder 绑定原 review 和事务实际时间。公共 production gate 独立重建实际持久化的技术证据图，拒绝 echo/no-op bridge、自报 hash、缺少 typed links 或 synthetic promotion。Scope TRAINING、VALIDATION 均须具备，更宽 production grants 不扩大 source/scope。
+
+Release 记录当时的 admission-prefix/high-watermark；旧 captured authorization 与新操作的完整当前授权分别重放，后来同 timestamp 的 correction 不改写已封存结果。所有 snapshot capture/admission 严格早于训练截止；manifest selection cutoff 与 release cutoff 精确绑定到微秒。快照 cutoff 只冻结事实选择，后续结构证据/manifest/approval 可以晚于它，但 approval 必须先持久化且不晚于 build start，build 严格晚于 cutoff；旧严格 lane 的 approval-before-cutoff 保留。Live 只 pin 预先 sealed release/target plan；已使用 observed normalized 事实即触发 mandatory production binding，删除 caller markers 不能经旧未审计入口保存。
+
+所有操作最后一次证据/SQL I/O 后重新观察实际时间，复核 source rights/scope/grant/retention 后才返回或提交。Exact plan retry 同样执行最终门禁；terminal sealing 保留全 series 各 plan 的 scope/rights，包括失败和未执行的先前计划，一次最终时钟共同复核。旧 attempt 仍用原 context 重放，不要求其 head 等于最后一次 corrected head。Legacy V1/V2 admission 扫描不会把 pending observed reservation 当成旧 definition。
+
+新增 migrations `062f3a5c1798`、`17304b6d28a9` 依次承接 `f51e294b0687`；runtime 与 migration 共用对应 versioned factory。没有修改已提交的旧 migration/hash 语义；两个新 migration 尚无真实生产数据。Empty downgrade、populated refusal、旧行/V3 保留、typed FK 与 runtime parity 均有隔离测试。Package 仍 `0.5.0`。
+
+### 本轮收尾门禁
+
+前一次实现的全仓分区覆盖为 2346 passed / 1 skipped；随后收尾审查复现并修复八项边界问题，新增回归并刷新门禁。该旧计数不冒充修复后最终结果。
+
+| 门禁 | 修复后实际结果 |
+| --- | --- |
+| Unit + contract | `1305 passed, 1 skipped`，207.02 秒；包含固定数学、旧 V1/V2/V3 golden 和 native parser |
+| 全部 integration | 26 文件、884 个不同用例全部 passed；12 个 bounded batches，0 failure/error/skip/漏项/重复计数，执行窗口 68m33s |
+| 全部 E2E | 12 文件、201 个不同用例全部 passed；13 个 disjoint bounded batches，0 failure/error/skip/漏项/重复计数，8 warnings；此前 40 分钟超时运行未计入 |
+| 全仓覆盖 | **2390 passed, 1 skipped**，对应全部 2391 collected nodes；完整分区覆盖，不是单次整仓 pytest 成功 |
+| Ruff / compileall | `python -m ruff check .` 与 `python -m compileall -q src tests migrations scripts` 通过 |
+| Fresh migration | 收尾修复后全新 SQLite `upgrade head` + `command.check` 通过；head `17304b6d28a9`，`No new upgrade operations detected` |
+| Wheel build / installed-wheel E2E | 最终 source 重新 build 通过；55 项资源、版本 `0.5.0`，隔离安装 provenance、observed scope schema、pinned live help、8 条历史 CLI 路径、2 x 10 slices、settlement/report 与 head `17304b6d28a9` 均通过 |
+| 独立收尾复核 | 八项已复现问题的修复回查无新增 finding，48 个定向用例 passed；不将定向数加到全仓分母 |
+| Secret / scope / whitespace | 39 项实现 staged files 及本报告全文经独立复核，未发现真实凭证/raw/账户材料/现实审批或数学/V3 越界；staged/unstaged `git diff --check` 均通过 |
+| 新 snapshot 远端 CI | 本报告封存时待验证；最新 SHA/run URL/终态在交付消息列明，不以已 green 的 f6c40bf 代替 |
+
+修复后 source package revision 为 `package:b298025402c603e3b19ec32573fe94748980bca33fde84a3cd88bc08058c6b68`，integration/E2E 前后相同。计数以不同 collected nodes 的完整覆盖为准，分区执行不称为单次整仓 pytest 成功。唯一 Windows skip 是 POSIX dir_fd/O_NOFOLLOW；Windows opened-handle/junction 已测试。Integration 的 30 个 warning 为 24 个旧 sqlite datetime adapter 弃用提示及 6 个 deferred FK 环排序提示；E2E 另有 7 个同类 datetime 弃用和 1 个 AppSettings Path schema 默认值提示。没有 suppress；未来 SQLAlchemy 升级仍须复验。真实完整 cohort 的资源/耗时尚未验收，隔离测试不是生产容量或真实性能保证。
+
+### 新用途 DRAFT
+
+本地 `data/research/bundesliga_observed_training_DRAFT/request.DRAFT.json` 和 `用途待确认说明.DRAFT.md` 为 **DRAFT_NOT_APPROVED**，被 Git ignore，不是合法 rights/scope/approval 请求，也没有 actual review/recording time。未新增本轮 provider 请求、未记录真实新用途、未修改旧三场或 Scottish/0.5 数据。
+
+草稿只提议 Bundesliga 2025/2026 的完整 source-defined cohort，实际 IDs/count、当前 entitlement 和 receipt/record limits 待核验；不按 FT-only、比分或效果换样，不把通常 306 场当已证明数量。总上限提议 20 HTTP sends：账号 1、league/season 1、cohort index 最多 7 页、同 cohort details 最多 7 页、限定核对 4；每页 50，失败计数，0 自动重试，不购买/升级，不含 future target/odds 请求。
+
+拟定外部截止 `2026-09-12T00:00:00Z`，须与已验证 entitlement 截止取更早者，实际 deadline 和清理责任人尚未确认；若确认时草稿过期必须重新明确，不自动延长。Raw、normalized、state/release、audit 和本轮复制/备份均受实际获准的有界保留规则约束，不请求订阅后使用或无限期保留。供应商具体 training/derived-state/audit 条件不明时，仅内部批准不够，不能写成允许。原三场仍限字段核验，到 `2026-09-15T00:00:00Z` 或更早失去访问时停止并删除，不自动安排或声称已执行清理。
+
+最新代码完整 CI green、本人明确的新用途确认和适用供应商条件齐备后，才可执行有预算的真实采集与正式 scope/admission/结构 replay。其后另行精确 ApprovalV2、release 与未来 target；真正 Packet 形成后等待网页 GPT Review，再经本地 validate/import、FusionRun、PortfolioRevision，允许 NO BET。当前不满足这些真实门禁，不作发布或可下注声明。
