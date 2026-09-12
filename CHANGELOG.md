@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.0 - 2026-09-12
+
+- 完成并冻结 Production Quant Bootstrap：来源许可、完整 cohort/事实准入、相应时间依据的 quant integrity evidence、精确 ApprovalV2、sealed release、pinned live 及 mandatory audit/downstream 门禁。
+- 增加与 data mode 正交的 `CURRENT_SNAPSHOT_OBSERVED` 时间依据，保留 `SOURCE_TIME_RESEARCH` / retrospective provenance 与实际本地 capture/verify/admit；未知上游 publication/finalization/version 不补造。当前快照使用固定 Elo structural replay，严格历史性能明确 UNAVAILABLE/null。
+- 保留既有审批 V1 bytes/hash，使用独立 ApprovalV2 payload 与记录事件解决事先精确审核；复用现有 canonical matches/results、多赛季窗口与 append-only correction/whole-head/prefix 机制，不重写旧工件。
+- 新增的 versioned 持久化与校验已至 Alembic head `17304b6d28a9`；SQLite checkout listener 生命周期缺陷已通过 Linux 复现、实际 dispatch 修复与回归验证。
+- 用户接受真实 Bundesliga 完整赛季准入、fixed Elo structural replay、正式 ApprovalV2/release、真实 MODEL/AVAILABLE V3 Packet、用户网页 Review 导入、FusionRun 和 PortfolioRevision 闭环；最终 NO_BET。此为工程验收，不是模型历史表现或收益声明。
+- 发布收尾仅同步 `0.6.0` metadata、版本提示、wheel 验收期望和文档；不改预测数学、EV 公式、V3 wire、历史 artifacts 或验收结果。受限 raw/state/audit 和私有审核材料不进入发布；原 retention/清理义务继续有效。
+- 最终验收与门禁说明见 `fankui/phase_6_final_acceptance_report.md`。正式 closeout 还须核验最终候选、main 与 annotated `v0.6.0` tag 的 CI；不提前开始 0.7。
+
 ## 0.5.0 - 2026-09-05
 
 - 增加显式 `live ingest-fixtures` vertical slice：仅在执行命令时从 `SPORTMONKS_KEY` 读取凭据，通过受审计的 Sportmonks HTTP client 获取指定 league/season/kickoff scope，并在规范化前封存 raw response。

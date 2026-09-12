@@ -5,8 +5,8 @@
 ## 发布状态
 
 - `v0.1.0` 固定在提交 `fceb945d07218290dc85b465e885a47ae9912c3f`，保留原始 MVP 行为。
-- 当前正式发布 package metadata 为 `0.5.0`；该版本增加真实数据闭环，但不改变既有概率、EV、计奖、风险、离线 Review、FusionRun、PortfolioRevision 和不可变 AnalysisRun 合同。
-- `0.5.0` 仅支持 SQLite。运行时建库、Schema 创建和 Alembic 迁移都会在加载其他数据库驱动前拒绝非 SQLite URL。
+- 当前 package metadata 为 `0.6.0`；Production Quant Bootstrap 的真实验收已获用户接受，功能冻结。最终验收与发布门禁见 [Phase 6 最终验收报告](fankui/phase_6_final_acceptance_report.md)，远端 main/tag CI 终态另在发布交付记录中核验。
+- `0.6.0` 仅支持 SQLite。运行时建库、Schema 创建和 Alembic 迁移都会在加载其他数据库驱动前拒绝非 SQLite URL。
 - 只有显式执行 `live ingest-fixtures` 或 `live ingest-market-odds` 才会分别读取 `SPORTMONKS_KEY` 或 `ODDS_API_KEY` 并访问网络；`ingest-fixtures-manual`、Sporttery、reconcile、review import、prepare-analysis 和 run-analysis 均为本地 I/O。项目不连接真实 LLM API，不执行自动下注。
 
 ## 当前能力
@@ -22,6 +22,17 @@
 - provider-neutral `DAILY_SLATE_PLAN_V1`：从 reviewed Sporttery manual archive 或轻量 `SPORTTERY_DAILY_SLATE_INPUT_V1` 生成确定性 identity reconciliation 与 capture plan；只复用 cutoff 前已存在的 canonical identity，不创建比赛、不联网，也不产生 AnalysisRun。
 - append-only live reconciliation/review 与 persisted-only analysis preparation；preparation 按 decision cutoff 冻结 fixture observation、market consensus 和 Sporttery provenance，并对缺失、陈旧或覆盖不足输入给出 reason code。
 - `live run-analysis` 只重放一份 ready preparation，以固定 `ELO_THREE_WAY_BASELINE_V1` 创建 V3 model AnalysisRun；run 与 preparation 的完整 ready-match graph 由专用 append-only 关系封存。
+- Production Quant Bootstrap：source rights、完整 scope/事实准入、受控 correction、相应时间依据的 integrity evidence、精确 ApprovalV2、sealed release 和 pinned live；已批准历史的 Packet 导出与后审路径均要求 mandatory audit sidecar 和当前授权。
+
+## Production Quant Bootstrap
+
+`production-quant` 提供现有 28 个受控本地命令。使用 `football-system production-quant --help` 和 `--print-schema` 查看安装版本的精确入口与请求类型；完整串联说明见 [实施报告](fankui/phase_6_implementation_report.md) 和 [ADR-0008](fankui/decisions/0008-approved-training-history.md)。帮助/schema 查询不访问数据源，也不创建许可或审核。
+
+`EvidenceBasis` 与 data mode 分离：已验证历史 source time 保持严格路径；`CURRENT_SNAPSHOT_OBSERVED` 使用当前实际 capture/verify/admit 的历史快照，仍为 `SOURCE_TIME_RESEARCH`、`retrospective=true`。未知 provider publication/finalization/version 不用比赛结束时间或本地时钟填充。当前快照按完整 cohort 和固定 Elo structural replay 验收，不能据此给出严格历史 walk-forward 性能；相应指标明确 `UNAVAILABLE / UNPROVEN_HISTORICAL_VERSION_TIME / metrics=null`。
+
+真实来源、scope 和技术证据通过后，reviewer 审核精确 `TRAINING_HISTORY_APPROVAL_PAYLOAD_V2`，正式 recorder 绑定原 review 与真实记录事件，再构建 sealed release。Live 只消费明确指定且预先存在的 release/target plan，不直接调用 research training provider。V3 wire 不变；source/approval/release 血缘通过版本化 model-source 与 mandatory audit bundle 验证。更正、撤销、到期或 hash 不匹配按各自当前使用门禁处理。
+
+软件版本发布不授予任何数据用途、订阅、推理或保留权利。既有真实验收工件保留原 code revision、时间和 hash；不得因 version bump 重新生成或重绑定。真实 raw/state/audit 与审核文件保持本地，按已确认 retention 清理，不进入公开 Git 或 wheel。
 
 ## Live Source Ingestion
 
@@ -152,13 +163,15 @@ NOT REAL HISTORICAL PERFORMANCE
 
 外部协作者只处理已封存 AnalysisRun 导出的白名单 Packet，并返回绝对 `P_llm`；本地严格校验、追加导入，再创建 FusionRun 和独立 PortfolioRevision。导入不会更新原 AnalysisRun、`P_final`、候选、Ticket 或 Portfolio。V1/V2 只接受手工 `P_quant` lineage；V3 增加 `started_at_utc`、结构化 model state/evaluation hashes、紧凑训练 match/result ID lineage，以及有预测/无预测两种显式状态。model-unavailable 比赛必须返回 `MODEL_UNAVAILABLE`，不会伪造概率；若整次运行没有任何可用 base prediction，则拒绝创建 FusionRun。合同见 `fankui/llm_review_v1_contract.md`、`fankui/llm_review_v2_contract.md` 与 `fankui/llm_review_v3_contract.md`。
 
-## 0.5.0 已知限制
+## 0.6.0 已知限制
 
 - 当前 live Elo 可能因缺少合格 `LIVE_STRICT` history 而明确返回 `MODEL_UNAVAILABLE`；不复制 `P_market`，也不生成伪 `P_quant` / `P_final`。
-- ADR-0007 保持不变，`SOURCE_TIME_RESEARCH` 不允许重标或混入 live。历史 Elo bootstrap 属于下一阶段，本版本不处理。
+- ADR-0007 保持不变，`SOURCE_TIME_RESEARCH` 不允许重标或直接混入 live provider。批准历史只经独立 build 生成 release；当前快照的历史发布时间未知不会被审批补造。
 - 当前正式选择市场仍只支持 `THREE_WAY`；正式 pass type 仍只支持简单 `2X1`，不支持3串4、4串11或复式。
 - 不连接真实 LLM API，不执行自动下注、账户登录、支付或出票。
-- 不支持真实历史数据或生产抓取、网页 GPT 历史回测、自动调参、机器学习 `P_quant`、Web 或调度器。
+- 不提供通用生产抓取平台、网页 GPT 历史回测、自动调参、复杂机器学习模型、Web 管理界面或通用调度器。一次真实闭环与 NO_BET 结果不等于样本外性能或收益证明。
 - 结算不支持取消、腰斩、`VOID`、退款、加时、点球或串关降级；这些情况只能显式记录为 `UNSUPPORTED_SETTLEMENT_CASE`，不能猜测返还规则。
 
 历史回测规范见 `fankui/backtest_v1_contract.md`；设计沿革见 `fankui/historical_data_backtest.md`，架构与模型资料见 `fankui/architecture.md` 和 `fankui/data_model.md`。
+
+`0.6.0` 收尾后停止功能开发；`0.7 Strategy Profile + Pass Type Engine` 必须等待独立指令，不在本次发布中提前实现。
