@@ -1,18 +1,18 @@
 # Football System
 
-可回放的足球比赛分析、中国竞彩简单2串1组合决策、Portfolio 风险分析、离线 LLM 文件协作和严格时间序列回测工具。
+可回放的足球比赛分析、中国竞彩2X1/3X4/4X11组合决策、Portfolio 风险分析、离线 LLM 文件协作和严格时间序列回测工具。
 
 ## 发布状态
 
 - `v0.1.0` 固定在提交 `fceb945d07218290dc85b465e885a47ae9912c3f`，保留原始 MVP 行为。
-- 当前 package metadata 为 `0.6.0`；Production Quant Bootstrap 的真实验收已获用户接受，功能冻结。最终验收与发布门禁见 [Phase 6 最终验收报告](fankui/phase_6_final_acceptance_report.md)，远端 main/tag CI 终态另在发布交付记录中核验。
-- `0.6.0` 仅支持 SQLite。运行时建库、Schema 创建和 Alembic 迁移都会在加载其他数据库驱动前拒绝非 SQLite URL。
+- 当前 package metadata 为 `0.7.0`；Strategy Profile / Pass Type Engine 整体架构验收已通过，接受实现为 `dd13e0614b2cd4760d2af818cd17b867bc4086dd`。最终验收与发布门禁见 [Phase 7 最终验收报告](fankui/phase_7_final_acceptance_report.md)，candidate/main/tag CI 终态随发布交付记录核验。
+- `0.7.0` 仅支持 SQLite。运行时建库、Schema 创建和 Alembic 迁移都会在加载其他数据库驱动前拒绝非 SQLite URL。
 - 只有显式执行 `live ingest-fixtures` 或 `live ingest-market-odds` 才会分别读取 `SPORTMONKS_KEY` 或 `ODDS_API_KEY` 并访问网络；`ingest-fixtures-manual`、Sporttery、reconcile、review import、prepare-analysis 和 run-analysis 均为本地 I/O。项目不连接真实 LLM API，不执行自动下注。
 
 ## 当前能力
 
-本 feature 分支另含待整体架构验收的 **0.7 Strategy Profile / Pass Type Engine**，
-package版本仍为0.6.0。显式 `strategy-pass` 路径支持1/4/11子注的2X1/3X4/4X11、
+**0.7 Strategy Profile / Pass Type Engine** 已通过整体架构验收。
+显式 `strategy-pass` 路径支持1/4/11子注的2X1/3X4/4X11、
 PRIMARY/SECONDARY/HEDGE/LONGSHOT、结构集中度与原资金约束、append-only持久化及独立
 BACKTEST结算。入口、Profile示例和边界见 [V1合同](fankui/strategy_pass_v1_contract.md)。
 
@@ -167,7 +167,7 @@ NOT REAL HISTORICAL PERFORMANCE
 ## 结算与回测边界
 
 - walk-forward V1 对每个固定 slate 先以 `decision_as_of_at_utc` 创建并封存 AnalysisRun，再以更晚的 `evaluation_as_of_at_utc` 读取赛果；MatchResult 不进入决策 Manifest、Packet 或 Review context。
-- Ticket Settlement 仅支持 `BACKTEST`、`THREE_WAY`、简单2串1：两腿全中采用冻结 `potential_gross_payout_fen`，任一腿失败返还为零；缺失赛果不创建伪 Settlement。
+- 兼容的旧 Ticket Settlement 支持 `BACKTEST`、`THREE_WAY`、简单2串1：两腿全中采用冻结 `potential_gross_payout_fen`，任一腿失败返还为零；新 `strategy-pass settle` 以独立版本逐子注结算2X1/3X4/4X11，支持部分子注中奖。两条路径均不为缺失赛果创建伪 Settlement。
 - 赛果和 Settlement 更正均追加 supersession 记录，不更新旧记录。Portfolio Settlement 聚合冻结 Ticket 和原 Cash，并分别报告 ROI on budget 与 ROI on deployed。
 - 回测报告覆盖 `P_market`、`P_quant`、`P_final` 的 Brier、LogLoss、10-bin Calibration/ECE，以及覆盖率、资金、ROI、命中率、`NO_BET`、回撤、连败和风险实现指标。
 
@@ -175,15 +175,16 @@ NOT REAL HISTORICAL PERFORMANCE
 
 外部协作者只处理已封存 AnalysisRun 导出的白名单 Packet，并返回绝对 `P_llm`；本地严格校验、追加导入，再创建 FusionRun 和独立 PortfolioRevision。导入不会更新原 AnalysisRun、`P_final`、候选、Ticket 或 Portfolio。V1/V2 只接受手工 `P_quant` lineage；V3 增加 `started_at_utc`、结构化 model state/evaluation hashes、紧凑训练 match/result ID lineage，以及有预测/无预测两种显式状态。model-unavailable 比赛必须返回 `MODEL_UNAVAILABLE`，不会伪造概率；若整次运行没有任何可用 base prediction，则拒绝创建 FusionRun。合同见 `fankui/llm_review_v1_contract.md`、`fankui/llm_review_v2_contract.md` 与 `fankui/llm_review_v3_contract.md`。
 
-## 0.6.0 已知限制
+## 0.7.0 已知限制
 
 - 当前 live Elo 可能因缺少合格 `LIVE_STRICT` history 而明确返回 `MODEL_UNAVAILABLE`；不复制 `P_market`，也不生成伪 `P_quant` / `P_final`。
 - ADR-0007 保持不变，`SOURCE_TIME_RESEARCH` 不允许重标或直接混入 live provider。批准历史只经独立 build 生成 release；当前快照的历史发布时间未知不会被审批补造。
-- 当前正式选择市场仍只支持 `THREE_WAY`；正式 pass type 仍只支持简单 `2X1`，不支持3串4、4串11或复式。
+- 当前正式市场为 `THREE_WAY`；system pass支持 `2X1`、`3X4`、`4X11`，每票每场一个outcome，不支持多选复式。
+- Strategy Profile 默认最多12场/4096候选；超限整单拒绝。当前沿用独立腿期望假设和结构风险检查，完整收益分布优化留0.9。
 - 不连接真实 LLM API，不执行自动下注、账户登录、支付或出票。
 - 不提供通用生产抓取平台、网页 GPT 历史回测、自动调参、复杂机器学习模型、Web 管理界面或通用调度器。一次真实闭环与 NO_BET 结果不等于样本外性能或收益证明。
 - 结算不支持取消、腰斩、`VOID`、退款、加时、点球或串关降级；这些情况只能显式记录为 `UNSUPPORTED_SETTLEMENT_CASE`，不能猜测返还规则。
 
 历史回测规范见 `fankui/backtest_v1_contract.md`；设计沿革见 `fankui/historical_data_backtest.md`，架构与模型资料见 `fankui/architecture.md` 和 `fankui/data_model.md`。
 
-`0.6.0` 收尾后停止功能开发；`0.7 Strategy Profile + Pass Type Engine` 必须等待独立指令，不在本次发布中提前实现。
+`0.7.0` 发布收尾完成后停止，等待用户的 `0.8 Market Expansion` 指令。

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.0 - 2026-09-14
+
+- 整体架构验收通过，接受实现 `dd13e0614b2cd4760d2af818cd17b867bc4086dd`；ADR-0009 置为 Accepted。
+- 版本化 Strategy Profile 默认preferred4/absolute8，支持PRIMARY、SECONDARY、HEDGE、LONGSHOT；HEDGE要求合格新selection及可审计核心失败/存活子注证据。
+- 2X1、3X4、4X11按combinations分解为1/4/11子注，保存精确SP引用、payout states及父血缘；沿用200 fen单位、逐子注ROUND_HALF_EVEN、整数倍数≤50和原资金约束。
+- 增加结构exposure/overlap/core dependency、append-only system ticket/AtomicBet/BetLeg与完整图seal；迁移head为 `28415c7e39ba`。
+- 独立system-pass BACKTEST settlement支持部分子注中奖、原子持久化和追加更正；保留missing/unsupported语义。
+- 通过A–E synthetic与golden payout验收；旧历史fixture的600 fen票上限继续正确阻止3X4，正向验收使用独立MOCK父工件。
+- 发布收尾只同步0.7.0版本、验收状态与文档；最终门禁和已知限制见 `fankui/phase_7_final_acceptance_report.md`。发布完成后等待0.8指令。
+
 ## 0.6.0 - 2026-09-12
 
 - 完成并冻结 Production Quant Bootstrap：来源许可、完整 cohort/事实准入、相应时间依据的 quant integrity evidence、精确 ApprovalV2、sealed release、pinned live 及 mandatory audit/downstream 门禁。

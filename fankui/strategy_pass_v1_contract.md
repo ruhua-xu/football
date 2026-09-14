@@ -1,6 +1,6 @@
 # Strategy Profile / Pass Type Engine V1
 
-状态：0.7 软件候选；等待一次整体架构验收。Package metadata 保持 `0.6.0`。
+状态：Accepted — 0.7 Architecture Review PASSED。Package metadata 为 `0.7.0`；最终发布门禁见 [Phase 7 最终验收报告](phase_7_final_acceptance_report.md)。
 
 ## 输入与血缘
 

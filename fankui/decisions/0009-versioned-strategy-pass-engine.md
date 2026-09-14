@@ -1,8 +1,10 @@
 # ADR-0009 — Versioned Strategy Profile / Pass Type Engine
 
-- Status: Proposed — 0.7软件候选完成后一次整体架构验收
+- Status: Accepted — 0.7 Architecture Review PASSED
 - Date: 2026-09-13
 - Baseline: formal `v0.6.0`, `7ded7dbf62dc64a35b7788142a5bf81610353563`
+- Accepted: 2026-09-14，用户明确通过本次整体架构验收。
+- Accepted implementation: `dd13e0614b2cd4760d2af818cd17b867bc4086dd`
 
 ## 决策
 
