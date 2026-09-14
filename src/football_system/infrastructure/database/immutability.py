@@ -1448,6 +1448,10 @@ def install_sqlite_immutability_triggers(connection: Connection) -> None:
 
         install_observed_quant_schema_in_connection(connection)
 
+    from football_system.infrastructure.database.strategy_pass_schema import install_strategy_pass_triggers
+
+    install_strategy_pass_triggers(connection)
+
 
 def install_quant_integrity_v1_triggers(connection: Connection) -> None:
     from football_system.infrastructure.database.quant_integrity_schema import (

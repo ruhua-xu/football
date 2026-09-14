@@ -2,7 +2,7 @@
 
 ## 状态
 
-- 状态：已发布 package metadata 为 `0.5.0`
+- 状态：已发布 package metadata 为 `0.6.0`；0.7 Strategy Pass 为独立 feature 候选
 - 架构形态：Python 3.12+ 模块化单体
 - 边界模式：六边形架构
 - 存储边界：SQLite-only
@@ -493,3 +493,17 @@ Optimizer 默认在 preferred 范围内寻找方案。超出 preferred 的 Ticke
 - 取消、腰斩、`VOID`、退款、加时、点球或串关降级结算。
 
 核心模型交叉引用见 [data_model.md](data_model.md)；历史设计沿革见 [historical_data_backtest.md](historical_data_backtest.md)；Strategy Profile 见 [0006-configurable-ticket-strategy-profile.md](decisions/0006-configurable-ticket-strategy-profile.md)。
+
+## 0.7 Strategy Pass 软件候选
+
+新增显式路径：已封存 AnalysisRun / PortfolioRevision → 原合格 selections →
+StrategyProfileV1 → 2X1/3X4/4X11 constituent candidates → 结构风险/角色与原边际资金内核
+→ StrategyPassPlanV1 / NO_BET → 独立版本化 BACKTEST settlement。
+
+旧0.6默认路径、概率/融合/EV、PortfolioRevision与V3 wire保持冻结。新表保存system
+Ticket、AtomicBet、BetLeg及其父图，使用append-only与deferred seal防止不完整提交。
+生产来源继续由原ProductionAuditGuard控制，包括缓存重试和读取。
+
+Package版本仍0.6.0；市场扩展留0.8，收益分布优化留0.9。候选合同见
+[strategy_pass_v1_contract.md](strategy_pass_v1_contract.md)，待验收决策见
+[ADR-0009](decisions/0009-versioned-strategy-pass-engine.md)。

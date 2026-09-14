@@ -11,6 +11,18 @@
 
 ## 当前能力
 
+本 feature 分支另含待整体架构验收的 **0.7 Strategy Profile / Pass Type Engine**，
+package版本仍为0.6.0。显式 `strategy-pass` 路径支持1/4/11子注的2X1/3X4/4X11、
+PRIMARY/SECONDARY/HEDGE/LONGSHOT、结构集中度与原资金约束、append-only持久化及独立
+BACKTEST结算。入口、Profile示例和边界见 [V1合同](fankui/strategy_pass_v1_contract.md)。
+
+```text
+football-system strategy-pass profile --print-schema
+football-system strategy-pass build --database-url <sqlite-url> --analysis-run-id <id> --budget-fen <existing-fen> --profile config/strategy_profile_v1.json
+```
+
+以下为已冻结的0.6能力：
+
 - Mock 或本地历史归档的 Fixture、国际市场赔率、竞彩固定奖金、手工 `P_quant`，以及固定参数的三向 Elo baseline `P_quant`。
 - `THREE_WAY` 去水、`QUANT_ONLY_V1`、`MARKET_QUANT_BLEND_V1`、Selection EV 和简单2串1。
 - 显式 Cash、`NO_BET`、Exposure、确定性 Stress Test 和 Portfolio 风险约束。

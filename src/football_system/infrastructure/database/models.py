@@ -48,6 +48,7 @@ from football_system.infrastructure.database.production_inference_schema import 
 from football_system.infrastructure.database.production_audit_schema import (
     production_audit_tables_v1,
 )
+from football_system.infrastructure.database.strategy_pass_schema import strategy_pass_tables_v1
 
 
 class UTCDateTime(TypeDecorator[datetime]):
@@ -3379,3 +3380,42 @@ class BacktestV2MetricSnapshotRecord(Base):
     lineage_json: Mapped[str] = mapped_column(Text, nullable=False)
     lineage_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     snapshot_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+_strategy_tables = strategy_pass_tables_v1(Base.metadata)
+
+
+class StrategyPassPlanRecord(Base):
+    __table__ = _strategy_tables["strategy_pass_plans"]
+
+
+class StrategyPassSelectionRecord(Base):
+    __table__ = _strategy_tables["strategy_pass_selections"]
+
+
+class SystemTicketRecord(Base):
+    __table__ = _strategy_tables["system_tickets"]
+
+
+class AtomicBetRecord(Base):
+    __table__ = _strategy_tables["atomic_bets"]
+
+
+class AtomicBetLegRecord(Base):
+    __table__ = _strategy_tables["atomic_bet_legs"]
+
+
+class StrategyPassPlanSealRecord(Base):
+    __table__ = _strategy_tables["strategy_pass_plan_seals"]
+
+
+class StrategyPassSettlementRecord(Base):
+    __table__ = _strategy_tables["strategy_pass_settlements"]
+
+
+class StrategyPassSettlementResultRecord(Base):
+    __table__ = _strategy_tables["strategy_pass_settlement_results"]
+
+
+class StrategyPassSettlementSealRecord(Base):
+    __table__ = _strategy_tables["strategy_pass_settlement_seals"]

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import Field, model_validator
 
@@ -19,6 +20,8 @@ class CandidateStatus(StrEnum):
 
 class PassType(StrEnum):
     TWO_FOLD_ONE = "2X1"
+    THREE_FOLD_FOUR = "3X4"
+    FOUR_FOLD_ELEVEN = "4X11"
 
 
 class PortfolioStatus(StrEnum):
@@ -86,7 +89,7 @@ class SelectionCandidate(DomainModel):
 class TicketCandidate(DomainModel):
     ticket_candidate_id: Identifier
     analysis_run_id: Identifier
-    pass_type: PassType = PassType.TWO_FOLD_ONE
+    pass_type: Literal[PassType.TWO_FOLD_ONE] = PassType.TWO_FOLD_ONE
     legs: tuple[SelectionCandidate, SelectionCandidate]
     atomic_bet_count: int = 1
     base_stake_fen: int

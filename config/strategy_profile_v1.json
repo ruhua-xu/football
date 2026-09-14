@@ -1,0 +1,21 @@
+{
+  "schema_version": "STRATEGY_PROFILE_V1",
+  "name": "FOCUSED_PRIMARY_WITH_QUALIFIED_DIVERSIFIER",
+  "version": "1",
+  "pass_types": ["2X1", "3X4", "4X11"],
+  "preferred_max_tickets": 4,
+  "absolute_max_tickets": 8,
+  "preferred_primary_min": 2,
+  "preferred_primary_max": 3,
+  "allow_no_bet": true,
+  "max_auxiliary_tickets": 1,
+  "max_auxiliary_budget_ratio": "0.10",
+  "max_ticket_overlap": "0.75",
+  "max_core_dependency_ratio": "0.75",
+  "reject_multi_ticket_single_selection_wipeout": true,
+  "longshot_min_max_return_multiple": "6",
+  "protect_core_judgment_not_principal": true,
+  "no_low_odds_principal_recovery": true,
+  "max_generated_candidates": 4096,
+  "max_input_matches": 12
+}

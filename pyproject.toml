@@ -31,8 +31,9 @@ where = ["src"]
     "config/mvp.toml",
     "config/backtest.toml",
     "config/live.toml",
+    "config/strategy_profile_v1.json",
 ]
-"football_system_resources/data/fixtures" = ["data/fixtures/mvp_matches.json"]
+"football_system_resources/data/fixtures" = ["data/fixtures/mvp_matches.json", "data/fixtures/strategy_pass_v1.json"]
 "football_system_resources/data/fixtures/historical_acceptance" = [
     "data/fixtures/historical_acceptance/acceptance_config.toml",
     "data/fixtures/historical_acceptance/fixtures.json",
@@ -58,6 +59,7 @@ where = ["src"]
     "fankui/llm_review_v2_contract.md",
     "fankui/llm_review_v3_contract.md",
     "fankui/llm_strategy.md",
+    "fankui/strategy_pass_v1_contract.md",
 ]
 "football_system_resources/fankui/decisions" = [
     "fankui/decisions/0001-market-abstraction.md",
@@ -67,6 +69,7 @@ where = ["src"]
     "fankui/decisions/0005-sporttery-stake-unit.md",
     "fankui/decisions/0006-configurable-ticket-strategy-profile.md",
     "fankui/decisions/0007-separate-live-and-source-time-research.md",
+    "fankui/decisions/0009-versioned-strategy-pass-engine.md",
 ]
 "football_system_resources/migrations" = ["migrations/env.py", "migrations/script.py.mako"]
 "football_system_resources/migrations/versions" = [
@@ -93,6 +96,7 @@ where = ["src"]
     "migrations/versions/f51e294b0687_bind_corrected_quant_history.py",
     "migrations/versions/062f3a5c1798_add_observed_training.py",
     "migrations/versions/17304b6d28a9_bind_observed_quant_integrity.py",
+    "migrations/versions/28415c7e39ba_add_strategy_pass_engine.py",
 ]
 
 [tool.pytest.ini_options]

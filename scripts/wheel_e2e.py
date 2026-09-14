@@ -17,7 +17,7 @@ from typing import Sequence
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_VERSION = "0.6.0"
-EXPECTED_MIGRATION_HEAD = "17304b6d28a9"
+EXPECTED_MIGRATION_HEAD = "28415c7e39ba"
 PROVIDER_CODE = "SYNTHETIC_ACCEPTANCE_V1"
 QUANT_RUN_ID = "wheel-e2e-quant"
 BLEND_RUN_ID = "wheel-e2e-blend"
@@ -41,7 +41,9 @@ EXPECTED_RESOURCE_FILES = frozenset(
         "config/backtest.toml",
         "config/live.toml",
         "config/mvp.toml",
+        "config/strategy_profile_v1.json",
         "data/fixtures/mvp_matches.json",
+        "data/fixtures/strategy_pass_v1.json",
         "data/fixtures/historical_acceptance/acceptance_config.toml",
         "data/fixtures/historical_acceptance/fixtures.json",
         "data/fixtures/historical_acceptance/manual_quant.json",
@@ -66,6 +68,7 @@ EXPECTED_RESOURCE_FILES = frozenset(
         "fankui/llm_review_v2_contract.md",
         "fankui/llm_review_v3_contract.md",
         "fankui/llm_strategy.md",
+        "fankui/strategy_pass_v1_contract.md",
         "fankui/decisions/0001-market-abstraction.md",
         "fankui/decisions/0002-versioned-fusion-policies.md",
         "fankui/decisions/0003-ticket-and-atomic-bet.md",
@@ -73,6 +76,7 @@ EXPECTED_RESOURCE_FILES = frozenset(
         "fankui/decisions/0005-sporttery-stake-unit.md",
         "fankui/decisions/0006-configurable-ticket-strategy-profile.md",
         "fankui/decisions/0007-separate-live-and-source-time-research.md",
+        "fankui/decisions/0009-versioned-strategy-pass-engine.md",
         "migrations/env.py",
         "migrations/script.py.mako",
         "migrations/versions/1bec5f575834_create_mvp_schema.py",
@@ -98,6 +102,7 @@ EXPECTED_RESOURCE_FILES = frozenset(
         "migrations/versions/f51e294b0687_bind_corrected_quant_history.py",
         "migrations/versions/062f3a5c1798_add_observed_training.py",
         "migrations/versions/17304b6d28a9_bind_observed_quant_integrity.py",
+        "migrations/versions/28415c7e39ba_add_strategy_pass_engine.py",
     }
 )
 
@@ -667,7 +672,8 @@ with sqlite3.connect(sys.argv[1]) as connection:
         """
         SELECT slices.parent_analysis_run_id,
                portfolios.portfolio_id,
-               slices.evaluation_as_of_at_utc
+               slices.evaluation_as_of_at_utc,
+               portfolios.budget_fen
         FROM backtest_slices AS slices
         JOIN portfolios
           ON portfolios.analysis_run_id = slices.parent_analysis_run_id
@@ -688,6 +694,7 @@ print(json.dumps({
     "analysis_run_id": row[0],
     "portfolio_id": row[1],
     "evaluation_as_of": evaluation.astimezone(datetime.timezone.utc).isoformat(),
+    "budget_fen": row[3],
 }))
 '''
     settlement_source = _run_json(
@@ -701,6 +708,99 @@ print(json.dumps({
     analysis_run_id = str(settlement_source["analysis_run_id"])
     portfolio_id = str(settlement_source["portfolio_id"])
     evaluation_as_of = str(settlement_source["evaluation_as_of"])
+
+    # The old historical fixture caps a ticket at 600 fen. Preserve its refusal;
+    # create a separate MOCK parent for positive system-pass settlement coverage.
+    tight_profile = work_dir / "strategy-tight-profile.json"
+    tight_profile.write_text(json.dumps({"pass_types": ["3X4"]}), encoding="utf-8")
+    tight_output = work_dir / "strategy-tight-no-bet.json"
+    _run_checked(
+        "strategy retains historical parent stake cap",
+        [executable, "strategy-pass", "build", "--database-url", database_url,
+         "--analysis-run-id", analysis_run_id, "--budget-fen",
+         str(settlement_source["budget_fen"]), "--profile", tight_profile,
+         "--output", tight_output], cwd=work_dir, environment=environment,
+    )
+    tight = json.loads(tight_output.read_bytes())
+    _require(tight["status"] == "NO_BET" and tight["total_stake_fen"] == 0
+             and tight["source"]["rules"]["max_ticket_stake_fen"] == 600,
+             "strategy weakened the frozen historical fixture cap")
+    strategy_run_id = "wheel-e2e-strategy-mock"
+    strategy_as_of = "2026-08-05T00:00:00+00:00"
+    _run_checked(
+        "create separate synthetic strategy parent",
+        [executable, "--config", resource_root / "config" / "mvp.toml",
+         "--database-url", database_url, "--analysis-run-id", strategy_run_id,
+         "--budget-yuan", "100"], cwd=work_dir, environment=environment,
+    )
+    _run_json(
+        "append synthetic normalized strategy results", python, '''
+import datetime, json, sys
+from sqlalchemy import select
+from football_system.domain.archive import match_result_payload_sha256
+from football_system.domain.settlement import MatchResult
+from football_system.infrastructure.database.models import AnalysisRunMatchRecord
+from football_system.infrastructure.database.historical_repositories import SqlAlchemyHistoricalRepository
+from football_system.infrastructure.database.session import create_database_engine, create_session_factory
+engine=create_database_engine(sys.argv[1]); sessions=create_session_factory(engine)
+at=datetime.datetime.fromisoformat(sys.argv[3])
+with sessions() as session:
+    matches=tuple(session.scalars(select(AnalysisRunMatchRecord.internal_match_id).where(AnalysisRunMatchRecord.analysis_run_id==sys.argv[2])))
+values=tuple(MatchResult(match_result_id="wheel-system-"+m,match_id=m,provider_code="MOCK_FIXTURE",home_goals=1,away_goals=0,
+    observed_at_utc=at,available_at_utc=at,ingested_at_utc=at,source_result_key="wheel-system-"+m,
+    payload_hash=match_result_payload_sha256(1,0)) for m in matches)
+stored=SqlAlchemyHistoricalRepository(sessions).append_match_results(values)
+print(json.dumps({"synthetic_result_count":len(stored)})); engine.dispose()
+''', [database_url, strategy_run_id, strategy_as_of], cwd=work_dir, environment=environment,
+    )
+
+    for pass_type, atomic_count in (("3X4", 4), ("4X11", 11)):
+        profile_path = work_dir / f"strategy-{pass_type}-profile.json"
+        profile_path.write_text(json.dumps({"pass_types": [pass_type]}), encoding="utf-8")
+        plan_path = work_dir / f"strategy-{pass_type}.json"
+        build_args = [
+            executable, "strategy-pass", "build", "--database-url", database_url,
+            "--analysis-run-id", strategy_run_id, "--budget-fen",
+            "10000", "--profile", profile_path,
+            "--output", plan_path,
+        ]
+        _run_checked(f"strategy {pass_type} build", build_args, cwd=work_dir,
+                     environment=environment, markers=("strategy-pass build",))
+        before = plan_path.read_bytes()
+        plan = json.loads(before)
+        _require(bool(plan["tickets"]), f"synthetic strategy {pass_type} needs a funded ticket")
+        _require(all(len(t["candidate"]["atomic_bets"]) == atomic_count for t in plan["tickets"]),
+                 "installed system ticket constituent count mismatch")
+        _run_checked(f"strategy {pass_type} exact retry", build_args, cwd=work_dir,
+                     environment=environment, markers=("strategy-pass build",))
+        _require(plan_path.read_bytes() == before, "strategy retry changed sealed bytes")
+        refs = _run_json(
+            f"strategy {pass_type} normalized result references", python, '''
+import datetime, json, sqlite3, sys
+cutoff=datetime.datetime.fromisoformat(sys.argv[3]).replace(tzinfo=None).isoformat(sep=" ",timespec="microseconds")
+with sqlite3.connect(sys.argv[1]) as c:
+    rows=c.execute("""SELECT DISTINCT r.match_result_id FROM match_results r
+      JOIN atomic_bet_legs l ON l.internal_match_id=r.internal_match_id
+      WHERE l.plan_id=? AND r.available_at_utc<=? AND r.ingested_at_utc<=?
+      AND NOT EXISTS (SELECT 1 FROM match_results n WHERE n.supersedes_match_result_id=r.match_result_id
+        AND n.available_at_utc<=? AND n.ingested_at_utc<=?) ORDER BY r.match_result_id""",
+      (sys.argv[2],cutoff,cutoff,cutoff,cutoff)).fetchall()
+print(json.dumps({"ids":[r[0] for r in rows]}))
+''', [database, plan["plan_id"], strategy_as_of], cwd=work_dir, environment=environment,
+        )
+        settlement_path = work_dir / f"strategy-{pass_type}-settlement.json"
+        _run_checked(
+            f"strategy {pass_type} settlement",
+            [executable, "strategy-pass", "settle", "--database-url", database_url,
+             "--plan-id", plan["plan_id"], "--as-of", strategy_as_of,
+             "--output", settlement_path,
+             *(part for value in refs["ids"] for part in ("--result-id", str(value)))],
+            cwd=work_dir, environment=environment, markers=("strategy-pass settle",),
+        )
+        settled = json.loads(settlement_path.read_bytes())
+        _require(settled["reason"] == "SETTLED", "installed system settlement is incomplete")
+        _require(settled["ending_capital_fen"] == plan["cash_fen"] + settled["gross_payout_fen"],
+                 "installed system settlement capital mismatch")
 
     _run_checked(
         "settlement create",

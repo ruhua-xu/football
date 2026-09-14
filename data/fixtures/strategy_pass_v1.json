@@ -1,0 +1,11 @@
+{
+  "schema_version": "SYNTHETIC_STRATEGY_PASS_ACCEPTANCE_V1",
+  "description": "Invented prices/probabilities; no provider, historical or live acceptance data.",
+  "cases": [
+    {"id":"A","home_prices":["2","3"],"min_selection_ev":"0.01","min_ticket_roi":"0.02","expected_passes":["2X1"]},
+    {"id":"B","home_prices":["2","3","4"],"min_selection_ev":"0.01","min_ticket_roi":"0.02","expected_passes":["2X1","3X4"]},
+    {"id":"C","home_prices":["2","3","4","5"],"min_selection_ev":"0.01","min_ticket_roi":"0.02","expected_passes":["2X1","3X4","4X11"]},
+    {"id":"D","home_prices":["1.1","1.1","1.1","1.1"],"min_selection_ev":"0.01","min_ticket_roi":"0.02","expected_passes":[]},
+    {"id":"E","home_prices":["4","1.7","1.7","1.7"],"min_selection_ev":"0.01","min_ticket_roi":"0.20","expected_passes":["2X1","3X4","4X11"]}
+  ]
+}
