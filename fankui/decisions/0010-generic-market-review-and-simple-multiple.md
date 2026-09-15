@@ -3,6 +3,8 @@
 - Status: Proposed — one overall 0.8 Architecture Review after complete software acceptance
 - Baseline: v0.7.0 / `019a62fb00e60303732520e59890f4e8bfb6086d`
 - Scope: offline synthetic/fixed-fixture software candidate, package remains 0.7.0
+- Review: other architecture decisions accepted; remaining review is limited to the two V4 contract blockers below.
+- V4 revision baseline: `4a0bce0b5429cb86c223d75b8288b3bea32076cb`.
 
 ## Decisions
 
@@ -33,3 +35,21 @@
 - Offline fixture admission is explicitly SYNTHETIC_ACCEPTANCE_DATA. It is not a new
   production data mode or a grant to reuse expired/removed evidence. Real source capability
   and real model performance remain unproven; no provider/LLM HTTP is used by this work.
+
+## Limited V4 contract revision
+
+- Quant MODEL_UNAVAILABLE requires an UNAVAILABLE/MODEL_UNAVAILABLE review. Quant AVAILABLE
+  permits VALID or abstention with INSUFFICIENT_EVIDENCE, INVALID_CONTEXT or SKIPPED_DISABLED;
+  it cannot claim MODEL_UNAVAILABLE. All packet/context/evidence bindings still apply.
+- Evidence/context/disabled abstention with an existing P_base preserves it exactly as P_final,
+  uses zero influence and records the real failure_code. No fake P_llm or correction is used.
+- Scenarios restore scenario_id, MAIN/SECONDARY/UPSET type, description, typed outcomes,
+  trigger_conditions and evidence_refs. Counter-scenarios use a separate typed contract with
+  if_scenario_id, alternative_scenario_id, fails_outcomes, rationale and evidence_refs;
+  both references must exist within the same market review unit.
+- Scenario IDs, preferred/avoid outcomes, risk_tags, limitations and each evidence_refs list
+  are unique. Preferred and avoid outcomes cannot overlap. Valid evidence can be reused
+  across different scenarios without duplicating an individual reference list.
+- This amendment changes only V4 contracts, validation and abstention fallback dispatch.
+  Generic correction math, Poisson, taxonomy, EV, Strategy/Settlement V2, database graph,
+  V1/V2/V3 wire and legacy THREE_WAY behavior remain frozen.

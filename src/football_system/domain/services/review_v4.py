@@ -23,6 +23,7 @@ from football_system.domain.review_v4 import (
     LLMReviewV4,
     MarketReviewContextV4,
     PacketMarketUnitV4,
+    UnavailableMarketReviewV4,
     ValidMarketReviewV4,
 )
 
@@ -113,8 +114,19 @@ def check_review(packet, submission):
             unit.review_context_hash,
         ):
             raise ValueError("V4 review context binding mismatch")
-        if (c.quant_status == "MODEL_UNAVAILABLE") != (review.status == "UNAVAILABLE"):
-            raise ValueError("MODEL_UNAVAILABLE requires explicit unavailable review")
+        if c.quant_status == "MODEL_UNAVAILABLE":
+            if (
+                not isinstance(review, UnavailableMarketReviewV4)
+                or review.failure_code != "MODEL_UNAVAILABLE"
+            ):
+                raise ValueError(
+                    "MODEL_UNAVAILABLE quant requires UNAVAILABLE / MODEL_UNAVAILABLE"
+                )
+        elif (
+            isinstance(review, UnavailableMarketReviewV4)
+            and review.failure_code == "MODEL_UNAVAILABLE"
+        ):
+            raise ValueError("AVAILABLE quant cannot claim MODEL_UNAVAILABLE")
         if isinstance(review, ValidMarketReviewV4):
             refs = (
                 *review.evidence_refs,
@@ -235,7 +247,7 @@ def fuse_v4(analysis, review, policy=None):
                 policy.max_probability_delta,
             )
         elif p is not None:
-            fallback = "MODEL_UNAVAILABLE"
+            fallback = item.failure_code
         results.append(
             GenericFusionUnitV1(
                 unit_id=unit.artifact_id,

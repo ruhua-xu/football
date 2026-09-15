@@ -27,10 +27,38 @@ LLMReviewV4绑定analysis_id、packet_id、packet_hash和完整ordered market_re
 每项带match_id、MarketKeyV2、review_context_id/hash与limitations。
 VALID返回absolute P_llm distribution、assessment_confidence、scenarios、preferred
 outcomes、avoid outcomes、counter scenarios、risk tags、reasoning_summary和evidence refs。
-Scenario只允许有类型的outcomes、描述及已存在的evidence refs。
+MarketScenarioV4包含必填scenario_id、scenario_type（MAIN / SECONDARY / UPSET）、
+description、outcomes、trigger_conditions和evidence_refs。每项trigger为非空、最多2000
+字符的文本，最多16项；scenario IDs在当前match-market review unit内唯一。
 
-MODEL_UNAVAILABLE只能返回UNAVAILABLE / MODEL_UNAVAILABLE，不用P_market冒充P_quant。
+counter_scenarios使用独立MarketCounterScenarioV4：if_scenario_id、
+alternative_scenario_id、fails_outcomes、rationale和evidence_refs。两个scenario引用
+必须指向**同一market review unit**中存在的scenario ID；不能用其他unit的ID满足引用。
+fails_outcomes与scenario outcomes均须属于当前market catalog，且各自列表内部唯一。
+
+preferred_outcomes和avoid_outcomes分别唯一且不得重叠；risk_tags、limitations以及
+review/scenario/counter各自的evidence_refs列表内部必须唯一。合法evidence可在不同
+scenario中复用，所有引用仍必须属于当前精确context的evidence IDs。
+
+## V4 abstention semantics
+
+Review abstention与模型可用性分开表达，failure_code至少支持下列四项：
+
+| quant状态 | 允许的Review |
+|---|---|
+| MODEL_UNAVAILABLE | 必须UNAVAILABLE / MODEL_UNAVAILABLE |
+| AVAILABLE | VALID，或UNAVAILABLE / INSUFFICIENT_EVIDENCE、INVALID_CONTEXT、SKIPPED_DISABLED |
+
+AVAILABLE quant不能声称MODEL_UNAVAILABLE；unavailable quant不能返回VALID或其他
+failure code。UNAVAILABLE类型没有P_llm/assessment_confidence等VALID字段，额外字段
+拒绝，不以伪P_llm完成fallback。
+
+对于证据/上下文/禁用导致的abstention，若本地已有P_base，Fusion逐值保留
+P_final=P_base、influence=0，fallback_code记录原failure_code，不进入generic correction。
+P_base缺失时继续保持缺失和已有source unavailable原因。
+
 未知、遗漏、重复unit、跨市场distribution、错context、未知evidence、额外资金字段均拒绝。
+INVALID_CONTEXT是语义上的abstention原因，不豁免packet/context ID/hash绑定检查。
 Review不能提交P_final、delta、fusion weight、EV、票据或任何资金参数。
 
 ## Byte / hash / import

@@ -1,12 +1,17 @@
 from datetime import timedelta
 import hashlib
+import json
 
 import pytest
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 
-from football_system.application.market_v2 import PlanRequestV2, SettleRequestV2
-from football_system.domain.archive import match_result_payload_sha256
+from football_system.application.market_v2 import (
+    FusionRequestV4,
+    PlanRequestV2,
+    SettleRequestV2,
+)
+from football_system.domain.archive import canonical_json, match_result_payload_sha256
 from football_system.domain.settlement import MatchResult
 from football_system.domain.strategy_pass_v2 import StrategyProfileV2
 from football_system.infrastructure.database.historical_repositories import (
@@ -247,3 +252,46 @@ def test_corrupt_stored_expanded_graph_is_rejected_on_read(prepared, tmp_path):
     with pytest.raises(ValueError, match="corrupt sealed"):
         repo.load(plan.artifact_id)
     clone.dispose()
+
+
+@pytest.mark.parametrize(
+    "code", ("INSUFFICIENT_EVIDENCE", "INVALID_CONTEXT", "SKIPPED_DISABLED")
+)
+def test_v4_abstention_import_fusion_and_exact_retry_preserve_base(prepared, code):
+    from tests.unit.test_review_v4_blockers import abstention
+
+    engine, sessions, service, analysis, packet, original, fusion, old = prepared
+    data = json.loads(original.raw_review_json)
+    data["market_reviews"] = [abstention(item, code) for item in data["market_reviews"]]
+    packet_bytes, raw = canonical_json(packet).encode(), canonical_json(data).encode()
+    imported = service.review_import(packet_bytes, raw)
+    assert service.review_import(packet_bytes, raw) == imported
+    assert service.repository.load(imported.artifact_id) == imported
+    request = FusionRequestV4(
+        analysis_id=analysis.artifact_id, review_id=imported.artifact_id
+    )
+    result = service.fusion(request)
+    assert service.fusion(request) == result
+    assert service.repository.load(result.artifact_id) == result
+    for unit, item in zip(analysis.units, result.results, strict=True):
+        assert item.p_final.model_dump_json() == unit.p_base.model_dump_json()
+        assert item.influence == 0 and item.fallback_code == code
+    assert service.repository.load(original.artifact_id) == original
+
+
+def test_v4_structured_scenarios_persist_and_replay_without_graph_changes(prepared):
+    from tests.unit.test_review_v4_blockers import structured_submission
+
+    engine, sessions, service, analysis, packet, original, fusion, old = prepared
+    raw = canonical_json(structured_submission(packet)).encode()
+    imported = service.review_import(canonical_json(packet).encode(), raw)
+    assert service.review_import(canonical_json(packet).encode(), raw) == imported
+    assert service.repository.load(imported.artifact_id) == imported
+    request = FusionRequestV4(
+        analysis_id=analysis.artifact_id, review_id=imported.artifact_id
+    )
+    revised = service.fusion(request)
+    assert (
+        revised.results == fusion.results
+    )  # Same P_llm; scenario structure is not a weight.
+    assert service.repository.load(revised.artifact_id) == revised

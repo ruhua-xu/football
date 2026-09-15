@@ -25,6 +25,11 @@ from football_system.domain.market_v2 import (
 MAX_V4_BYTES = 4 * 1024 * 1024
 
 
+def _require_unique(values, label):
+    if len(set(values)) != len(values):
+        raise ValueError(f"{label} must be unique")
+
+
 class MarketReviewContextV4(MarketArtifact):
     schema_version: Literal["MARKET_REVIEW_CONTEXT_V4"] = "MARKET_REVIEW_CONTEXT_V4"
     identity: MarketMatchIdentityV1
@@ -99,9 +104,34 @@ class AnalysisPacketV4(MarketArtifact):
 
 
 class MarketScenarioV4(MultiMarketModel):
+    scenario_id: Identifier
+    scenario_type: Literal["MAIN", "SECONDARY", "UPSET"]
     description: str = Field(min_length=1, max_length=2000)
     outcomes: tuple[OutcomeKeyV1, ...] = Field(max_length=31)
+    trigger_conditions: tuple[
+        Annotated[str, Field(min_length=1, max_length=2000)], ...
+    ] = Field(max_length=16)
     evidence_refs: tuple[Identifier, ...] = Field(max_length=32)
+
+    @model_validator(mode="after")
+    def unique_refs(self):
+        _require_unique(self.outcomes, "scenario outcomes")
+        _require_unique(self.evidence_refs, "scenario evidence refs")
+        return self
+
+
+class MarketCounterScenarioV4(MultiMarketModel):
+    if_scenario_id: Identifier
+    alternative_scenario_id: Identifier
+    fails_outcomes: tuple[OutcomeKeyV1, ...] = Field(max_length=31)
+    rationale: str = Field(min_length=1, max_length=2000)
+    evidence_refs: tuple[Identifier, ...] = Field(max_length=32)
+
+    @model_validator(mode="after")
+    def unique_refs(self):
+        _require_unique(self.fails_outcomes, "counter-scenario failed outcomes")
+        _require_unique(self.evidence_refs, "counter-scenario evidence refs")
+        return self
 
 
 class MarketReviewCommonV4(MultiMarketModel):
@@ -115,6 +145,7 @@ class MarketReviewCommonV4(MultiMarketModel):
     def bounded_text(self):
         if any(not s.strip() or len(s) > 2000 for s in self.limitations):
             raise ValueError("invalid review limitations")
+        _require_unique(self.limitations, "review limitations")
         return self
 
 
@@ -125,7 +156,7 @@ class ValidMarketReviewV4(MarketReviewCommonV4):
     scenarios: tuple[MarketScenarioV4, ...] = Field(max_length=16)
     preferred_outcomes: tuple[OutcomeKeyV1, ...] = Field(max_length=31)
     avoid_outcomes: tuple[OutcomeKeyV1, ...] = Field(max_length=31)
-    counter_scenarios: tuple[MarketScenarioV4, ...] = Field(max_length=16)
+    counter_scenarios: tuple[MarketCounterScenarioV4, ...] = Field(max_length=16)
     risk_tags: tuple[str, ...] = Field(max_length=32)
     reasoning_summary: str = Field(min_length=1, max_length=6000)
     evidence_refs: tuple[Identifier, ...] = Field(max_length=32)
@@ -137,20 +168,37 @@ class ValidMarketReviewV4(MarketReviewCommonV4):
         for keys in (
             self.preferred_outcomes,
             self.avoid_outcomes,
-            *(s.outcomes for s in (*self.scenarios, *self.counter_scenarios)),
+            *(s.outcomes for s in self.scenarios),
+            *(s.fails_outcomes for s in self.counter_scenarios),
         ):
-            if len(set(keys)) != len(keys) or any(
-                k not in self.market_key.catalog for k in keys
-            ):
+            _require_unique(keys, "review outcomes")
+            if any(k not in self.market_key.catalog for k in keys):
                 raise ValueError("review outcome catalog mismatch")
+        if set(self.preferred_outcomes) & set(self.avoid_outcomes):
+            raise ValueError("preferred and avoid outcomes must not overlap")
+        scenario_ids = tuple(s.scenario_id for s in self.scenarios)
+        _require_unique(scenario_ids, "scenario IDs")
+        known = set(scenario_ids)
+        if any(
+            c.if_scenario_id not in known or c.alternative_scenario_id not in known
+            for c in self.counter_scenarios
+        ):
+            raise ValueError("unknown counter-scenario reference in market review")
         if any(not t.strip() or len(t) > 160 for t in self.risk_tags):
             raise ValueError("invalid risk tag")
+        _require_unique(self.risk_tags, "review risk tags")
+        _require_unique(self.evidence_refs, "review evidence refs")
         return self
 
 
 class UnavailableMarketReviewV4(MarketReviewCommonV4):
     status: Literal["UNAVAILABLE"] = "UNAVAILABLE"
-    failure_code: Literal["MODEL_UNAVAILABLE"] = "MODEL_UNAVAILABLE"
+    failure_code: Literal[
+        "MODEL_UNAVAILABLE",
+        "INSUFFICIENT_EVIDENCE",
+        "INVALID_CONTEXT",
+        "SKIPPED_DISABLED",
+    ] = "MODEL_UNAVAILABLE"
 
 
 MarketReviewV4 = Annotated[
