@@ -1,0 +1,20 @@
+{
+  "model_name":"POISSON_GOALS_BASELINE_V1",
+  "model_version":"1",
+  "calibration_label":"BASELINE_UNCALIBRATED",
+  "formula_version":"HOME_AWAY_SPLIT_RATIOS_V1",
+  "minimum_home_matches":5,
+  "minimum_away_matches":5,
+  "minimum_league_matches":10,
+  "maximum_training_facts":1024,
+  "decimal_precision":80,
+  "tail_epsilon":"1E-18",
+  "numerical_error_bound":"1E-60",
+  "probability_quantum":"1E-12",
+  "lambda_quantum":"1E-18",
+  "max_lambda":"20",
+  "max_score":256,
+  "max_absolute_handicap":20,
+  "tail_policy":"INFINITE_CDF_CERTIFIED_ROUNDING_V1",
+  "closure_policy":"ROUND_HALF_EVEN_LARGEST_CANONICAL_RESIDUAL_V1"
+}

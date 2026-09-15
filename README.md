@@ -11,6 +11,25 @@
 
 ## 当前能力
 
+本分支包含待整体架构验收的 **0.8 Market Expansion + Simple Multiple Selection**
+软件候选，package metadata保持0.7.0。独立 `market-v2` 路径增加typed 3/8/31 outcome
+catalog、固定independent Poisson新市场baseline、V4文件Review/fusion、mixed-market
+cross-match串关和少量same-market choice Cartesian展开。原0.7默认路径与wire保持冻结。
+设计见 [ADR-0010](fankui/decisions/0010-generic-market-review-and-simple-multiple.md)，
+市场、Poisson、V4、复式分别见 [taxonomy](fankui/market_taxonomy_v1_contract.md)、
+[goal model](fankui/poisson_goals_baseline_v1_contract.md)、
+[V4](fankui/analysis_packet_v4_contract.md)、[Pass V2](fankui/strategy_pass_v2_contract.md)。
+
+```text
+football-system market-v2 schema review
+football-system market-v2 profile
+football-system market-v2 plan --database-url <sqlite-url> --input <request.json> --output <plan.json>
+```
+
+候选测试全为synthetic/fixed fixtures；没有真实provider/LLM HTTP请求或真实预测效果声明。
+实现与A–P验收汇总见 [Phase 8实施报告](fankui/phase_8_implementation_report.md)。
+以下为已发布0.7能力：
+
 **0.7 Strategy Profile / Pass Type Engine** 已通过整体架构验收。
 显式 `strategy-pass` 路径支持1/4/11子注的2X1/3X4/4X11、
 PRIMARY/SECONDARY/HEDGE/LONGSHOT、结构集中度与原资金约束、append-only持久化及独立

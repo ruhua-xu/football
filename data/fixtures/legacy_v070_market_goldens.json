@@ -1,0 +1,15 @@
+{
+  "reference_release": "v0.7.0",
+  "reference_sha": "019a62fb00e60303732520e59890f4e8bfb6086d",
+  "reference_wheel_sha256": "763967f327bee230e71e04889e27dacd7868e926ddac94937d52634f320f7b45",
+  "wire": {
+    "V1": {"packet_hash":"c169f52b8a088f3a84b37b15c38cbb1a8919ba09758587bf79324dd309beda7b","packet_bytes_sha256":"66895ac83b22c2575a0febf39d0c04caaccf8e5cadde4185e737587363d684b1","review_bytes_sha256":"87a75c3b002f093a9d6a7364b7717b31be127c30c81843d890049e08d6fc4b9f","normalized_review_sha256":"87a75c3b002f093a9d6a7364b7717b31be127c30c81843d890049e08d6fc4b9f"},
+    "V2": {"packet_hash":"7c6a96033e6e7e53c1f35f6034c05679afded098536d6c152726f9fd7c708ad1","packet_bytes_sha256":"3fcc516aace06e16aee2c871cde13688678571881f4dd668302bed18e3a51aab","review_bytes_sha256":"379d16e6338050f1ddf9755d2d57d79604081b0eb468aa036bdce4b3d2aa6b53","normalized_review_sha256":"379d16e6338050f1ddf9755d2d57d79604081b0eb468aa036bdce4b3d2aa6b53"},
+    "V3": {"packet_hash":"51cb0de739ac1ee54b3d268e323477fc8e58081a94be2dd55b88eae82285cd82","packet_bytes_sha256":"d1eae241e497c0a24720f645069f36edbaafe21dd3afc15f1a0aa8ce3dfeb878","review_bytes_sha256":"037790c9c61bc179d94cf37499e0ad3d19bcb577e40ffc2eea4faa29512448dd","normalized_review_sha256":"037790c9c61bc179d94cf37499e0ad3d19bcb577e40ffc2eea4faa29512448dd"}
+  },
+  "strategy": {
+    "2X1": {"plan_bytes_sha256":"7b62b46add9dc972ee5599d05f3cd4c034d6d0a46910bccb1ebcbf2c40c5d295","plan_hash":"6174df0d8f11445b9a616cc9b049a9354731497634ebda8d7ad8fa2d9e786cca","ticket_bytes_sha256":"6d6607f6a6d0cfb43ad6b651c52485bcd1300d1e1a4995b3409a0082c01cb36a","settlement_bytes_sha256":"3827ca75f877adc9acd95e538a0c94833b92f182f15b767cefe559b8172e6be9","unit_stake_fen":200,"unit_max_payout_fen":1200},
+    "3X4": {"plan_bytes_sha256":"552a72297230f027f073a1c408d5fb2a1eb8efdf7f56c7b58398a68e4f3b042e","plan_hash":"c1914f112f2d09ab9f1f10bae9988d669d61792458b41b55beab6b310496406c","ticket_bytes_sha256":"7e516c050a05d8ec7a86b2971d7d720a51bb293e512c3aee2d9f15764fd32b9e","settlement_bytes_sha256":"acd0b1b5469f5fce22633ce1ac2ab1b5e9cb07605dd3b6174f1038595dd7e036","unit_stake_fen":800,"unit_max_payout_fen":10000},
+    "4X11": {"plan_bytes_sha256":"b073953988c8c1d7090edd70d832c24551e1bc9adc46843a86b66989d11be5cd","plan_hash":"17b3742fbb271191000af63ff3491cbe69ac270c080c88293c2a59bf5517645d","ticket_bytes_sha256":"4d054cc89bd2fbfc4a6aad1339fd4befaa68c2abad5a0f5a9389e441cce78050","settlement_bytes_sha256":"864f13aecad14c352710a3609b2af773da33d24b31c7ebad045281e4ae7d3105","unit_stake_fen":2200,"unit_max_payout_fen":69000}
+  }
+}

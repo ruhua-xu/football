@@ -32,8 +32,10 @@ where = ["src"]
     "config/backtest.toml",
     "config/live.toml",
     "config/strategy_profile_v1.json",
+    "config/strategy_profile_v2.json",
+    "config/poisson_goals_v1.json",
 ]
-"football_system_resources/data/fixtures" = ["data/fixtures/mvp_matches.json", "data/fixtures/strategy_pass_v1.json"]
+"football_system_resources/data/fixtures" = ["data/fixtures/mvp_matches.json", "data/fixtures/strategy_pass_v1.json", "data/fixtures/market_expansion_v1.json", "data/fixtures/legacy_v070_market_goldens.json"]
 "football_system_resources/data/fixtures/historical_acceptance" = [
     "data/fixtures/historical_acceptance/acceptance_config.toml",
     "data/fixtures/historical_acceptance/fixtures.json",
@@ -60,6 +62,10 @@ where = ["src"]
     "fankui/llm_review_v3_contract.md",
     "fankui/llm_strategy.md",
     "fankui/strategy_pass_v1_contract.md",
+    "fankui/market_taxonomy_v1_contract.md",
+    "fankui/poisson_goals_baseline_v1_contract.md",
+    "fankui/analysis_packet_v4_contract.md",
+    "fankui/strategy_pass_v2_contract.md",
 ]
 "football_system_resources/fankui/decisions" = [
     "fankui/decisions/0001-market-abstraction.md",
@@ -70,6 +76,7 @@ where = ["src"]
     "fankui/decisions/0006-configurable-ticket-strategy-profile.md",
     "fankui/decisions/0007-separate-live-and-source-time-research.md",
     "fankui/decisions/0009-versioned-strategy-pass-engine.md",
+    "fankui/decisions/0010-generic-market-review-and-simple-multiple.md",
 ]
 "football_system_resources/migrations" = ["migrations/env.py", "migrations/script.py.mako"]
 "football_system_resources/migrations/versions" = [
@@ -97,6 +104,7 @@ where = ["src"]
     "migrations/versions/062f3a5c1798_add_observed_training.py",
     "migrations/versions/17304b6d28a9_bind_observed_quant_integrity.py",
     "migrations/versions/28415c7e39ba_add_strategy_pass_engine.py",
+    "migrations/versions/39526d8f40cb_add_multi_market_graph.py",
 ]
 
 [tool.pytest.ini_options]

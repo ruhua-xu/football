@@ -6,6 +6,7 @@ from io import StringIO
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import inspect, select, text
 from sqlalchemy.exc import IntegrityError
 
@@ -361,7 +362,7 @@ def test_fresh_and_existing_upgrade_keep_legacy_artifacts_and_guard_downgrade(tm
         )
         assert (
             conn.scalar(text("SELECT version_num FROM alembic_version"))
-            == "28415c7e39ba"
+            == ScriptDirectory.from_config(config).get_current_head()
         )
     p = StrategyPassService(SqlAlchemyStrategyPassRepository(sessions)).create(
         "ANALYSIS_RUN", old.analysis_run.analysis_run_id, 10000

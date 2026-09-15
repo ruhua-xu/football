@@ -49,6 +49,7 @@ from football_system.infrastructure.database.production_audit_schema import (
     production_audit_tables_v1,
 )
 from football_system.infrastructure.database.strategy_pass_schema import strategy_pass_tables_v1
+from football_system.infrastructure.database.market_v2_schema import market_v2_tables
 
 
 class UTCDateTime(TypeDecorator[datetime]):
@@ -3419,3 +3420,6 @@ class StrategyPassSettlementResultRecord(Base):
 
 class StrategyPassSettlementSealRecord(Base):
     __table__ = _strategy_tables["strategy_pass_settlement_seals"]
+
+
+_market_v2_tables = market_v2_tables(Base.metadata)

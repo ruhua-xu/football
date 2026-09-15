@@ -17,7 +17,7 @@ from typing import Sequence
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_VERSION = "0.7.0"
-EXPECTED_MIGRATION_HEAD = "28415c7e39ba"
+EXPECTED_MIGRATION_HEAD = "39526d8f40cb"
 PROVIDER_CODE = "SYNTHETIC_ACCEPTANCE_V1"
 QUANT_RUN_ID = "wheel-e2e-quant"
 BLEND_RUN_ID = "wheel-e2e-blend"
@@ -42,8 +42,12 @@ EXPECTED_RESOURCE_FILES = frozenset(
         "config/live.toml",
         "config/mvp.toml",
         "config/strategy_profile_v1.json",
+        "config/strategy_profile_v2.json",
+        "config/poisson_goals_v1.json",
         "data/fixtures/mvp_matches.json",
         "data/fixtures/strategy_pass_v1.json",
+        "data/fixtures/market_expansion_v1.json",
+        "data/fixtures/legacy_v070_market_goldens.json",
         "data/fixtures/historical_acceptance/acceptance_config.toml",
         "data/fixtures/historical_acceptance/fixtures.json",
         "data/fixtures/historical_acceptance/manual_quant.json",
@@ -69,6 +73,10 @@ EXPECTED_RESOURCE_FILES = frozenset(
         "fankui/llm_review_v3_contract.md",
         "fankui/llm_strategy.md",
         "fankui/strategy_pass_v1_contract.md",
+        "fankui/market_taxonomy_v1_contract.md",
+        "fankui/poisson_goals_baseline_v1_contract.md",
+        "fankui/analysis_packet_v4_contract.md",
+        "fankui/strategy_pass_v2_contract.md",
         "fankui/decisions/0001-market-abstraction.md",
         "fankui/decisions/0002-versioned-fusion-policies.md",
         "fankui/decisions/0003-ticket-and-atomic-bet.md",
@@ -77,6 +85,7 @@ EXPECTED_RESOURCE_FILES = frozenset(
         "fankui/decisions/0006-configurable-ticket-strategy-profile.md",
         "fankui/decisions/0007-separate-live-and-source-time-research.md",
         "fankui/decisions/0009-versioned-strategy-pass-engine.md",
+        "fankui/decisions/0010-generic-market-review-and-simple-multiple.md",
         "migrations/env.py",
         "migrations/script.py.mako",
         "migrations/versions/1bec5f575834_create_mvp_schema.py",
@@ -103,6 +112,7 @@ EXPECTED_RESOURCE_FILES = frozenset(
         "migrations/versions/062f3a5c1798_add_observed_training.py",
         "migrations/versions/17304b6d28a9_bind_observed_quant_integrity.py",
         "migrations/versions/28415c7e39ba_add_strategy_pass_engine.py",
+        "migrations/versions/39526d8f40cb_add_multi_market_graph.py",
     }
 )
 
@@ -870,6 +880,16 @@ print(json.dumps({"portfolio_settlement_id": row[0]}))
         cwd=work_dir,
         environment=environment,
         markers=("# Portfolio Settlement Report", "## Lineage", "## Financials"),
+    )
+
+    _run_checked(
+        "installed multi-market V4/simple-multiple acceptance",
+        [python, "-I", PROJECT_ROOT / "scripts" / "market_expansion_acceptance.py",
+         "--work-dir", work_dir / "market-v2-acceptance"],
+        cwd=work_dir,
+        environment=environment,
+        markers=("MARKET_EXPANSION_V1_INSTALLED_ACCEPTANCE_PASS",),
+        timeout=1200,
     )
 
     final_state_code = """
