@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.0 - 2026-09-16
+
+- 整体0.8 Architecture Review通过，最终接受提交 `e6e7fba26b0fc69506100f4c908b45b2fcd890ae`；ADR-0010置为Accepted，两个V4 blocker关闭。
+- 新增版本化HANDICAP_THREE_WAY、TOTAL_GOALS和31-outcome CORRECT_SCORE合同、generic Decimal概率/赔率与exact-market consensus；保留旧THREE_WAY/Elo。
+- 固定POISSON_GOALS_BASELINE_V1使用已准入同cohort的home/away split，显式minimum history和无限tail积分/认证；不做自动调参或市场反推lambda。
+- V4按match+market封存context/evidence；支持AVAILABLE quant的证据/上下文/禁用abstention，保留P_base与零influence，并恢复MAIN/SECONDARY/UPSET及typed counter-scenarios。
+- Strategy Pass V2将same-market choices真实展开为AtomicBets，支持cross-match mixed market；按expanded OR/AND图计算风险与常规时间比分结算，保留原integer-fen/multiplier/payout规则。
+- Additive migration head为39526d8f40cb，70-resource wheel；v0.7.0旧库、V1 replay与V1/V2/V3 golden回归保持。
+- 发布收尾只改版本声明和公开文档，完整验收与known limitations见 `fankui/phase_8_final_acceptance_report.md`。发布完成后停止，等待0.9独立指令。
+
 ## 0.7.0 - 2026-09-14
 
 - 整体架构验收通过，接受实现 `dd13e0614b2cd4760d2af818cd17b867bc4086dd`；ADR-0009 置为 Accepted。

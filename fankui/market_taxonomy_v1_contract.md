@@ -2,7 +2,7 @@
 
 ## 状态与范围
 
-0.8软件候选，待整体架构验收。实现于 `domain/market_v2.py`。旧 `market.py`、
+0.8整体架构验收已通过，合同Accepted。实现于 `domain/market_v2.py`。旧 `market.py`、
 SelectionKey、ThreeWayProbability及其wire不变。新增enum只包含THREE_WAY、
 HANDICAP_THREE_WAY、TOTAL_GOALS、CORRECT_SCORE；HALF_FULL不进入本版。
 

@@ -1,9 +1,10 @@
 # ADR-0010 — Versioned multi-market analysis, review and simple multiple
 
-- Status: Proposed — one overall 0.8 Architecture Review after complete software acceptance
+- Status: Accepted — overall 0.8 Architecture Review PASSED
 - Baseline: v0.7.0 / `019a62fb00e60303732520e59890f4e8bfb6086d`
-- Scope: offline synthetic/fixed-fixture software candidate, package remains 0.7.0
-- Review: other architecture decisions accepted; remaining review is limited to the two V4 contract blockers below.
+- Scope: offline synthetic/fixed-fixture validation; release package 0.8.0
+- Accepted: 2026-09-16, user approved the overall 0.8 architecture and closed both V4 blockers.
+- Accepted implementation: `e6e7fba26b0fc69506100f4c908b45b2fcd890ae`.
 - V4 revision baseline: `4a0bce0b5429cb86c223d75b8288b3bea32076cb`.
 
 ## Decisions

@@ -2,7 +2,7 @@
 
 ## 状态
 
-- 状态：package metadata 为 `0.7.0`；0.7 Strategy Pass 整体架构验收已通过
+- 状态：package metadata 为 `0.8.0`；0.8整体架构验收已通过，两个V4 blocker已关闭
 - 架构形态：Python 3.12+ 模块化单体
 - 边界模式：六边形架构
 - 存储边界：SQLite-only
@@ -507,3 +507,14 @@ Ticket、AtomicBet、BetLeg及其父图，使用append-only与deferred seal防�
 Package版本为0.7.0；市场扩展留0.8，收益分布优化留0.9。已接受合同见
 [strategy_pass_v1_contract.md](strategy_pass_v1_contract.md)，Accepted决策见
 [ADR-0009](decisions/0009-versioned-strategy-pass-engine.md)。
+
+## 0.8 Market Expansion / Simple Multiple
+
+已接受实现为 `e6e7fba26b0fc69506100f4c908b45b2fcd890ae`。
+独立typed market distribution、Poisson新市场baseline、V4 market review/fusion、
+same-market choice Cartesian展开及Settlement V2继续沿用模块化单体/六边形边界。
+V4 abstention与structured scenario两项blocker已关闭；ADR-0010为Accepted。
+旧THREE_WAY/Elo、V1/V2/V3 wire、Strategy Pass V1保持冻结。
+
+合同与A–P、升级及回归证据见 [Phase 8最终验收报告](phase_8_final_acceptance_report.md)。
+本轮发布仅同步版本/验收状态，不进入0.9。
