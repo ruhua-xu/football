@@ -1,0 +1,26 @@
+{
+  "schema_version": "PROSPECTIVE_POLICY_V1",
+  "minimum_lock_lead_seconds": 60,
+  "minimum_real_observations": 30,
+  "max_epoch_runs": 256,
+  "max_report_units": 4096,
+  "max_evidence_per_run": 128,
+  "calibration_bins": 10,
+  "metric_precision": 128,
+  "log_loss_policy": "ZERO_TRUE_PROBABILITY_REPORTED_INFINITE_V1",
+  "neutral_policy": "EXACT_ZERO_BRIER_DELTA_V1",
+  "reject_stale_evidence": true,
+  "provider_http_enabled": false,
+  "category_max_age_seconds": {
+    "LINEUP": 7200,
+    "EXPECTED_LINEUP": 86400,
+    "INJURY": 172800,
+    "SUSPENSION": 172800,
+    "SCHEDULE": 604800,
+    "REST": 604800,
+    "FORM": 604800,
+    "MOTIVATION": 86400,
+    "ODDS_CONTEXT": 3600,
+    "OTHER_VERIFIED_FACT": 86400
+  }
+}

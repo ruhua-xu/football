@@ -36,8 +36,9 @@ where = ["src"]
     "config/poisson_goals_v1.json",
     "config/return_distribution_policy_v1.json",
     "config/return_objective_profile_v1.json",
+    "config/prospective_policy_v1.json",
 ]
-"football_system_resources/data/fixtures" = ["data/fixtures/mvp_matches.json", "data/fixtures/strategy_pass_v1.json", "data/fixtures/market_expansion_v1.json", "data/fixtures/legacy_v070_market_goldens.json", "data/fixtures/return_distribution_v1.json"]
+"football_system_resources/data/fixtures" = ["data/fixtures/mvp_matches.json", "data/fixtures/strategy_pass_v1.json", "data/fixtures/market_expansion_v1.json", "data/fixtures/legacy_v070_market_goldens.json", "data/fixtures/return_distribution_v1.json", "data/fixtures/prospective_validation_v1.json"]
 "football_system_resources/data/fixtures/historical_acceptance" = [
     "data/fixtures/historical_acceptance/acceptance_config.toml",
     "data/fixtures/historical_acceptance/fixtures.json",
@@ -69,6 +70,7 @@ where = ["src"]
     "fankui/analysis_packet_v4_contract.md",
     "fankui/strategy_pass_v2_contract.md",
     "fankui/return_distribution_v1_contract.md",
+    "fankui/prospective_validation_v1_contract.md",
 ]
 "football_system_resources/fankui/decisions" = [
     "fankui/decisions/0001-market-abstraction.md",
@@ -81,6 +83,7 @@ where = ["src"]
     "fankui/decisions/0009-versioned-strategy-pass-engine.md",
     "fankui/decisions/0010-generic-market-review-and-simple-multiple.md",
     "fankui/decisions/0011-return-distribution-optimizer.md",
+    "fankui/decisions/ADR-0012-prospective-validation-production-closeout.md",
 ]
 "football_system_resources/migrations" = ["migrations/env.py", "migrations/script.py.mako"]
 "football_system_resources/migrations/versions" = [
@@ -110,6 +113,7 @@ where = ["src"]
     "migrations/versions/28415c7e39ba_add_strategy_pass_engine.py",
     "migrations/versions/39526d8f40cb_add_multi_market_graph.py",
     "migrations/versions/4a637e9051dc_add_return_distribution_graph.py",
+    "migrations/versions/5b748fa162ed_add_prospective_validation.py",
 ]
 
 [tool.pytest.ini_options]

@@ -17,7 +17,7 @@ from typing import Sequence
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_VERSION = "0.9.0"
-EXPECTED_MIGRATION_HEAD = "4a637e9051dc"
+EXPECTED_MIGRATION_HEAD = "5b748fa162ed"
 PROVIDER_CODE = "SYNTHETIC_ACCEPTANCE_V1"
 QUANT_RUN_ID = "wheel-e2e-quant"
 BLEND_RUN_ID = "wheel-e2e-blend"
@@ -46,11 +46,13 @@ EXPECTED_RESOURCE_FILES = frozenset(
         "config/poisson_goals_v1.json",
         "config/return_distribution_policy_v1.json",
         "config/return_objective_profile_v1.json",
+        "config/prospective_policy_v1.json",
         "data/fixtures/mvp_matches.json",
         "data/fixtures/strategy_pass_v1.json",
         "data/fixtures/market_expansion_v1.json",
         "data/fixtures/legacy_v070_market_goldens.json",
         "data/fixtures/return_distribution_v1.json",
+        "data/fixtures/prospective_validation_v1.json",
         "data/fixtures/historical_acceptance/acceptance_config.toml",
         "data/fixtures/historical_acceptance/fixtures.json",
         "data/fixtures/historical_acceptance/manual_quant.json",
@@ -81,6 +83,7 @@ EXPECTED_RESOURCE_FILES = frozenset(
         "fankui/analysis_packet_v4_contract.md",
         "fankui/strategy_pass_v2_contract.md",
         "fankui/return_distribution_v1_contract.md",
+        "fankui/prospective_validation_v1_contract.md",
         "fankui/decisions/0001-market-abstraction.md",
         "fankui/decisions/0002-versioned-fusion-policies.md",
         "fankui/decisions/0003-ticket-and-atomic-bet.md",
@@ -91,6 +94,7 @@ EXPECTED_RESOURCE_FILES = frozenset(
         "fankui/decisions/0009-versioned-strategy-pass-engine.md",
         "fankui/decisions/0010-generic-market-review-and-simple-multiple.md",
         "fankui/decisions/0011-return-distribution-optimizer.md",
+        "fankui/decisions/ADR-0012-prospective-validation-production-closeout.md",
         "migrations/env.py",
         "migrations/script.py.mako",
         "migrations/versions/1bec5f575834_create_mvp_schema.py",
@@ -119,6 +123,7 @@ EXPECTED_RESOURCE_FILES = frozenset(
         "migrations/versions/28415c7e39ba_add_strategy_pass_engine.py",
         "migrations/versions/39526d8f40cb_add_multi_market_graph.py",
         "migrations/versions/4a637e9051dc_add_return_distribution_graph.py",
+        "migrations/versions/5b748fa162ed_add_prospective_validation.py",
     }
 )
 
@@ -908,6 +913,15 @@ print(json.dumps({"portfolio_settlement_id": row[0]}))
          "--work-dir", work_dir / "return-distribution-acceptance"],
         cwd=work_dir, environment=environment,
         markers=("RETURN_DISTRIBUTION_V1_INSTALLED_ACCEPTANCE_PASS",), timeout=1200,
+    )
+
+    _run_checked(
+        "installed prospective lifecycle/validation acceptance",
+        [python, "-I", PROJECT_ROOT / "scripts" / "prospective_acceptance.py",
+         "--source-work-dir", work_dir / "market-v2-acceptance",
+         "--work-dir", work_dir / "prospective-acceptance"],
+        cwd=work_dir, environment=environment,
+        markers=("PROSPECTIVE_VALIDATION_V1_INSTALLED_ACCEPTANCE_PASS",), timeout=1200,
     )
 
     final_state_code = """

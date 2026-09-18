@@ -11,6 +11,18 @@
 
 ## 当前能力
 
+**1.0 Prospective Validation 软件候选**：新增本地 `prospective` 路径，提供typed evidence、可信本地receipt/cutoff、赛前decision lock、追加式赛果修订/结算、全epoch描述性验证与审计。Package仍为0.9.0，ADR-0012为Proposed，等待整体Architecture Review。
+见 [合同与CLI流程](fankui/prospective_validation_v1_contract.md)、[ADR-0012](fankui/decisions/ADR-0012-prospective-validation-production-closeout.md)、[实施报告](fankui/phase_10_implementation_report.md)。
+旧V2 source graph仍明确synthetic；当前真实decision adapter未激活，真实性能保持`INSUFFICIENT_PROSPECTIVE_SAMPLE`。
+
+```text
+football-system prospective prepare --database-url <sqlite-url> --input <prepare.json> --packet-dir <directory>
+football-system prospective lock --database-url <sqlite-url> --input <lock.json> --review <llm_review.json> --reasons <correction_reasons.json>
+football-system prospective settle --database-url <sqlite-url> --input <settle.json>
+football-system prospective report --database-url <sqlite-url> --input <report.json>
+football-system prospective audit --database-url <sqlite-url> --artifact-id <sealed-id>
+```
+
 **0.9 Return Distribution Optimizer** 已通过整体架构验收：独立 `return-distribution` 路径消费封存的V2 candidate catalog、P_final、SP和budget，提供same-market relevant states、connected-component exact convolution、cash-aware metrics及deterministic marginal allocation。
 同场跨market返回`CROSS_MARKET_JOINT_UNAVAILABLE`；不假造joint probability。NO_BET始终作为baseline，预算不必花完。
 ADR-0011为Accepted，package metadata为0.9.0；见 [ADR-0011](fankui/decisions/0011-return-distribution-optimizer.md)、[已接受合同](fankui/return_distribution_v1_contract.md)、[候选阶段实施报告](fankui/phase_9_implementation_report.md) 和 [最终验收报告](fankui/phase_9_final_acceptance_report.md)。

@@ -1,0 +1,42 @@
+{
+  "schema_version": "PROSPECTIVE_VALIDATION_ACCEPTANCE_V1",
+  "classification": "SYNTHETIC_ONLY",
+  "provider_http_sends": 0,
+  "real_performance_claim": false,
+  "minimum_real_observations": 30,
+  "metric_oracle": {
+    "market_type": "THREE_WAY",
+    "probabilities": ["0.5", "0.3", "0.2"],
+    "observed": "HOME_WIN",
+    "brier": "0.38",
+    "log_loss_six_decimals": "0.693147"
+  },
+  "cases": {
+    "A": "pre-kickoff decision lock",
+    "B": "late lock LOOKAHEAD_RISK and no receipt",
+    "C": "append-only locked fields and SQL mutation refusal",
+    "D": "atomic pre-kickoff invalidation and replacement",
+    "E": "append-only result revision and historical settlement replay",
+    "F": "source-time stale evidence gate",
+    "G": "unknown/expected lineup cannot assert confirmed",
+    "H": "unknown absence is not no absence or an inferred ban",
+    "I": "actual manual file hash, provenance, containment and expired retry",
+    "J": "provider unavailability does not activate HTTP",
+    "K": "schedule/rest/form as-of windows and future facts",
+    "L": "paired P_base vs P_final and per-market layer reports",
+    "M": "improved correction retained",
+    "N": "worsened correction retained",
+    "O": "abstained correction retained",
+    "P": "NO_BET cash settlement",
+    "Q": "positive locked stake and frozen payout golden",
+    "R": "six realized portfolio event buckets",
+    "S": "full-census deterministic report and receipt watermark",
+    "T": "empty report without invented metrics",
+    "U": "synthetic never removes INSUFFICIENT_PROSPECTIVE_SAMPLE",
+    "V": "exact retry and conflicting request-key rejection",
+    "W": "resealed corruption rejected by source replay",
+    "X": "genuine v0.9-code database upgrade preserves every old row",
+    "Y": "populated prospective downgrade refusal",
+    "Z": "isolated installed-wheel lifecycle and public CLI"
+  }
+}
