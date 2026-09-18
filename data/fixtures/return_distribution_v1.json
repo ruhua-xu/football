@@ -1,0 +1,32 @@
+{
+  "schema_version": "RETURN_DISTRIBUTION_ACCEPTANCE_V1",
+  "status": "PROPOSED_CANDIDATE",
+  "data_classification": "SYNTHETIC_ONLY",
+  "baseline_release": "v0.8.0",
+  "real_source_artifact_references": [],
+  "probability_assumption": "INDEPENDENT_MATCHES_V1",
+  "optimization_method": "RETURN_DISTRIBUTION_MARGINAL_V1",
+  "performance_claim": "SOFTWARE_ACCEPTANCE_ONLY_NOT_REAL_ROI_OR_ALPHA",
+  "cases": {
+    "A": {"name": "NO_BET cash baseline", "budget_fen": 10000, "stake_fen": 0, "cash_fen": 10000, "gross_support": [[0, "1"]], "expected_profit_fen": "0"},
+    "B": {"name": "2X1 exact hand case", "probabilities": ["0.5", "0.5"], "sp": ["3", "2"], "gross_support": [[0, "0.75"], [1200, "0.25"]], "expected_gross_payout_fen": "300"},
+    "C": {"name": "Shared A in AB and AC", "unique_match_count": 3, "world_states": 8, "probabilities": ["0.5", "0.5", "0.5"], "sp": ["3", "3", "3"], "gross_support": [[0, "0.625"], [1800, "0.25"], [3600, "0.125"]], "forbidden_both_win_probability": "0.0625"},
+    "D": {"name": "Same match cross market", "markets": ["THREE_WAY", "CORRECT_SCORE"], "reason": "CROSS_MARKET_JOINT_UNAVAILABLE"},
+    "E": {"name": "Simple multiple OR", "a_probabilities": ["0.4", "0.4", "0.2"], "a_sp": ["3", "4", "1.01"], "b_home_probability": "0.5", "b_home_sp": "2", "gross_support": [[0, "0.6"], [1200, "0.2"], [1600, "0.2"]]},
+    "F": {"name": "3X4 eight worlds", "probability_each": "0.5", "sp_each": "2", "world_states": 8, "gross_support": [[0, "0.5"], [800, "0.375"], [4000, "0.125"]], "expected_gross_payout_fen": "800"},
+    "G": {"name": "4X11", "probability_each": "0.5", "sp_each": "2", "gross_support": [[0, "0.3125"], [800, "0.375"], [4000, "0.25"], [14400, "0.0625"]], "budget_fen": 10000, "expected_gross_payout_fen": "2200", "median_ending_capital_fen": 8600, "p_2x_budget": "0.0625", "p_3x_budget": "0", "expected_shortfall_to_budget_fen": "1212.5"},
+    "H": {"name": "Components AB/AC, DE, FG", "component_world_counts": [4, 4, 8], "whole_relevant_worlds": 128, "oracle": "EXHAUSTIVE_TEST_ORACLE"},
+    "I": {"name": "Cash retained", "budget_fen": 10000, "stake_fen": 6000, "cash_fen": 4000, "all_loss_ending_capital_fen": 4000, "p_deep_loss": "0"},
+    "J": {"name": "Metric thresholds", "budget_fen": 10000, "cash_fen": 0, "ending_support": [[0, "0.1"], [5000, "0.2"], [10000, "0.3"], [20000, "0.25"], [30000, "0.15"]], "expected": {"p_gross_payout_gt_zero": "0.9", "p_break_even_or_better": "0.7", "p_2x_budget": "0.4", "p_3x_budget": "0.15", "p_loss": "0.3", "p_deep_loss": "0.1", "expected_gross_payout_fen": "13500", "expected_ending_capital_fen": "13500", "expected_profit_fen": "3500", "expected_profit_ratio": "0.35", "median_ending_capital_fen": 10000, "expected_shortfall_to_budget_fen": "2000"}},
+    "K": {"name": "Diversification opening", "tickets": ["ABC", "ABD", "EFG"], "pass_type": "3X4", "shared_group_probability": "0.6", "independent_group_probability": "0.59", "sp_each": "2", "budget_fen": 10000, "source_max_choice_set_overlap": "1", "second_opening": "EFG"},
+    "L": {"name": "HEDGE conditional utility", "positive_budget_fen": 10000, "positive_primary_sp": ["4", "4"], "negative_budget_fen": 2000, "negative_primary_sp": ["2", "5.5"], "primary_probability_each": "0.6", "hedge_probability_each": "0.5", "hedge_sp_each": "2", "positive_delta": "0.032", "negative_delta": "-0.022", "requires": "V2 surviving expanded witness and all risk rules"},
+    "M": {"name": "LONGSHOT conditional utility", "positive_probability_each": "0.1", "negative_utility_probability_each": "0.05", "rejected_ev_probability_each": "0.01", "sp_each": "20", "positive_p3x_contribution": "0.01", "positive_unit_delta": "0.03128"},
+    "N": {"name": "NO_BET wins", "probability_each": "0.5", "sp_each": "2.01", "budget_fen": 10000, "unit_utility": "-0.04991", "status": "NO_BET"},
+    "O": {"name": "Explicit guards", "candidate_count": 33, "candidate_limit": 32, "candidate_reason": "CANDIDATE_SEARCH_SPACE_TOO_LARGE", "distribution_reason": "DISTRIBUTION_COMPLEXITY_LIMIT", "search_reason": "SEARCH_SPACE_TOO_LARGE", "approximation_fallback": false},
+    "P": {"name": "Determinism", "hash_seeds": ["0", "117", "random"], "ambient_precisions": [6, 28, 192], "invariant": "artifact bytes/hash, choices, multipliers and metrics identical"},
+    "Q": {"name": "Exact retry and corruption", "tamper_targets": ["support", "probability", "multiplier", "source_hash", "metric"], "reseeded_invalid_hash_also_rejected": true},
+    "R": {"name": "Existing-data upgrade", "old_code_ref": "v0.8.0", "preserve": ["table SQL", "trigger SQL", "all old rows", "serialized artifacts", "old read/replay/settle"]},
+    "S": {"name": "Frozen math", "frozen": ["Elo", "Poisson", "P_final", "EV", "payout", "V4", "StrategyPassV1", "StrategyPassV2", "SettlementV1", "SettlementV2", "old migrations"]},
+    "T": {"name": "Formal Settlement V2 consistency", "passes": ["2X1", "3X4", "4X11"], "invariants": ["evaluator gross == settlement gross", "ending == cash + settlement gross"]}
+  }
+}

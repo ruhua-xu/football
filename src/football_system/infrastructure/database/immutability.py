@@ -1456,6 +1456,10 @@ def install_sqlite_immutability_triggers(connection: Connection) -> None:
 
     install_market_v2_triggers(connection)
 
+    from football_system.infrastructure.database.return_distribution_schema import install_return_distribution_triggers
+
+    install_return_distribution_triggers(connection)
+
 
 def install_quant_integrity_v1_triggers(connection: Connection) -> None:
     from football_system.infrastructure.database.quant_integrity_schema import (

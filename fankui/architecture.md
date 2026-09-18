@@ -2,12 +2,22 @@
 
 ## 状态
 
-- 状态：package metadata 为 `0.8.0`；0.8整体架构验收已通过，两个V4 blocker已关闭
+- 状态：package metadata 为 `0.9.0`；0.9整体Architecture Review已通过，ADR-0011为Accepted
 - 架构形态：Python 3.12+ 模块化单体
 - 边界模式：六边形架构
 - 存储边界：SQLite-only
 - 入口：CLI
 - 历史策略：Append-only Source Fact、Analysis Snapshot、Settlement 与 Backtest Artifact
+
+### 0.9已接受增量
+
+`return-distribution`只读封存`StrategyPassPlanV2`，不进入provider/训练/推理/V4融合路径。
+Domain增加same-match one-MarketKey规则、relevant-state/REST、独立组件精确卷积、cash-aware metrics与固定profile marginal optimizer。
+Application只接受source ID与candidate/multiplier请求；Infrastructure增加25张`rd_*`typed append-only图表及deferred completeness seals。
+原mm/StrategyPass/Settlement表与trigger不改变。新迁移为`4a637e9051dc`（parent `39526d8f40cb`）。
+每次read/save重放source、probability/SP绑定、support、metrics、risk/roles及search；不保存巨大trial frontier。
+算法、边界和验收见[ADR-0011](decisions/0011-return-distribution-optimizer.md)与[Return Distribution V1](return_distribution_v1_contract.md)。
+整体Architecture Review已通过，技术内容冻结；版本号0.9.0，release closeout门禁见`phase_9_final_acceptance_report.md`。
 
 `0.4.0` 在既有概率、融合、投注、风险与离线 Review 图之外，增加本地只读历史归档、赛果评估、结算和严格时间序列回测图。`0.5.0` 继续保持模块化单体和六边形边界，正式增加显式 Sportmonks fixture capture、raw archive 与数据库 identity lineage。
 

@@ -1,0 +1,18 @@
+{
+  "schema_version": "RETURN_DISTRIBUTION_POLICY_V1",
+  "algorithm": "RELEVANT_STATE_COMPONENT_CONVOLUTION_V1",
+  "probability_assumption": "INDEPENDENT_MATCHES_V1",
+  "same_match_policy": "CROSS_MARKET_SAME_MATCH_UNSUPPORTED",
+  "decimal_precision": 512,
+  "probability_policy": "EXACT_FINITE_DECIMAL_NO_QUANTIZATION_V1",
+  "ratio_policy": "FIXED_CONTEXT_512_HALF_EVEN_ZERO_BUDGET_NULL_V1",
+  "deep_loss_policy": "FLOOR_BUDGET_DIV_5_V1",
+  "max_component_world_states": 65536,
+  "max_distribution_support": 65536,
+  "max_unique_matches": 12,
+  "max_selected_tickets": 8,
+  "max_convolution_products": 1048576,
+  "max_evaluation_work": 16777216,
+  "max_gross_payout_fen": 9223372036854775807,
+  "max_budget_digits": 128
+}

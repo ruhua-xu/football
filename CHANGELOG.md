@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.0 - 2026-09-18
+
+- 整体0.9 Architecture Review通过，接受tree `52284cdd20111da15b7be6d5d70c0bce38b19a86`；ADR-0011为Accepted，return math、objective、optimizer、guards及persistence语义冻结。
+- 基于封存V2 candidate graph/P_final/SP提供relevant-state/REST、connected-component exact enumeration/convolution和cash-aware收益指标；同场跨market明确`CROSS_MARKET_JOINT_UNAVAILABLE`。
+- 固定Decimal 512、精确概率闭合及独立比赛假设；NO_BET为正式baseline，固定未校准objective驱动deterministic marginal开票/倍数分配，不宣称global optimum或真实收益优势。
+- 保留V2风险、PRIMARY/SECONDARY/HEDGE/LONGSHOT和integer-fen payout语义；新增25张typed append-only `rd_*`表，migration head为`4a637e9051dc`。
+- A–T synthetic/oracle、Settlement V2一致性、旧库升级/冻结回归通过；76-resource wheel，版本升级后的final gates见`fankui/phase_9_final_acceptance_report.md`。
+- Closeout仅更新ADR状态、版本与发布文档/期望，不混入业务逻辑修改。完成后停止，等待1.0独立指令。
+
 ## 0.8.0 - 2026-09-16
 
 - 整体0.8 Architecture Review通过，最终接受提交 `e6e7fba26b0fc69506100f4c908b45b2fcd890ae`；ADR-0010置为Accepted，两个V4 blocker关闭。

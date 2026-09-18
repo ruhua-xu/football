@@ -16,8 +16,8 @@ from typing import Sequence
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_VERSION = "0.8.0"
-EXPECTED_MIGRATION_HEAD = "39526d8f40cb"
+EXPECTED_VERSION = "0.9.0"
+EXPECTED_MIGRATION_HEAD = "4a637e9051dc"
 PROVIDER_CODE = "SYNTHETIC_ACCEPTANCE_V1"
 QUANT_RUN_ID = "wheel-e2e-quant"
 BLEND_RUN_ID = "wheel-e2e-blend"
@@ -44,10 +44,13 @@ EXPECTED_RESOURCE_FILES = frozenset(
         "config/strategy_profile_v1.json",
         "config/strategy_profile_v2.json",
         "config/poisson_goals_v1.json",
+        "config/return_distribution_policy_v1.json",
+        "config/return_objective_profile_v1.json",
         "data/fixtures/mvp_matches.json",
         "data/fixtures/strategy_pass_v1.json",
         "data/fixtures/market_expansion_v1.json",
         "data/fixtures/legacy_v070_market_goldens.json",
+        "data/fixtures/return_distribution_v1.json",
         "data/fixtures/historical_acceptance/acceptance_config.toml",
         "data/fixtures/historical_acceptance/fixtures.json",
         "data/fixtures/historical_acceptance/manual_quant.json",
@@ -77,6 +80,7 @@ EXPECTED_RESOURCE_FILES = frozenset(
         "fankui/poisson_goals_baseline_v1_contract.md",
         "fankui/analysis_packet_v4_contract.md",
         "fankui/strategy_pass_v2_contract.md",
+        "fankui/return_distribution_v1_contract.md",
         "fankui/decisions/0001-market-abstraction.md",
         "fankui/decisions/0002-versioned-fusion-policies.md",
         "fankui/decisions/0003-ticket-and-atomic-bet.md",
@@ -86,6 +90,7 @@ EXPECTED_RESOURCE_FILES = frozenset(
         "fankui/decisions/0007-separate-live-and-source-time-research.md",
         "fankui/decisions/0009-versioned-strategy-pass-engine.md",
         "fankui/decisions/0010-generic-market-review-and-simple-multiple.md",
+        "fankui/decisions/0011-return-distribution-optimizer.md",
         "migrations/env.py",
         "migrations/script.py.mako",
         "migrations/versions/1bec5f575834_create_mvp_schema.py",
@@ -113,6 +118,7 @@ EXPECTED_RESOURCE_FILES = frozenset(
         "migrations/versions/17304b6d28a9_bind_observed_quant_integrity.py",
         "migrations/versions/28415c7e39ba_add_strategy_pass_engine.py",
         "migrations/versions/39526d8f40cb_add_multi_market_graph.py",
+        "migrations/versions/4a637e9051dc_add_return_distribution_graph.py",
     }
 )
 
@@ -152,6 +158,8 @@ def _build_parser() -> argparse.ArgumentParser:
             "temporary directory is created and removed."
         ),
     )
+    parser.add_argument("--offline-wheelhouse", type=Path,
+                        help="Use this local wheelhouse with --no-index for dependency installation.")
     return parser
 
 
@@ -380,7 +388,7 @@ def _assert_report(path: Path, heading: str, slice_count: int | None = None) -> 
     return content
 
 
-def _exercise_wheel(wheel: Path, work_dir: Path) -> None:
+def _exercise_wheel(wheel: Path, work_dir: Path, offline_wheelhouse: Path | None = None) -> None:
     venv = work_dir / "venv"
     base_environment = _clean_environment()
     _run_checked(
@@ -405,6 +413,7 @@ def _exercise_wheel(wheel: Path, work_dir: Path) -> None:
             "install",
             "--isolated",
             "--disable-pip-version-check",
+            *(["--no-index", "--find-links", str(offline_wheelhouse.resolve())] if offline_wheelhouse is not None else []),
             wheel,
         ],
         cwd=work_dir,
@@ -892,6 +901,15 @@ print(json.dumps({"portfolio_settlement_id": row[0]}))
         timeout=1200,
     )
 
+    _run_checked(
+        "installed exact return distribution/marginal optimizer acceptance",
+        [python, "-I", PROJECT_ROOT / "scripts" / "return_distribution_acceptance.py",
+         "--source-work-dir", work_dir / "market-v2-acceptance",
+         "--work-dir", work_dir / "return-distribution-acceptance"],
+        cwd=work_dir, environment=environment,
+        markers=("RETURN_DISTRIBUTION_V1_INSTALLED_ACCEPTANCE_PASS",), timeout=1200,
+    )
+
     final_state_code = """
 import json
 import sqlite3
@@ -998,11 +1016,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         _inspect_wheel(wheel)
         if args.work_dir is not None:
             work_dir = _prepare_work_dir(args.work_dir)
-            _exercise_wheel(wheel, work_dir)
+            _exercise_wheel(wheel, work_dir, args.offline_wheelhouse)
         else:
             with tempfile.TemporaryDirectory(prefix="football-wheel-e2e-") as temporary:
                 work_dir = _prepare_work_dir(Path(temporary))
-                _exercise_wheel(wheel, work_dir)
+                _exercise_wheel(wheel, work_dir, args.offline_wheelhouse)
     except (OSError, sqlite3.Error, WheelE2EError) as error:
         print(f"wheel E2E failed: {error}", file=sys.stderr)
         return 1

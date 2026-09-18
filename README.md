@@ -5,11 +5,26 @@
 ## 发布状态
 
 - `v0.1.0` 固定在提交 `fceb945d07218290dc85b465e885a47ae9912c3f`，保留原始 MVP 行为。
-- 当前 package metadata 为 `0.8.0`；Market Expansion + Simple Multiple Selection 整体架构验收已通过，最终接受实现为 `e6e7fba26b0fc69506100f4c908b45b2fcd890ae`，两个V4 blocker已关闭。最终验收与发布门禁见 [Phase 8 最终验收报告](fankui/phase_8_final_acceptance_report.md)，candidate/main/tag CI终态随发布交付记录核验。
-- `0.8.0` 仅支持 SQLite。运行时建库、Schema 创建和 Alembic 迁移都会在加载其他数据库驱动前拒绝非 SQLite URL。
+- 当前 package metadata 为 `0.9.0`；Return Distribution Optimizer 整体Architecture Review已通过，接受tree为 `52284cdd20111da15b7be6d5d70c0bce38b19a86`。最终验收与发布门禁见 [Phase 9 最终验收报告](fankui/phase_9_final_acceptance_report.md)，candidate/main/tag CI终态随发布交付记录核验。
+- `0.9.0` 仅支持 SQLite。运行时建库、Schema 创建和 Alembic 迁移都会在加载其他数据库驱动前拒绝非 SQLite URL。
 - 只有显式执行 `live ingest-fixtures` 或 `live ingest-market-odds` 才会分别读取 `SPORTMONKS_KEY` 或 `ODDS_API_KEY` 并访问网络；`ingest-fixtures-manual`、Sporttery、reconcile、review import、prepare-analysis 和 run-analysis 均为本地 I/O。项目不连接真实 LLM API，不执行自动下注。
 
 ## 当前能力
+
+**0.9 Return Distribution Optimizer** 已通过整体架构验收：独立 `return-distribution` 路径消费封存的V2 candidate catalog、P_final、SP和budget，提供same-market relevant states、connected-component exact convolution、cash-aware metrics及deterministic marginal allocation。
+同场跨market返回`CROSS_MARKET_JOINT_UNAVAILABLE`；不假造joint probability。NO_BET始终作为baseline，预算不必花完。
+ADR-0011为Accepted，package metadata为0.9.0；见 [ADR-0011](fankui/decisions/0011-return-distribution-optimizer.md)、[已接受合同](fankui/return_distribution_v1_contract.md)、[候选阶段实施报告](fankui/phase_9_implementation_report.md) 和 [最终验收报告](fankui/phase_9_final_acceptance_report.md)。
+
+```text
+football-system return-distribution policy
+football-system return-distribution profile
+football-system return-distribution evaluate --database-url <sqlite-url> --input <evaluate.json>
+football-system return-distribution optimize --database-url <sqlite-url> --input <optimize.json>
+football-system return-distribution show --database-url <sqlite-url> --artifact-id <sealed-id>
+```
+
+evaluate输入只含plan ID、candidate IDs与整数倍数；optimize输入只含plan ID，可附expected config hashes作校验。
+默认权重为未校准策略参数；exact仅在`INDEPENDENT_MATCHES_V1`假设下成立，marginal不是global optimum，synthetic验收不代表真实收益优势。
 
 **0.8 Market Expansion + Simple Multiple Selection** 已通过整体架构验收。
 独立 `market-v2` 路径提供typed 3/8/31 outcome
@@ -194,18 +209,23 @@ NOT REAL HISTORICAL PERFORMANCE
 
 外部协作者只处理已封存 AnalysisRun 导出的白名单 Packet，并返回绝对 `P_llm`；本地严格校验、追加导入，再创建 FusionRun 和独立 PortfolioRevision。导入不会更新原 AnalysisRun、`P_final`、候选、Ticket 或 Portfolio。V1/V2 只接受手工 `P_quant` lineage；V3 增加 `started_at_utc`、结构化 model state/evaluation hashes、紧凑训练 match/result ID lineage，以及有预测/无预测两种显式状态。model-unavailable 比赛必须返回 `MODEL_UNAVAILABLE`，不会伪造概率；若整次运行没有任何可用 base prediction，则拒绝创建 FusionRun。合同见 `fankui/llm_review_v1_contract.md`、`fankui/llm_review_v2_contract.md` 与 `fankui/llm_review_v3_contract.md`。
 
-## 0.8.0 已知限制
+## 0.9.0 已知限制
+
+- Exact仅限封存marginals与`INDEPENDENT_MATCHES_V1`，不宣称现实独立；整个portfolio同场跨market joint不支持。
+- Objective为`UNCALIBRATED_STRATEGY_POLICY_V1`；marginal optimizer不是global optimum，synthetic验收及legacy comparison不证明真实ROI/alpha。
+- 默认optimizer catalog32、component worlds/support各65536、unique matches12、preferred4/absolute8；额外CPU/金额/bytes guards见已接受合同，超限明确unavailable。
+- 旧0.8能力边界继续保留：
 
 - 当前 live Elo 可能因缺少合格 `LIVE_STRICT` history 而明确返回 `MODEL_UNAVAILABLE`；不复制 `P_market`，也不生成伪 `P_quant` / `P_final`。
 - ADR-0007 保持不变，`SOURCE_TIME_RESEARCH` 不允许重标或直接混入 live provider。批准历史只经独立 build 生成 release；当前快照的历史发布时间未知不会被审批补造。
 - 正式市场为THREE_WAY、HANDICAP_THREE_WAY、TOTAL_GOALS、CORRECT_SCORE；无HALF_FULL。V2支持少量同市场choices，不支持同票同场跨市场compound。
 - 新cohort/odds入口为显式synthetic离线fixture边界；真实来源能力、权利及模型表现仍需独立验证。
 - Poisson baseline未校准，home/away各至少5场、league10场，最多1024 facts、lambda20、score256、|handicap|20；越界不fallback或自动调参。
-- Profile V2默认preferred choices2/absolute3，每票96 atomic、全计划4096 atomic、512 candidates、12 matches、256可重建states、source8MiB；超限硬拒绝。完整收益分布优化留0.9。
+- Profile V2默认preferred choices2/absolute3，每票96 atomic、全计划4096 atomic、512 candidates、12 matches、256可重建states、source8MiB；超限硬拒绝。0.9独立消费该封存candidate catalog并施加其自身更严格的exact bounds。
 - 不连接真实 LLM API，不执行自动下注、账户登录、支付或出票。
 - 不提供通用生产抓取平台、网页 GPT 历史回测、自动调参、复杂机器学习模型、Web 管理界面或通用调度器。一次真实闭环与 NO_BET 结果不等于样本外性能或收益证明。
 - 结算不支持取消、腰斩、`VOID`、退款、加时、点球或串关降级；这些情况只能显式记录为 `UNSUPPORTED_SETTLEMENT_CASE`，不能猜测返还规则。
 
 历史回测规范见 `fankui/backtest_v1_contract.md`；设计沿革见 `fankui/historical_data_backtest.md`，架构与模型资料见 `fankui/architecture.md` 和 `fankui/data_model.md`。
 
-`0.8.0` 发布收尾完成后立即停止；0.9须等待用户的独立指令。
+`0.9.0` 发布收尾完成后立即停止，等待1.0 Prospective Validation / Production Closeout的独立指令。

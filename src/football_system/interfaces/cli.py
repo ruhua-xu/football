@@ -189,6 +189,10 @@ THE_ODDS_API_BASE_URL = "https://api.the-odds-api.com/"
 def main(argv: Sequence[str] | None = None) -> int:
     _configure_utf8_output()
     arguments = list(argv) if argv is not None else sys.argv[1:]
+    if arguments[:1] == ["return-distribution"]:
+        from football_system.interfaces.return_distribution_cli import dispatch_return_distribution
+
+        return dispatch_return_distribution(arguments[1:])
     if arguments[:1] == ["market-v2"]:
         from football_system.interfaces.market_v2_cli import dispatch_market_v2
 
