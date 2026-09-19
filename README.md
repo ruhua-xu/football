@@ -5,15 +5,15 @@
 ## 发布状态
 
 - `v0.1.0` 固定在提交 `fceb945d07218290dc85b465e885a47ae9912c3f`，保留原始 MVP 行为。
-- 当前 package metadata 为 `0.9.0`；Return Distribution Optimizer 整体Architecture Review已通过，接受tree为 `52284cdd20111da15b7be6d5d70c0bce38b19a86`。最终验收与发布门禁见 [Phase 9 最终验收报告](fankui/phase_9_final_acceptance_report.md)，candidate/main/tag CI终态随发布交付记录核验。
-- `0.9.0` 仅支持 SQLite。运行时建库、Schema 创建和 Alembic 迁移都会在加载其他数据库驱动前拒绝非 SQLite URL。
+- 当前 package metadata 为 `1.0.0`；Prospective Validation / Production Framework 整体Architecture Review **APPROVED**，接受candidate为 `da4e9c518492ebe24319b871deb1872ef91fb0c9`，tree为 `c796296101bf7881344f45d05e8a17c787dc0682`。最终验收与发布门禁见 [Phase 10 最终验收报告](fankui/phase_10_final_acceptance_report.md)，final candidate/main/tag CI终态由发布交付记录逐项核验。
+- `1.0.0` 仅支持 SQLite。运行时建库、Schema 创建和 Alembic 迁移都会在加载其他数据库驱动前拒绝非 SQLite URL。
 - 只有显式执行 `live ingest-fixtures` 或 `live ingest-market-odds` 才会分别读取 `SPORTMONKS_KEY` 或 `ODDS_API_KEY` 并访问网络；`ingest-fixtures-manual`、Sporttery、reconcile、review import、prepare-analysis 和 run-analysis 均为本地 I/O。项目不连接真实 LLM API，不执行自动下注。
 
 ## 当前能力
 
-**1.0 Prospective Validation 软件候选**：新增本地 `prospective` 路径，提供typed evidence、可信本地receipt/cutoff、赛前decision lock、追加式赛果修订/结算、全epoch描述性验证与审计。Package仍为0.9.0，ADR-0012为Proposed，等待整体Architecture Review。
-见 [合同与CLI流程](fankui/prospective_validation_v1_contract.md)、[ADR-0012](fankui/decisions/ADR-0012-prospective-validation-production-closeout.md)、[实施报告](fankui/phase_10_implementation_report.md)。
-旧V2 source graph仍明确synthetic；当前真实decision adapter未激活，真实性能保持`INSUFFICIENT_PROSPECTIVE_SAMPLE`。
+**1.0 Prospective Validation / Production Framework 软件完成**：本地 `prospective` 路径提供typed evidence、可信本地receipt/cutoff、赛前decision lock、追加式赛果修订/结算、全epoch描述性验证与审计。Package为1.0.0，ADR-0012为Accepted，功能及既有数学保持已审查版本。
+见 [合同与CLI流程](fankui/prospective_validation_v1_contract.md)、[ADR-0012](fankui/decisions/ADR-0012-prospective-validation-production-closeout.md)、[候选实施报告](fankui/phase_10_implementation_report.md)和[最终验收报告](fankui/phase_10_final_acceptance_report.md)。
+旧V2 source graph仍明确synthetic；真实decision adapter为`PRODUCTION_DECISION_ADAPTER_UNAVAILABLE`，真实性能为`INSUFFICIENT_PROSPECTIVE_SAMPLE`。软件发布不表示真实production activation，也不证明ROI、alpha、P_llm改善或P_final优于P_base。
 
 ```text
 football-system prospective prepare --database-url <sqlite-url> --input <prepare.json> --packet-dir <directory>
@@ -25,7 +25,7 @@ football-system prospective audit --database-url <sqlite-url> --artifact-id <sea
 
 **0.9 Return Distribution Optimizer** 已通过整体架构验收：独立 `return-distribution` 路径消费封存的V2 candidate catalog、P_final、SP和budget，提供same-market relevant states、connected-component exact convolution、cash-aware metrics及deterministic marginal allocation。
 同场跨market返回`CROSS_MARKET_JOINT_UNAVAILABLE`；不假造joint probability。NO_BET始终作为baseline，预算不必花完。
-ADR-0011为Accepted，package metadata为0.9.0；见 [ADR-0011](fankui/decisions/0011-return-distribution-optimizer.md)、[已接受合同](fankui/return_distribution_v1_contract.md)、[候选阶段实施报告](fankui/phase_9_implementation_report.md) 和 [最终验收报告](fankui/phase_9_final_acceptance_report.md)。
+ADR-0011为Accepted，该能力于0.9.0发布；见 [ADR-0011](fankui/decisions/0011-return-distribution-optimizer.md)、[已接受合同](fankui/return_distribution_v1_contract.md)、[候选阶段实施报告](fankui/phase_9_implementation_report.md) 和 [最终验收报告](fankui/phase_9_final_acceptance_report.md)。
 
 ```text
 football-system return-distribution policy

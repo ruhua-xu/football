@@ -1,9 +1,19 @@
 # ADR-0012 — Prospective Validation / Production Closeout
 
-- Status：**Proposed**
+- Status：**Accepted**
 - Base release：v0.9.0 / `9a869d42b44282551cbdc694d8efc6d0009e9dde`
 - Branch：`feature/1.0.0-prospective-validation-production-closeout`
 - Scope：software framework candidate；真实prospective performance独立取证。
+
+## Architecture Review acceptance record
+
+- Conclusion：**APPROVED**；workspace owner明确接受candidate `da4e9c518492ebe24319b871deb1872ef91fb0c9`，tree `c796296101bf7881344f45d05e8a17c787dc0682`，无architecture blocker。
+- Accepted migration head：`5b748fa162ed`。
+- Prospective implementation hash：`6b2a73c14720c60eb30f9bc5d4158bccf095d397748cd1157eb53f13933ddb1f`。
+- Prospective policy hash：`06f9cb5289959cf6387b324f9a8ef617d1960a68e88e23cb1423e0c15ef847f8`。
+- Release authorization：完成1.0.0 release-only closeout及完整final local gates，依次通过final candidate、main、annotated v1.0.0 tag CI；不squash/rewrite已审核业务历史。下方原始技术决策与候选阶段release boundary保持原文，候选停止点现已由本次明确发布授权推进。
+- v1.0.0仅表示Prospective Validation / Production Framework软件完成；`INSUFFICIENT_PROSPECTIVE_SAMPLE`与`PRODUCTION_DECISION_ADAPTER_UNAVAILABLE`保持真实，不宣称ROI、alpha、P_llm改善、P_final优于P_base或真实production activation。
+- 最终验收与发布门禁记录：[Phase 10 final acceptance report](../phase_10_final_acceptance_report.md)。
 
 ## Context
 

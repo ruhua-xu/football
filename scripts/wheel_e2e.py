@@ -16,7 +16,7 @@ from typing import Sequence
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_VERSION = "0.9.0"
+EXPECTED_VERSION = "1.0.0"
 EXPECTED_MIGRATION_HEAD = "5b748fa162ed"
 PROVIDER_CODE = "SYNTHETIC_ACCEPTANCE_V1"
 QUANT_RUN_ID = "wheel-e2e-quant"

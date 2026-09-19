@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.0 - 2026-09-19
+
+- Architecture Review **APPROVED**；接受candidate `da4e9c518492ebe24319b871deb1872ef91fb0c9`、tree `c796296101bf7881344f45d05e8a17c787dc0682`，ADR-0012为Accepted。
+- Prospective Validation / Production Framework软件完成：typed manual evidence、source-time freshness、可信本地事件时序、赛前DecisionLock、atomic supersession、追加式赛果修订/结算、完整epoch census及描述性验证。
+- 已审核功能与v0.9数学全部冻结；此次closeout只更新接受记录、正式版本/期望与发布文档，不改变模型、fusion、P_final、EV、objective、payout或settlement。
+- Migration head保持`5b748fa162ed`，30张`pv_*`表/126个triggers，wheel资源清单保持81项。A–Z、final local gates、冻结hashes与发布CI见`fankui/phase_10_final_acceptance_report.md`及最终发布回执。
+- REAL PERFORMANCE：`INSUFFICIENT_PROSPECTIVE_SAMPLE`；PRODUCTION DECISION ADAPTER：`UNAVAILABLE / PRODUCTION_DECISION_ADAPTER_UNAVAILABLE`。Synthetic验收不是ROI、alpha、P_llm改善或P_final优于P_base的证明，也不是production activation。
+- 真实provider/LLM HTTP=0；无真实训练、自动调参、真实回测或自动下注。发布完成后等待独立的post-1.0 Production Activation / Prospective Observation Plan。
+
 ## 0.9.0 - 2026-09-18
 
 - 整体0.9 Architecture Review通过，接受tree `52284cdd20111da15b7be6d5d70c0bce38b19a86`；ADR-0011为Accepted，return math、objective、optimizer、guards及persistence语义冻结。

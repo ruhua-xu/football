@@ -1,6 +1,6 @@
-# Prospective Validation V1 contracts — software candidate
+# Prospective Validation V1 contracts — accepted software framework
 
-Status: **Proposed**. Base: v0.9.0. ADR: ADR-0012. Package metadata remains 0.9.0 until Architecture Review.
+Status: **Accepted**. Base: v0.9.0. ADR: ADR-0012 Accepted. Package version: **1.0.0**. Architecture Review approved candidate `da4e9c518492ebe24319b871deb1872ef91fb0c9`; technical contracts remain frozen. This is software completion, not real production activation or performance evidence.
 
 ## Scope and classification
 
