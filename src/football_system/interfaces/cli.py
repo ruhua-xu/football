@@ -189,6 +189,10 @@ THE_ODDS_API_BASE_URL = "https://api.the-odds-api.com/"
 def main(argv: Sequence[str] | None = None) -> int:
     _configure_utf8_output()
     arguments = list(argv) if argv is not None else sys.argv[1:]
+    if arguments[:1] == ["real-bridge"]:
+        from football_system.interfaces.real_bridge_cli import dispatch_real_bridge
+
+        return dispatch_real_bridge(arguments[1:])
     if arguments[:1] == ["prospective"]:
         from football_system.interfaces.prospective_cli import dispatch_prospective
 

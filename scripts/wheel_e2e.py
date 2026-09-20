@@ -17,7 +17,7 @@ from typing import Sequence
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_VERSION = "1.0.0"
-EXPECTED_MIGRATION_HEAD = "5b748fa162ed"
+EXPECTED_MIGRATION_HEAD = "6c859ab273fe"
 PROVIDER_CODE = "SYNTHETIC_ACCEPTANCE_V1"
 QUANT_RUN_ID = "wheel-e2e-quant"
 BLEND_RUN_ID = "wheel-e2e-blend"
@@ -53,6 +53,7 @@ EXPECTED_RESOURCE_FILES = frozenset(
         "data/fixtures/legacy_v070_market_goldens.json",
         "data/fixtures/return_distribution_v1.json",
         "data/fixtures/prospective_validation_v1.json",
+        "data/fixtures/real_bridge_v1.json",
         "data/fixtures/historical_acceptance/acceptance_config.toml",
         "data/fixtures/historical_acceptance/fixtures.json",
         "data/fixtures/historical_acceptance/manual_quant.json",
@@ -124,6 +125,7 @@ EXPECTED_RESOURCE_FILES = frozenset(
         "migrations/versions/39526d8f40cb_add_multi_market_graph.py",
         "migrations/versions/4a637e9051dc_add_return_distribution_graph.py",
         "migrations/versions/5b748fa162ed_add_prospective_validation.py",
+        "migrations/versions/6c859ab273fe_add_real_prospective_bridge.py",
     }
 )
 
@@ -923,6 +925,21 @@ print(json.dumps({"portfolio_settlement_id": row[0]}))
         cwd=work_dir, environment=environment,
         markers=("PROSPECTIVE_VALIDATION_V1_INSTALLED_ACCEPTANCE_PASS",), timeout=1200,
     )
+
+    real_summaries=[]
+    for label,seed,precision,extra in (("baseline","1",28,()),("permuted","987654",6,("--reverse-input-order",))):
+        target=work_dir/("real-bridge-"+label)
+        # -P/-s retain the explicit hash seed while excluding the checkout and
+        # user-site from sys.path; PYTHONPATH/PYTHONHOME were removed above.
+        _run_checked(
+            "installed real bridge "+label,
+            [python,"-s","-P",PROJECT_ROOT/"scripts"/"real_bridge_acceptance.py","--work-dir",target,
+             "--decimal-precision",str(precision),*extra],
+            cwd=work_dir,environment=dict(environment,PYTHONHASHSEED=seed),
+            markers=("REAL_BRIDGE_V1_INSTALLED_ACCEPTANCE_PASS",),timeout=1200,
+        )
+        real_summaries.append(json.loads((target/"acceptance-summary.json").read_bytes()))
+    _require(real_summaries[0]==real_summaries[1],"real bridge differs across input order, hash seed or ambient Decimal")
 
     final_state_code = """
 import json

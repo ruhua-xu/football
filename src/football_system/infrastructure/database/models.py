@@ -3429,3 +3429,8 @@ _market_v2_tables = market_v2_tables(Base.metadata)
 _return_distribution_tables = return_distribution_tables(Base.metadata)
 
 _prospective_tables = prospective_tables(Base.metadata)
+
+# The real bridge is an additive graph; no legacy table or type is widened.
+from football_system.infrastructure.database.real_bridge_schema import real_bridge_tables  # noqa: E402
+
+_real_bridge_tables = real_bridge_tables(Base.metadata)

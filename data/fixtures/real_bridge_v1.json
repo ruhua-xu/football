@@ -1,0 +1,10 @@
+{
+  "schema_version": "REAL_BRIDGE_SOFTWARE_ACCEPTANCE_FIXTURE_V1",
+  "provenance": "SYNTHETIC_SOFTWARE_ACCEPTANCE",
+  "real_performance_claim": false,
+  "provider_http_sends": 0,
+  "llm_api_http_sends": 0,
+  "clock_basis": "SYNTHETIC_TEST_CLOCK",
+  "cases": ["RA01", "RA02", "RA03", "RA04", "RA05", "RA06", "RA07", "RA08", "RA09", "RA10", "RA11", "RA12", "RA13", "RA14", "RA15", "RA16", "RA17", "RA18", "RA19", "RA20", "RA21"],
+  "meaning": "Acceptance case catalogue only; not a passing-test assertion or a real observation."
+}
