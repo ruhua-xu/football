@@ -1,0 +1,145 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1640" height="1470" viewBox="0 0 1640 1470" role="img">
+<title>Real prospective bridge | schema and binding groups</title>
+<desc>DRAFT - design only. v1.0.0 stays frozen. New rb_* graph; no V1 relabel, seed-plan bootstrap or gate removal.</desc>
+<style>text { font-family: Arial, Helvetica, sans-serif; fill: #111827; } .sub { fill: #4b5563; } .mono { font-family: Consolas, monospace; }</style>
+<defs>
+<marker id="a-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#2563eb"/></marker>
+<marker id="a-orange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#ea580c"/></marker>
+<marker id="a-purple" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#7c3aed"/></marker>
+<marker id="a-red" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#dc2626"/></marker>
+<marker id="a-gray" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#6b7280"/></marker>
+</defs>
+<rect width="1640" height="1470" fill="#ffffff"/>
+<text x="60" y="48" font-size="26" font-weight="600">Real prospective bridge | schema and binding groups</text>
+<text x="60" y="80" font-size="16" class="sub">DRAFT - design only. v1.0.0 stays frozen. New rb_* graph; no V1 relabel, seed-plan bootstrap or gate removal.</text>
+<rect x="42" y="120" width="1556" height="1240" rx="12" fill="#f9fafb" stroke="#d1d5db" stroke-dasharray="8,5"/>
+<path d="M260,296 L260,400" stroke="#2563eb" stroke-width="2.2" fill="none" marker-end="url(#a-blue)"/>
+<text x="278" y="350" font-size="13" fill="#2563eb">typed source refs</text>
+<path d="M800,296 L800,400" stroke="#ea580c" stroke-width="2.2" fill="none" marker-end="url(#a-orange)"/>
+<text x="818" y="350" font-size="13" fill="#ea580c">sealed before start</text>
+<path d="M1000,218 L1140,218" stroke="#ea580c" stroke-width="2.2" fill="none" marker-end="url(#a-orange)" stroke-dasharray="6,4"/>
+<text x="1010" y="201" font-size="13" fill="#ea580c">policy identity</text>
+<path d="M260,556 L260,660" stroke="#2563eb" stroke-width="2.2" fill="none" marker-end="url(#a-blue)"/>
+<text x="278" y="610" font-size="13" fill="#2563eb">exact V4 projection</text>
+<path d="M460,478 L520,478 L520,700 L600,700" stroke="#2563eb" stroke-width="2.2" fill="none" marker-end="url(#a-blue)"/>
+<text x="533" y="572" font-size="13" fill="#2563eb">analysis ref</text>
+<path d="M800,556 L800,660" stroke="#ea580c" stroke-width="2.2" fill="none" marker-end="url(#a-orange)"/>
+<text x="818" y="612" font-size="13" fill="#ea580c">epoch / anchor</text>
+<path d="M1340,556 L1340,590 L1080,590 L1080,710 L1000,710" stroke="#ea580c" stroke-width="2.2" fill="none" marker-end="url(#a-orange)"/>
+<text x="1120" y="580" font-size="13" fill="#ea580c">same exact bucket</text>
+<path d="M460,770 L600,770" stroke="#2563eb" stroke-width="2.2" fill="none" marker-end="url(#a-blue)"/>
+<text x="475" y="752" font-size="13" fill="#2563eb">packet / review</text>
+<path d="M1000,780 L1140,780" stroke="#ea580c" stroke-width="2.2" fill="none" marker-end="url(#a-orange)"/>
+<text x="1020" y="762" font-size="13" fill="#ea580c">CAS consume</text>
+<path d="M260,816 L260,920" stroke="#2563eb" stroke-width="2.2" fill="none" marker-end="url(#a-blue)"/>
+<text x="278" y="875" font-size="13" fill="#2563eb">frozen semantics</text>
+<path d="M800,816 L800,920" stroke="#ea580c" stroke-width="2.2" fill="none" marker-end="url(#a-orange)"/>
+<text x="818" y="874" font-size="13" fill="#ea580c">active head only</text>
+<path d="M1340,816 L1340,920" stroke="#ea580c" stroke-width="2.2" fill="none" marker-end="url(#a-orange)"/>
+<text x="1358" y="875" font-size="13" fill="#ea580c">same transaction</text>
+<path d="M460,998 L600,998" stroke="#2563eb" stroke-width="2.2" fill="none" marker-end="url(#a-blue)"/>
+<text x="485" y="980" font-size="13" fill="#2563eb">math refs</text>
+<path d="M1000,998 L1140,998" stroke="#2563eb" stroke-width="2.2" fill="none" marker-end="url(#a-blue)"/>
+<text x="1008" y="980" font-size="13" fill="#2563eb">acquire / advance</text>
+<path d="M800,1076 L800,1180" stroke="#2563eb" stroke-width="2.2" fill="none" marker-end="url(#a-blue)"/>
+<text x="818" y="1136" font-size="13" fill="#2563eb">effective lock</text>
+<path d="M1340,1076 L1340,1120 L1050,1120 L1050,1255 L1000,1255" stroke="#2563eb" stroke-width="2.2" fill="none" marker-end="url(#a-blue)"/>
+<text x="1120" y="1110" font-size="13" fill="#2563eb">unique prediction key</text>
+<rect x="60" y="140" width="400" height="156" rx="8" fill="#f0fdf4" stroke="#cbd5e1" stroke-width="1.5"/>
+<line x1="60" y1="204" x2="460" y2="204" stroke="#cbd5e1"/>
+<text x="78" y="168" font-size="19">Existing legitimate input stores</text>
+<text x="78" y="191" font-size="13">LIVE_STRICT + verified manual inputs</text>
+<text x="78" y="228" font-size="14">The Odds API h2h / MEDIAN_V1 / all books</text>
+<text x="78" y="252" font-size="14">SP + evidence + pinned existing state</text>
+<text x="78" y="276" font-size="14">Typed IDs, hashes and receipt times</text>
+<rect x="600" y="140" width="400" height="156" rx="8" fill="#faf5ff" stroke="#cbd5e1" stroke-width="1.5"/>
+<line x1="600" y1="204" x2="1000" y2="204" stroke="#cbd5e1"/>
+<text x="618" y="168" font-size="19">Real configuration anchor</text>
+<text x="618" y="191" font-size="13">REAL_EPOCH_CONFIGURATION_ANCHOR_V1</text>
+<text x="618" y="228" font-size="14">No match / ticket / StrategyPass seed</text>
+<text x="618" y="252" font-size="14">Frozen policy values, model pins, budget set</text>
+<text x="618" y="276" font-size="14">Config hash + bridge implementation ID</text>
+<rect x="1140" y="140" width="400" height="156" rx="8" fill="#fff7ed" stroke="#cbd5e1" stroke-width="1.5"/>
+<line x1="1140" y1="204" x2="1540" y2="204" stroke="#cbd5e1"/>
+<text x="1158" y="168" font-size="19">Capability / admission facts</text>
+<text x="1158" y="191" font-size="13">rb_admissions - separate, append-only</text>
+<text x="1158" y="228" font-size="14">Current data-use / retention / credential status</text>
+<text x="1158" y="252" font-size="14">No credential secrets in artifacts</text>
+<text x="1158" y="276" font-size="14">Checked again on prepare and lock</text>
+<rect x="60" y="400" width="400" height="156" rx="8" fill="#eff6ff" stroke="#cbd5e1" stroke-width="1.5"/>
+<line x1="60" y1="464" x2="460" y2="464" stroke="#cbd5e1"/>
+<text x="78" y="428" font-size="19">Real analysis and units</text>
+<text x="78" y="451" font-size="13">REAL_MULTI_MARKET_ANALYSIS_V1</text>
+<text x="78" y="488" font-size="14">REAL_SOURCE_DATA; THREE_WAY only</text>
+<text x="78" y="512" font-size="14">P_market / P_quant or unavailable / P_base</text>
+<text x="78" y="536" font-size="14">Complete source graph and model hashes</text>
+<rect x="600" y="400" width="400" height="156" rx="8" fill="#faf5ff" stroke="#cbd5e1" stroke-width="1.5"/>
+<line x1="600" y1="464" x2="1000" y2="464" stroke="#cbd5e1"/>
+<text x="618" y="428" font-size="19">Real epoch</text>
+<text x="618" y="451" font-size="13">REAL_VALIDATION_EPOCH_V1</text>
+<text x="618" y="488" font-size="14">FK: real anchor / program / predecessor</text>
+<text x="618" y="512" font-size="14">LOCAL_SYSTEM_UTC; created before start</text>
+<text x="618" y="536" font-size="14">Previous epoch closed; append-only</text>
+<rect x="1140" y="400" width="400" height="156" rx="8" fill="#fff7ed" stroke="#cbd5e1" stroke-width="1.5"/>
+<line x1="1140" y1="464" x2="1540" y2="464" stroke="#cbd5e1"/>
+<text x="1158" y="428" font-size="19">Exact kickoff declaration</text>
+<text x="1158" y="451" font-size="13">rb_slates / rb_buckets / rb_bucket_members</text>
+<text x="1158" y="488" font-size="14">One exact UTC instant + fixed match set</text>
+<text x="1158" y="512" font-size="14">Declared before kickoff, never by outcomes</text>
+<text x="1158" y="536" font-size="14">FK: real epoch / program / match identities</text>
+<rect x="60" y="660" width="400" height="156" rx="8" fill="#eff6ff" stroke="#cbd5e1" stroke-width="1.5"/>
+<line x1="60" y1="724" x2="460" y2="724" stroke="#cbd5e1"/>
+<text x="78" y="688" font-size="19">V4 packet and file review</text>
+<text x="78" y="711" font-size="13">rb_packets / rb_reviews / rb_review_audits</text>
+<text x="78" y="748" font-size="14">Unchanged V4 wire and review semantics</text>
+<text x="78" y="772" font-size="14">Analysis reference points to real analysis</text>
+<text x="78" y="796" font-size="14">New typed storage, not old mm_* FKs</text>
+<rect x="600" y="660" width="400" height="156" rx="8" fill="#eff6ff" stroke="#cbd5e1" stroke-width="1.5"/>
+<line x1="600" y1="724" x2="1000" y2="724" stroke="#cbd5e1"/>
+<text x="618" y="688" font-size="19">Real preparing attempt</text>
+<text x="618" y="711" font-size="13">REAL_PROSPECTIVE_RUN_V1</text>
+<text x="618" y="748" font-size="14">FK: epoch / anchor / bucket / analysis / packet</text>
+<text x="618" y="772" font-size="14">Trusted cutoff, evidence uses and budget</text>
+<text x="618" y="796" font-size="14">PREPARING or explicit UNAVAILABLE</text>
+<rect x="1140" y="660" width="400" height="156" rx="8" fill="#fff7ed" stroke="#cbd5e1" stroke-width="1.5"/>
+<line x1="1140" y1="724" x2="1540" y2="724" stroke="#cbd5e1"/>
+<text x="1158" y="688" font-size="19">One head consumption</text>
+<text x="1158" y="711" font-size="13">rb_head_consumptions + replacement event</text>
+<text x="1158" y="748" font-size="14">PK(parent_run_id); REPLACE xor LOCK</text>
+<text x="1158" y="772" font-size="14">New analysis / packet / run, old bytes kept</text>
+<text x="1158" y="796" font-size="14">PRE_LOCK_REPLACEMENT_V1</text>
+<rect x="60" y="920" width="400" height="156" rx="8" fill="#f0fdf4" stroke="#cbd5e1" stroke-width="1.5"/>
+<line x1="60" y1="984" x2="460" y2="984" stroke="#cbd5e1"/>
+<text x="78" y="948" font-size="19">Real typed calculation bindings</text>
+<text x="78" y="971" font-size="13">rb_strategy_* / rb_math_* / rb_calculations</text>
+<text x="78" y="1008" font-size="14">Original plan_values / evaluate_prepared</text>
+<text x="78" y="1032" font-size="14">Original optimize_prepared / payout kernels</text>
+<text x="78" y="1056" font-size="14">No forged StrategySourceV2 or synthetic plan</text>
+<rect x="600" y="920" width="400" height="156" rx="8" fill="#eff6ff" stroke="#cbd5e1" stroke-width="1.5"/>
+<line x1="600" y1="984" x2="1000" y2="984" stroke="#cbd5e1"/>
+<text x="618" y="948" font-size="19">Real decision lock</text>
+<text x="618" y="971" font-size="13">DECISION_LOCK_V2</text>
+<text x="618" y="1008" font-size="14">Money / hashes / risk semantics unchanged</text>
+<text x="618" y="1032" font-size="14">locked_at + 60s &lt; exact kickoff</text>
+<text x="618" y="1056" font-size="14">Typed real graph and complete receipt</text>
+<rect x="1140" y="920" width="400" height="156" rx="8" fill="#fff7ed" stroke="#cbd5e1" stroke-width="1.5"/>
+<line x1="1140" y1="984" x2="1540" y2="984" stroke="#cbd5e1"/>
+<text x="1158" y="948" font-size="19">Official prediction ownership</text>
+<text x="1158" y="971" font-size="13">rb_prediction_slots / rb_prediction_versions</text>
+<text x="1158" y="1008" font-size="14">PK(program, canonical match, THREE_WAY)</text>
+<text x="1158" y="1032" font-size="14">No epoch / slate / bucket loophole</text>
+<text x="1158" y="1056" font-size="14">Versions advance only by valid supersession</text>
+<rect x="600" y="1180" width="400" height="156" rx="8" fill="#eff6ff" stroke="#cbd5e1" stroke-width="1.5"/>
+<line x1="600" y1="1244" x2="1000" y2="1244" stroke="#cbd5e1"/>
+<text x="618" y="1208" font-size="19">Real settlement and full census</text>
+<text x="618" y="1231" font-size="13">REAL_*_SETTLEMENT / VALIDATION_REPORT_V1</text>
+<text x="618" y="1268" font-size="14">Existing legitimate ResultObservation refs</text>
+<text x="618" y="1292" font-size="14">All attempts + rejections, as-of watermark</text>
+<text x="618" y="1316" font-size="14">Only effective locked units enter scoring</text>
+<text x="60" y="1394" font-size="14">Legend:</text>
+<path d="M132,1390 L185,1390" stroke="#2563eb" stroke-width="2.2" fill="none" marker-end="url(#a-blue)"/>
+<text x="198" y="1395" font-size="14">data / reference toward consumer</text>
+<path d="M520,1390 L573,1390" stroke="#ea580c" stroke-width="2.2" fill="none" marker-end="url(#a-orange)"/>
+<text x="588" y="1395" font-size="14">configuration / state constraint</text>
+<text x="60" y="1433" font-size="14">Logical groups only. The contract defines full typed FKs, seals, model/admission gates and race constraints. REAL_PROVIDER_HTTP = 0 in this design stage.</text>
+</svg>

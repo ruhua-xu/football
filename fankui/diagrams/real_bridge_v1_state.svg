@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1640" height="1320" viewBox="0 0 1640 1320" role="img">
+<title>Real run head | pre-lock replacement and final evaluation</title>
+<desc>DRAFT - state projection, not row mutation. All old analysis / packet / run artifacts remain immutable.</desc>
+<style>text { font-family: Arial, Helvetica, sans-serif; fill: #111827; } .sub { fill: #4b5563; } .mono { font-family: Consolas, monospace; }</style>
+<defs>
+<marker id="a-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#2563eb"/></marker>
+<marker id="a-orange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#ea580c"/></marker>
+<marker id="a-purple" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#7c3aed"/></marker>
+<marker id="a-red" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#dc2626"/></marker>
+<marker id="a-gray" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#6b7280"/></marker>
+</defs>
+<rect width="1640" height="1320" fill="#ffffff"/>
+<text x="60" y="48" font-size="26" font-weight="600">Real run head | pre-lock replacement and final evaluation</text>
+<text x="60" y="80" font-size="16" class="sub">DRAFT - state projection, not row mutation. All old analysis / packet / run artifacts remain immutable.</text>
+<text x="60" y="105" font-size="14">No fake lock. Old evidence and review are never overwritten.</text>
+<rect x="60" y="600" width="590" height="190" rx="12" fill="#fff7ed" stroke="#ea580c" stroke-dasharray="8,5"/>
+<path d="M800,128 L800,180" stroke="#ea580c" stroke-width="2.2" fill="none" marker-end="url(#a-orange)"/>
+<path d="M800,280 L800,350" stroke="#ea580c" stroke-width="2.2" fill="none" marker-end="url(#a-orange)"/>
+<text x="820" y="322" font-size="13" fill="#ea580c">same epoch / bucket / config</text>
+<path d="M690,430 L340,430 L340,600" stroke="#ea580c" stroke-width="2.2" fill="none" marker-end="url(#a-orange)"/>
+<text x="350" y="411" font-size="13" fill="#ea580c">PRE_LOCK_REPLACE [before deadline]</text>
+<path d="M910,430 L1280,430 L1280,650" stroke="#ea580c" stroke-width="2.2" fill="none" marker-end="url(#a-orange)"/>
+<text x="1040" y="411" font-size="13" fill="#ea580c">LOCK [before deadline]</text>
+<path d="M800,510 L800,900" stroke="#dc2626" stroke-width="2.2" fill="none" marker-end="url(#a-red)"/>
+<text x="817" y="865" font-size="13" fill="#dc2626">stale / invalid / late</text>
+<path d="M1280,750 L1280,900" stroke="#2563eb" stroke-width="2.2" fill="none" marker-end="url(#a-blue)"/>
+<text x="1296" y="835" font-size="13" fill="#2563eb">results / revisions</text>
+<path d="M205,740 L205,1120" stroke="#6b7280" stroke-width="2.2" fill="none" marker-end="url(#a-gray)" stroke-dasharray="6,4"/>
+<text x="220" y="1040" font-size="13" fill="#6b7280">audit only</text>
+<path d="M840,1000 L840,1120" stroke="#6b7280" stroke-width="2.2" fill="none" marker-end="url(#a-gray)" stroke-dasharray="6,4"/>
+<text x="855" y="1070" font-size="13" fill="#6b7280">rejected / unavailable coverage</text>
+<path d="M1280,1000 L1280,1120" stroke="#2563eb" stroke-width="2.2" fill="none" marker-end="url(#a-blue)"/>
+<text x="1296" y="1070" font-size="13" fill="#2563eb">one effective prediction</text>
+<path d="M515,740 L515,825 L218,825 Q205,805 192,825 L45,825 L45,225 L650,225" stroke="#ffffff" stroke-width="8" fill="none"/>
+<path d="M515,740 L515,825 L218,825 Q205,805 192,825 L45,825 L45,225 L650,225" stroke="#7c3aed" stroke-width="2.2" fill="none" marker-end="url(#a-purple)"/>
+<text x="60" y="208" font-size="14" fill="#7c3aed">repeat only from the new active head</text>
+<circle cx="800" cy="120" r="8" fill="#111827"/>
+<rect x="650" y="180" width="300" height="100" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+<text x="800" y="218" font-size="21" text-anchor="middle">PREPARING</text>
+<text x="800" y="250" font-size="15" text-anchor="middle">current real run head</text>
+<path d="M800,350 L910,430 L800,510 L690,430 Z" fill="#ffffff" stroke="#ea580c" stroke-width="2"/>
+<text x="800" y="410" font-size="16" text-anchor="middle">Consume head?</text>
+<text x="800" y="437" font-size="14" text-anchor="middle">PK(parent_run_id)</text>
+<text x="800" y="463" font-size="14" text-anchor="middle">one commit wins</text>
+<text x="80" y="630" font-size="17">PRE_LOCK_REPLACEMENT_V1: one atomic transaction</text>
+<rect x="100" y="650" width="210" height="90" rx="12" fill="#f3f4f6" stroke="#9ca3af"/>
+<text x="205" y="686" font-size="17" text-anchor="middle">OLD ATTEMPT</text>
+<text x="205" y="714" font-size="14" text-anchor="middle">REPLACED_PRE_LOCK</text>
+<rect x="410" y="650" width="210" height="90" rx="12" fill="#eff6ff" stroke="#2563eb"/>
+<text x="515" y="686" font-size="17" text-anchor="middle">NEW ATTEMPT</text>
+<text x="515" y="714" font-size="14" text-anchor="middle">PREPARING + new packet</text>
+<rect x="1090" y="650" width="380" height="100" rx="12" fill="#f0fdf4" stroke="#16a34a"/>
+<text x="1280" y="690" font-size="21" text-anchor="middle">DECISION_LOCK_V2</text>
+<text x="1280" y="722" font-size="14" text-anchor="middle">head + all prediction slots commit together</text>
+<rect x="680" y="900" width="320" height="100" rx="12" fill="#fef2f2" stroke="#dc2626"/>
+<text x="840" y="940" font-size="18" text-anchor="middle">NO READY PUBLICATION</text>
+<text x="840" y="971" font-size="14" text-anchor="middle">no backdate / no resurrection</text>
+<rect x="1090" y="900" width="380" height="100" rx="12" fill="#f0fdf4" stroke="#16a34a"/>
+<text x="1280" y="940" font-size="18" text-anchor="middle">SETTLED / STALE_SETTLEMENT</text>
+<text x="1280" y="971" font-size="14" text-anchor="middle">prediction stays frozen; result chain appends</text>
+<rect x="60" y="1120" width="1480" height="95" rx="8" fill="#faf5ff" stroke="#7c3aed"/>
+<text x="84" y="1155" font-size="17">COMPLETE EPOCH CENSUS: all attempts, replacements, rejected requests and effective locks; exact as-of + receipt watermark</text>
+<text x="84" y="1188" font-size="14">Official key = program + canonical match + THREE_WAY. Pre-lock replacements never score. Post-lock revisions require their own atomic invalidation path.</text>
+<text x="60" y="1257" font-size="14">Legend:</text>
+<path d="M145,1252 L185,1252" stroke="#ea580c" stroke-width="2.2" fill="none" marker-end="url(#a-orange)"/>
+<text x="197" y="1257" font-size="14">guard / atomic consume</text>
+<path d="M525,1252 L565,1252" stroke="#7c3aed" stroke-width="2.2" fill="none" marker-end="url(#a-purple)"/>
+<text x="577" y="1257" font-size="14">new-head iteration</text>
+<path d="M880,1252 L920,1252" stroke="#2563eb" stroke-width="2.2" fill="none" marker-end="url(#a-blue)"/>
+<text x="932" y="1257" font-size="14">data / scoring path</text>
+<path d="M1220,1252 L1260,1252" stroke="#6b7280" stroke-width="2.2" fill="none" marker-end="url(#a-gray)"/>
+<text x="1272" y="1257" font-size="14">audit-only history</text>
+<path d="M1470,1252 L1510,1252" stroke="#dc2626" stroke-width="2.2" fill="none" marker-end="url(#a-red)"/>
+<text x="1522" y="1257" font-size="14">reject</text>
+<text x="60" y="1298" font-size="14">After kickoff, lock and prediction replacement are forbidden. Existing V1 history and its validation gates remain unchanged.</text>
+</svg>
