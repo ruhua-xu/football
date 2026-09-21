@@ -16,7 +16,7 @@ from typing import Sequence
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_VERSION = "1.0.0"
+EXPECTED_VERSION = "1.1.0"
 EXPECTED_MIGRATION_HEAD = "6c859ab273fe"
 PROVIDER_CODE = "SYNTHETIC_ACCEPTANCE_V1"
 QUANT_RUN_ID = "wheel-e2e-quant"
@@ -85,6 +85,9 @@ EXPECTED_RESOURCE_FILES = frozenset(
         "fankui/strategy_pass_v2_contract.md",
         "fankui/return_distribution_v1_contract.md",
         "fankui/prospective_validation_v1_contract.md",
+        "fankui/real_prospective_activation_bridge_v1_contract.md",
+        "fankui/pre_lock_replacement_v1_contract.md",
+        "fankui/daily_operator_v1_contract.md",
         "fankui/decisions/0001-market-abstraction.md",
         "fankui/decisions/0002-versioned-fusion-policies.md",
         "fankui/decisions/0003-ticket-and-atomic-bet.md",

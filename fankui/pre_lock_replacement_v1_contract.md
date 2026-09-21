@@ -1,6 +1,15 @@
-# PRE_LOCK_REPLACEMENT_V1 — contract / state transition DRAFT
+# PRE_LOCK_REPLACEMENT_V1 — contract / state transition
 
-**DESIGN ONLY — 尚未实现；等待Architecture Review。** v1.0.0 commit/tag及pv_*旧语义冻结。本草案补的是合法赛前重准备机制，不是解除真实decision adapter门禁。
+**Accepted — Bridge Review APPROVED / Production Activation Implementation Review APPROVED。无 implementation blocker。**
+
+发布身份：**1.1.0 — Production Activation software release**；不是新预测算法版本。
+
+- Approved bridge design SHA：`8b1cdf727c14510e590450406d89a9edae7ff759`。
+- Approved implementation SHA：`b2544464055b0fda954b1fbed299f5d749dae6a0`；tree `6942954d9686b75543749fa4c918aec81bddf49c`；candidate CI #41 SUCCESS。
+- Migration head：`6c859ab273fe`；v1.0.0 tag及旧pv语义继续冻结。
+- 正式接受与发布门禁见 [最终验收报告](production_activation_v1_final_acceptance_report.md)。
+
+以下技术正文原样保留。“拟议 / 只设计 / 等待Review”等为原设计阶段状态，由本接受记录取代；状态转换、时间门禁、唯一性与重放语义不变。发布后仍为INPUT_PREPARATION，真实观测数为0。
 
 ## 1. 语义与对象
 

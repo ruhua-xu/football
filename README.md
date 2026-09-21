@@ -5,15 +5,22 @@
 ## 发布状态
 
 - `v0.1.0` 固定在提交 `fceb945d07218290dc85b465e885a47ae9912c3f`，保留原始 MVP 行为。
-- 当前 package metadata 为 `1.0.0`；Prospective Validation / Production Framework 整体Architecture Review **APPROVED**，接受candidate为 `da4e9c518492ebe24319b871deb1872ef91fb0c9`，tree为 `c796296101bf7881344f45d05e8a17c787dc0682`。最终验收与发布门禁见 [Phase 10 最终验收报告](fankui/phase_10_final_acceptance_report.md)，final candidate/main/tag CI终态由发布交付记录逐项核验。
-- `1.0.0` 仅支持 SQLite。运行时建库、Schema 创建和 Alembic 迁移都会在加载其他数据库驱动前拒绝非 SQLite URL。
+- 当前 package metadata 为 **1.1.0**；Production Activation Implementation Review **APPROVED**。接受实现为 `b2544464055b0fda954b1fbed299f5d749dae6a0`，tree为 `6942954d9686b75543749fa4c918aec81bddf49c`，design为 `8b1cdf727c14510e590450406d89a9edae7ff759`。最终门禁及发布身份见 [1.1.0 最终验收报告](fankui/production_activation_v1_final_acceptance_report.md)与独立发布回执。
+- **1.1.0不是新预测算法版本**；新增软件能力与公开`real-bridge`接口，既有Elo、Poisson、MEDIAN、V4、fusion/P_final、EV、Strategy、Return、objective、payout与Settlement数学继续冻结。Migration head保持`6c859ab273fe`。
+- `1.1.0` 仅支持 SQLite。运行时建库、Schema 创建和 Alembic 迁移都会在加载其他数据库驱动前拒绝非 SQLite URL。
 - 只有显式执行 `live ingest-fixtures` 或 `live ingest-market-odds` 才会分别读取 `SPORTMONKS_KEY` 或 `ODDS_API_KEY` 并访问网络；`ingest-fixtures-manual`、Sporttery、reconcile、review import、prepare-analysis 和 run-analysis 均为本地 I/O。项目不连接真实 LLM API，不执行自动下注。
 
 ## 当前能力
 
-**1.0 Prospective Validation / Production Framework 软件完成**：本地 `prospective` 路径提供typed evidence、可信本地receipt/cutoff、赛前decision lock、追加式赛果修订/结算、全epoch描述性验证与审计。Package为1.0.0，ADR-0012为Accepted，功能及既有数学保持已审查版本。
+**1.1 Production Activation 软件能力**：独立real artifact / `rb_*`图、无比赛/票据seed的sealed anchor与future epoch、exact UTC kickoff bucket、PRE_LOCK replacement、program级official prediction slots和DecisionLock V2锁定重校验。复用已有合法pinned model与完整market/SP/source replay；不可用模型保留P_quant/P_base为空和整桶UNAVAILABLE。
+
+合同：[Real bridge](fankui/real_prospective_activation_bridge_v1_contract.md)、[Pre-lock replacement](fankui/pre_lock_replacement_v1_contract.md)、[Daily operator](fankui/daily_operator_v1_contract.md)。使用`football-system real-bridge --help`查看闭集离线接口；`daily.cmd`保持INPUT_PREPARATION六项菜单。
+
+发布后默认仍为 **INPUT_PREPARATION**。`REAL_PROSPECTIVE_OBSERVATIONS=0`，`REAL PERFORMANCE=INSUFFICIENT_PROSPECTIVE_SAMPLE`，`AUTO_BETTING=NO`。Runtime初始化、source/credential admissions、合法existing model pin、real program、sealed anchor和future epoch等待独立GO-LIVE CHECKLIST；不自动激活。
+
+**1.0 Prospective Validation / Production Framework 能力继续保留**：本地 `prospective` 路径提供typed evidence、可信本地receipt/cutoff、赛前decision lock、追加式赛果修订/结算、全epoch描述性验证与审计。ADR-0012为Accepted，功能及既有数学保持已审查版本。
 见 [合同与CLI流程](fankui/prospective_validation_v1_contract.md)、[ADR-0012](fankui/decisions/ADR-0012-prospective-validation-production-closeout.md)、[候选实施报告](fankui/phase_10_implementation_report.md)和[最终验收报告](fankui/phase_10_final_acceptance_report.md)。
-旧V2 source graph仍明确synthetic；真实decision adapter为`PRODUCTION_DECISION_ADAPTER_UNAVAILABLE`，真实性能为`INSUFFICIENT_PROSPECTIVE_SAMPLE`。软件发布不表示真实production activation，也不证明ROI、alpha、P_llm改善或P_final优于P_base。
+旧V2 source graph仍明确synthetic，旧V1 REAL gate继续返回`PRODUCTION_DECISION_ADAPTER_UNAVAILABLE`；1.1使用独立real入口。软件发布不表示真实production activation，也不证明ROI、alpha、P_llm改善或P_final优于P_base。
 
 ```text
 football-system prospective prepare --database-url <sqlite-url> --input <prepare.json> --packet-dir <directory>

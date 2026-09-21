@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.0 - 2026-09-21
+
+- Production Activation Implementation Review **APPROVED**；接受实现`b2544464055b0fda954b1fbed299f5d749dae6a0`、tree `6942954d9686b75543749fa4c918aec81bddf49c`，design `8b1cdf727c14510e590450406d89a9edae7ff759`；实施candidate CI #41 SUCCESS，无implementation blocker。
+- 发布独立`real-bridge`软件接口、real artifact/rb图、sealed configuration anchor、future epoch、exact kickoff bucket、PRE_LOCK replacement、program级prediction唯一性、DecisionLock V2 revalidation及全census/replay能力。
+- 正式化real bridge、pre-lock replacement和daily operator三个合同；技术正文保持获批版本。最终证据见`fankui/production_activation_v1_final_acceptance_report.md`。
+- **1.1.0不是新预测算法版本**；已接受业务行为、所有数值内核及五个冻结hashes保持。Closeout仅更新version、合同状态/名称、发布文档和wheel/version expectations。
+- Migration head仍为`6c859ab273fe`，64张rb表/261个triggers；增加三份正式合同资源，wheel显式资源为86项，不新增业务migration。
+- 默认保持INPUT_PREPARATION；REAL_PROVIDER_HTTP during release=0、LLM_API_HTTP=0、REAL_PROSPECTIVE_OBSERVATIONS=0、AUTO_BETTING=NO。真实performance为INSUFFICIENT_PROSPECTIVE_SAMPLE。
+- 发布成功后停止，等待独立PRODUCTION ACTIVATION GO-LIVE CHECKLIST；不为activation训练模型、修改参数、恢复restricted raw、自动购买provider或下注。
+
 ## 1.0.0 - 2026-09-19
 
 - Architecture Review **APPROVED**；接受candidate `da4e9c518492ebe24319b871deb1872ef91fb0c9`、tree `c796296101bf7881344f45d05e8a17c787dc0682`，ADR-0012为Accepted。

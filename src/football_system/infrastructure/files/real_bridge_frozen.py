@@ -19,7 +19,15 @@ ADDITIVE_HOOKS={
         "    if arguments[:1] == [\"real-bridge\"]:\n        from football_system.interfaces.real_bridge_cli import dispatch_real_bridge\n\n        return dispatch_real_bridge(arguments[1:])\n",),
     "pyproject.toml": (
         ', "data/fixtures/real_bridge_v1.json"',
-        '    "migrations/versions/6c859ab273fe_add_real_prospective_bridge.py",\n',),
+        '    "migrations/versions/6c859ab273fe_add_real_prospective_bridge.py",\n',
+        '    "fankui/real_prospective_activation_bridge_v1_contract.md",\n',
+        '    "fankui/pre_lock_replacement_v1_contract.md",\n',
+        '    "fankui/daily_operator_v1_contract.md",\n',),
+}
+RELEASE_VERSION_PROJECTION={
+    "pyproject.toml": ('version = "1.1.0"', 'version = "1.0.0"'),
+    "src/football_system/__init__.py": ('__version__ = "1.1.0"', '__version__ = "1.0.0"'),
+    "src/football_system/infrastructure/database/session.py": ('football-system v1.1.0 supports SQLite only.', 'football-system v1.0.0 supports SQLite only.'),
 }
 
 
@@ -36,6 +44,11 @@ def verify_frozen_checkout(root):
                 continue
             expected=stream.extractfile(member).read().replace(b"\r\n",b"\n")
             actual=(root/member.name).read_bytes().replace(b"\r\n",b"\n")
+            if member.name in RELEASE_VERSION_PROJECTION:
+                current,baseline=RELEASE_VERSION_PROJECTION[member.name]
+                if actual.count(current.encode())!=1:
+                    raise ValueError("FROZEN_RELEASE_VERSION_MISMATCH")
+                actual=actual.replace(current.encode(),baseline.encode(),1)
             for hook in ADDITIVE_HOOKS.get(member.name,()):
                 needle=hook.encode()
                 if actual.count(needle)!=1:

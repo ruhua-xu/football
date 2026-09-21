@@ -1,6 +1,16 @@
-# DAILY_OPERATOR_V1 — INPUT_PREPARATION contract DRAFT
+# DAILY_OPERATOR_V1 — INPUT_PREPARATION contract
 
-**Preparation实现范围已授权；本契约待Production Activation Design Review。** 不实现真实decision adapter或PRE_LOCK_REPLACEMENT，不更改v1.0.0冻结文件、wheel、版本、算法、配置或risk。
+**Accepted — Bridge Review APPROVED / Production Activation Implementation Review APPROVED。无 implementation blocker。**
+
+发布身份：**1.1.0 — Production Activation software release**；不是新预测算法版本。
+
+- Approved bridge design SHA：`8b1cdf727c14510e590450406d89a9edae7ff759`。
+- Approved implementation SHA：`b2544464055b0fda954b1fbed299f5d749dae6a0`；tree `6942954d9686b75543749fa4c918aec81bddf49c`；candidate CI #41 SUCCESS。
+- Release package/version expectation：`1.1.0`；migration head：`6c859ab273fe`。
+- 版本目录为`football_runtime\v1.1.0`和`football_backups\v1.1.0`，本次发布不执行初始化。
+- 正式接受与发布门禁见 [最终验收报告](production_activation_v1_final_acceptance_report.md)。
+
+以下技术正文与原Preparation阶段验证记录保持原样；其中1.0.0版本/路径、旧head和待Review状态为历史基线记录，正式发布身份以本节为准。已接受实现的精确代码身份独立记录；INPUT_PREPARATION行为和五个冻结数学hashes不变。
 
 ## 1. 唯一入口与固定banner
 

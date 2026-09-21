@@ -44,7 +44,7 @@ def operator_at(root):
     parent = Path(tempfile.gettempdir()) / "opencode"
     sandbox = tempfile.TemporaryDirectory(prefix="dop", dir=parent if parent.is_dir() else None)
     base = Path(sandbox.name)
-    operator = Operator(base / "football_runtime/v1.0.0", base / "football_backups/v1.0.0",
+    operator = Operator(base / "football_runtime/v1.1.0", base / "football_backups/v1.1.0",
         synthetic=True, clock=SyntheticProspectiveClock(NOW))
     operator._test_sandbox = sandbox
     return operator

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "football-system"
-version = "1.0.0"
+version = "1.1.0"
 description = "Reproducible football analysis with historical settlement and backtesting"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -71,6 +71,9 @@ where = ["src"]
     "fankui/strategy_pass_v2_contract.md",
     "fankui/return_distribution_v1_contract.md",
     "fankui/prospective_validation_v1_contract.md",
+    "fankui/real_prospective_activation_bridge_v1_contract.md",
+    "fankui/pre_lock_replacement_v1_contract.md",
+    "fankui/daily_operator_v1_contract.md",
 ]
 "football_system_resources/fankui/decisions" = [
     "fankui/decisions/0001-market-abstraction.md",

@@ -132,7 +132,7 @@ def verify_core():
     import football_system
     from football_system.infrastructure.files.prospective import verify_prospective_configuration
     from football_system.infrastructure.files.return_distribution import verify_resource_configuration
-    require(football_system.__version__ == "1.0.0", "FROZEN_VERSION_REQUIRED")
+    require(football_system.__version__ == "1.1.0", "FROZEN_VERSION_REQUIRED")
     require(Path(football_system.__file__).resolve() == (PROJECT / "src/football_system/__init__.py").resolve(), "FROZEN_SOURCE_IMPORT_REQUIRED")
     # Local-only Git check; no fetch/pull/install or credential access.
     from football_system.infrastructure.files.real_bridge_frozen import verify_frozen_checkout
@@ -454,7 +454,7 @@ def main(argv=None, *, input_fn=input, output=print):
         output("ARGUMENTS_NOT_ALLOWED: use the six-item menu; no overrides")
         return 2
     verify_core()
-    operator = Operator(PROJECT.parent / "football_runtime/v1.0.0", PROJECT.parent / "football_backups/v1.0.0")
+    operator = Operator(PROJECT.parent / "football_runtime/v1.1.0", PROJECT.parent / "football_backups/v1.1.0")
     if not (operator.root / "operator-install.json").exists():
         output("首次初始化仅准备数据；不会运行预测或发送HTTP。")
         output(str(operator.root)+"\n"+str(operator.backups))

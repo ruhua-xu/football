@@ -1,8 +1,15 @@
-# REAL_PROSPECTIVE_ACTIVATION_BRIDGE_V1 — unified contract DRAFT
+# REAL_PROSPECTIVE_ACTIVATION_BRIDGE_V1 — unified contract
 
-**DESIGN ONLY / 待最后一次 Bridge Contract Review；没有实现授权。**
+**Accepted — Bridge Review APPROVED / Production Activation Implementation Review APPROVED。无 implementation blocker。**
 
-Preparation Mode和PRE_LOCK_REPLACEMENT_V1设计方向已获批准。本合同一次性规定真实analysis、无比赛seed的epoch bootstrap、新prepare/run、pre-lock replacement及下游引用边界。本轮不实现adapter、真实epoch/lock、迁移或performance observation。
+发布身份：**1.1.0 — Production Activation software release**；不是新预测算法版本。
+
+- Approved bridge design SHA：`8b1cdf727c14510e590450406d89a9edae7ff759`。
+- Approved implementation SHA：`b2544464055b0fda954b1fbed299f5d749dae6a0`；tree `6942954d9686b75543749fa4c918aec81bddf49c`；candidate CI #41 SUCCESS。
+- Release migration head：`6c859ab273fe`。默认 `INPUT_PREPARATION`；真实观测数为0，`INSUFFICIENT_PROSPECTIVE_SAMPLE`。
+- 正式接受及最终发布门禁见 [最终验收报告](production_activation_v1_final_acceptance_report.md)。
+
+以下技术正文按获批设计原样保留。其中设计阶段的“拟议 / 本轮不实现 / 等待Review / 不创建1.1”等状态表述及旧基线head，按本接受记录和上述release identity解释；不构成新的实现限制或新的数学版本，也不授予真实activation。
 
 ## 0. 基线、范围和不可突破的边界
 
