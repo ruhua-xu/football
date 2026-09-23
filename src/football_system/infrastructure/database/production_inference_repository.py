@@ -75,6 +75,10 @@ class SqlAlchemyProductionInferenceRepository:
         self._last_clock = None
         self._clock_lock = Lock()
 
+    def load_openfootball_model_pin_candidate(self):
+        """Versioned model-only binding; retains unavailable targets and creates no pin."""
+        return self._production.openfootball_binding().load_model_pin_candidate()
+
     def _now(self):
         with self._clock_lock:
             at = normalize_utc(self._clock())

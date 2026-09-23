@@ -273,6 +273,12 @@ class SqlAlchemyProductionQuantRepository:
         self._last_clock = None
         self._clock_lock = Lock()
 
+    def openfootball_binding(self):
+        """Additive fixed-cohort observed binding; never widens the V1 readers."""
+        from football_system.infrastructure.database.openfootball_production_repository import SqlAlchemyOpenFootballProductionRepository
+
+        return SqlAlchemyOpenFootballProductionRepository(self)
+
     def _now(self):
         with self._clock_lock:
             at = _utc(self._clock())

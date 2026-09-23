@@ -1,0 +1,3 @@
+# Optional, isolated preparation lane dependency; not a production version bump.
+# IANA 2025b. The adapter also pins the Europe/Berlin TZif bytes in its policy.
+tzdata==2025.2

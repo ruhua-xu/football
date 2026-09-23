@@ -1466,6 +1466,9 @@ def install_sqlite_immutability_triggers(connection: Connection) -> None:
     from football_system.infrastructure.database.real_bridge_schema import install_real_bridge_triggers
 
     install_real_bridge_triggers(connection)
+    from football_system.infrastructure.database.openfootball_production_schema import install_openfootball_production_triggers
+
+    install_openfootball_production_triggers(connection)
 
 
 def install_quant_integrity_v1_triggers(connection: Connection) -> None:
