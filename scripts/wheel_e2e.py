@@ -16,7 +16,7 @@ from typing import Sequence
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_VERSION = "1.1.0"
+EXPECTED_VERSION = "1.2.0"
 EXPECTED_MIGRATION_HEAD = "7d96abc3840f"
 PINNED_TIMEZONE_DEPENDENCY = "tzdata==2025.2"
 PROVIDER_CODE = "SYNTHETIC_ACCEPTANCE_V1"
@@ -256,6 +256,10 @@ def _inspect_wheel(wheel: Path) -> None:
         metadata.get("Version") == EXPECTED_VERSION,
         f"wheel version must remain {EXPECTED_VERSION}",
     )
+    _require(
+        "tzdata==2025.2" in [value.replace(" ", "") for value in metadata.get_all("Requires-Dist", ())],
+        "release wheel must declare its fixed tzdata runtime dependency",
+    )
     print(
         f"[wheel-e2e] wheel manifest: {len(EXPECTED_RESOURCE_FILES)} resources, "
         f"version {EXPECTED_VERSION}"
@@ -466,6 +470,12 @@ print(json.dumps({
         f"installed version must remain {EXPECTED_VERSION}",
     )
     resource_root = Path(str(provenance["resource_root"])).resolve()
+    _run_checked(
+        "installed v1.2 operator upgrade and backup acceptance",
+        [python, "-I", PROJECT_ROOT / "scripts/operator_release_acceptance.py", work_dir / "operator-release-acceptance"],
+        cwd=work_dir, environment=environment,
+        markers=("V120_OPERATOR_INSTALLED_RELEASE_ACCEPTANCE_PASS",), timeout=1200,
+    )
     timezone_proof = _run_json(
         "verify installed pinned OpenFootball timezone dependency",
         python,

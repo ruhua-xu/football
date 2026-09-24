@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.0 - 2026-09-24
+
+- OpenFootball candidate CI Review PASSED；接受commit `df47ba4cf34eb4f0a964c2e5ab5d0e88ea6a57f6`、tree `034372ea5297d391bcfef74d76d92d4175461689`、CI #46 SUCCESS。
+- 正式发布current-snapshot qualification、固定tzdata 2025.2 / IANA2025b、observed production binding及additive head `7d96abc3840f`；wheel保留87项显式资源，并声明固定tzdata运行时依赖。
+- Operator V2改用正式1.2.0软件身份和实际installed-wheel bytes；新增受控双库backup/原位前向upgrade/rebind维护，保留安装ID、DB路径/物理身份/application_id与已有数据。中断保持journal/lock并fail closed。
+- 本次是软件release，不是新预测算法版本。Elo model_version=1与config hash c98d…不变；612/13/599、mapping/window/facts roots、13 exceptions、timezone policy及全部既有数学冻结。
+- 发布依次通过feature/main/annotated-tag CI后，才以正式wheel升级现有环境。保持INPUT_PREPARATION与TARGET_WAITING_FOR_SPORTTERY_SLATE；REAL_PROVIDER_HTTP=0、LLM_API_HTTP=0、REAL_PROSPECTIVE_OBSERVATIONS=0、AUTO_BETTING=NO，不启动真实model bootstrap。
+
 ## 1.1.0 - 2026-09-21
 
 - Production Activation Implementation Review **APPROVED**；接受实现`b2544464055b0fda954b1fbed299f5d749dae6a0`、tree `6942954d9686b75543749fa4c918aec81bddf49c`，design `8b1cdf727c14510e590450406d89a9edae7ff759`；实施candidate CI #41 SUCCESS，无implementation blocker。

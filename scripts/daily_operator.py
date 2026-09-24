@@ -19,7 +19,9 @@ HEAD = "6c859ab273fe"
 # V1 is a released contract, not an alias for whichever migration is newest.
 LEGACY_OPERATOR_CODE_HASH = "f0d9215911d7f83ff6d44720a4bebc320f0a9c301b3ce8b544984cc996941799"
 LEGACY_RELEASE_COMMIT = "5ed940a8af8077be80549603a2da38aea77fc1bf"
-CANDIDATE_HEAD = "7d96abc3840f"
+RELEASE_HEAD = "7d96abc3840f"
+RELEASE_VERSION = "1.2.0"
+APPROVED_IMPLEMENTATION = "df47ba4cf34eb4f0a964c2e5ab5d0e88ea6a57f6"
 INSTALL_V2 = "DAILY_OPERATOR_INSTALL_V2"
 KINDS = {"SLATE", "FIXTURE", "SPORTTERY", "EVIDENCE"}
 LIMIT = 4*1024*1024
@@ -76,21 +78,22 @@ def sha(raw):
 
 def operator_code_hash():
     digest = hashlib.sha256(b"DAILY_OPERATOR_GLUE_LF_V1\0")
-    for name in ("daily.cmd", "scripts/daily_operator.py", "scripts/preparation_inputs.py", "src/football_system/infrastructure/files/real_bridge_frozen.py"):
+    for name in ("daily.cmd", "scripts/daily_operator.py", "scripts/preparation_inputs.py", "scripts/operator_release_upgrade.py", "src/football_system/infrastructure/files/real_bridge_frozen.py"):
         digest.update(name.encode()+b"\0"+(PROJECT / name).read_bytes().replace(b"\r\n", b"\n")+b"\0")
     return digest.hexdigest()
 
 
-def candidate_software_identity():
-    """Bind actual installed/source bytes without pretending to release a version."""
+def release_software_identity():
+    """Actual v1.2 software bytes; model/algorithm versions remain unchanged."""
+    import importlib.metadata
     import football_system
     from football_system.application.run_analysis import _code_revision
 
-    require(football_system.__version__ == "1.1.0", "FROZEN_VERSION_REQUIRED")
+    require(football_system.__version__ == importlib.metadata.version("football-system") == RELEASE_VERSION, "RELEASE_VERSION_REQUIRED")
     return dict(schema_version="DAILY_OPERATOR_SOFTWARE_IDENTITY_V1", software="football-system",
         software_version=football_system.__version__, implementation_revision=_code_revision(),
-        release_base_commit=LEGACY_RELEASE_COMMIT, execution_profile="OPENFOOTBALL_CANDIDATE_V1",
-        migration_head=CANDIDATE_HEAD)
+        release_base_commit=APPROVED_IMPLEMENTATION, execution_profile="OPENFOOTBALL_RELEASE_V1",
+        migration_head=RELEASE_HEAD)
 
 
 def installation_profile(installation):
@@ -108,9 +111,9 @@ def installation_profile(installation):
     require(schema == INSTALL_V2 and set(installation) == common | {"software_identity"},
         "OPERATOR_IMPLEMENTATION_CHANGED_REVIEW_REQUIRED")
     require(installation.get("operator_code_hash") == operator_code_hash()
-        and installation.get("software_identity") == candidate_software_identity(),
+        and installation.get("software_identity") == release_software_identity(),
         "OPERATOR_IMPLEMENTATION_CHANGED_REVIEW_REQUIRED")
-    return dict(legacy=False, migration_head=CANDIDATE_HEAD)
+    return dict(legacy=False, migration_head=RELEASE_HEAD)
 
 
 def safe_path(path):
@@ -165,13 +168,12 @@ def file_identity(path):
     return [value.st_dev, value.st_ino]
 
 
-def verify_core():
+def verify_frozen_core():
     require(sys.version_info >= (3, 12), "PYTHON_312_PLUS_REQUIRED")
     import football_system
     from football_system.infrastructure.files.prospective import verify_prospective_configuration
     from football_system.infrastructure.files.return_distribution import verify_resource_configuration
-    require(football_system.__version__ == "1.1.0", "FROZEN_VERSION_REQUIRED")
-    require(Path(football_system.__file__).resolve() == (PROJECT / "src/football_system/__init__.py").resolve(), "FROZEN_SOURCE_IMPORT_REQUIRED")
+    require(football_system.__version__ == RELEASE_VERSION, "RELEASE_VERSION_REQUIRED")
     # Local-only Git check; no fetch/pull/install or credential access.
     from football_system.infrastructure.files.real_bridge_frozen import verify_frozen_checkout
     verify_frozen_checkout(PROJECT)
@@ -183,6 +185,31 @@ def verify_core():
         "9bb39a771ac2390cb537030c809a7e214dcf88bcce2be17808bc7b3dcbfe7c30",
         "6b2a73c14720c60eb30f9bc5d4158bccf095d397748cd1157eb53f13933ddb1f",
         "06f9cb5289959cf6387b324f9a8ef617d1960a68e88e23cb1423e0c15ef847f8"), "FROZEN_HASH_MISMATCH")
+
+
+def verify_core():
+    """The production menu requires a real installed wheel, never editable/src."""
+    import base64
+    import importlib.metadata
+    import football_system
+
+    release_software_identity()
+    distribution = importlib.metadata.distribution("football-system")
+    origin = Path(football_system.__file__).resolve()
+    require(Path(sys.prefix).resolve() in origin.parents and origin == Path(distribution.locate_file("football_system/__init__.py")).resolve(),
+        "INSTALLED_WHEEL_REQUIRED")
+    direct = json.loads(distribution.read_text("direct_url.json") or "{}")
+    require(not direct.get("dir_info", {}).get("editable"), "INSTALLED_WHEEL_REQUIRED")
+    recorded = {p.as_posix(): p for p in distribution.files or () if p.parts[0] == "football_system" and p.suffix == ".py"}
+    require(recorded and set(recorded) == {"football_system/"+p.relative_to(origin.parent).as_posix() for p in origin.parent.rglob("*.py")},
+        "INSTALLED_WHEEL_FILE_SET_CHANGED")
+    for name, entry in recorded.items():
+        raw = Path(distribution.locate_file(entry)).read_bytes()
+        digest = base64.urlsafe_b64encode(hashlib.sha256(raw).digest()).rstrip(b"=").decode()
+        require(entry.hash and entry.hash.mode == "sha256" and entry.hash.value == digest, "INSTALLED_WHEEL_RECORD_CHANGED")
+        require(raw.replace(b"\r\n", b"\n") == (PROJECT / "src" / name).read_bytes().replace(b"\r\n", b"\n"),
+            "INSTALLED_WHEEL_CHECKOUT_MISMATCH")
+    verify_frozen_core()
 
 
 class Operator:
@@ -206,7 +233,7 @@ class Operator:
         require(confirmation == self.confirmation, "INITIALIZATION_NOT_CONFIRMED")
         require(not self.root.exists() and not self.backups.exists(), "EXISTING_OR_PARTIAL_INSTALLATION_REQUIRES_REVIEW")
         require(self.root.parent.parent.is_dir() and self.backups.parent.parent.is_dir(), "EXPECTED_PARENT_REQUIRED")
-        software = candidate_software_identity()
+        software = release_software_identity()
         implementation = operator_code_hash()
         self.root.mkdir(parents=True, exist_ok=False)
         self.backups.mkdir(parents=True, exist_ok=False)
@@ -222,7 +249,7 @@ class Operator:
                 connection.execute(f"PRAGMA application_id={application_id}")
                 require(connection.execute("SELECT version_num FROM alembic_version").fetchall() == [(software["migration_head"],)], "MIGRATION_HEAD_MISMATCH")
             identities[name] = dict(application_id=application_id, file_identity=file_identity(path))
-        require(software == candidate_software_identity() and implementation == operator_code_hash(), "OPERATOR_IMPLEMENTATION_CHANGED_REVIEW_REQUIRED")
+        require(software == release_software_identity() and implementation == operator_code_hash(), "OPERATOR_IMPLEMENTATION_CHANGED_REVIEW_REQUIRED")
         installation = dict(schema_version=INSTALL_V2, mode=MODE, installation_id=uuid.uuid4().hex,
             operator_code_hash=implementation, software_identity=software, runtime=str(self.root), backups=str(self.backups),
             databases=identities, created_at_utc=self.clock.now().isoformat())
@@ -511,7 +538,7 @@ def main(argv=None, *, input_fn=input, output=print):
     operator = Operator(PROJECT.parent / "football_runtime/v1.1.0", PROJECT.parent / "football_backups/v1.1.0")
     if not (operator.root / "operator-install.json").exists():
         output("首次初始化仅准备数据；不会运行预测或发送HTTP。")
-        output("新建安装类型："+INSTALL_V2+" / OPENFOOTBALL_CANDIDATE_V1 / head="+CANDIDATE_HEAD)
+        output("新建安装类型："+INSTALL_V2+" / OPENFOOTBALL_RELEASE_V1 / version="+RELEASE_VERSION+" / head="+RELEASE_HEAD)
         output(str(operator.root)+"\n"+str(operator.backups))
         output("将创建独立production.sqlite与synthetic.sqlite；输入完整确认语句：\n"+operator.confirmation)
         operator.initialize(input_fn("> ").strip())
@@ -546,7 +573,6 @@ def main(argv=None, *, input_fn=input, output=print):
 
 if __name__ == "__main__":
     sys.path.insert(0, str(PROJECT))
-    sys.path.insert(0, str(PROJECT / "src"))
     try:
         raise SystemExit(main())
     except (Exception, KeyboardInterrupt) as error:

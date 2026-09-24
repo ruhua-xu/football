@@ -30,6 +30,7 @@ ADDITIVE_HOOKS={
     "src/football_system/interfaces/cli.py": (
         "    if arguments[:1] == [\"real-bridge\"]:\n        from football_system.interfaces.real_bridge_cli import dispatch_real_bridge\n\n        return dispatch_real_bridge(arguments[1:])\n",),
     "pyproject.toml": (
+        '    "tzdata==2025.2",\n',
         ', "data/fixtures/real_bridge_v1.json"',
         '    "migrations/versions/6c859ab273fe_add_real_prospective_bridge.py",\n',
         '    "migrations/versions/7d96abc3840f_add_openfootball_production_binding.py",\n',
@@ -38,9 +39,9 @@ ADDITIVE_HOOKS={
         '    "fankui/daily_operator_v1_contract.md",\n',),
 }
 RELEASE_VERSION_PROJECTION={
-    "pyproject.toml": ('version = "1.1.0"', 'version = "1.0.0"'),
-    "src/football_system/__init__.py": ('__version__ = "1.1.0"', '__version__ = "1.0.0"'),
-    "src/football_system/infrastructure/database/session.py": ('football-system v1.1.0 supports SQLite only.', 'football-system v1.0.0 supports SQLite only.'),
+    "pyproject.toml": ('version = "1.2.0"', 'version = "1.0.0"'),
+    "src/football_system/__init__.py": ('__version__ = "1.2.0"', '__version__ = "1.0.0"'),
+    "src/football_system/infrastructure/database/session.py": ('football-system v1.2.0 supports SQLite only.', 'football-system v1.0.0 supports SQLite only.'),
 }
 
 

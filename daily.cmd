@@ -5,8 +5,9 @@ if not "%~1"=="" (
   exit /b 2
 )
 if exist "%~dp0.venv\Scripts\python.exe" (
-  "%~dp0.venv\Scripts\python.exe" -B "%~dp0scripts\daily_operator.py"
+  "%~dp0.venv\Scripts\python.exe" -I -B "%~dp0scripts\daily_operator.py"
 ) else (
-  python -B "%~dp0scripts\daily_operator.py"
+  echo Installed .venv wheel required. Ask the maintainer to install the reviewed release.
+  exit /b 2
 )
 exit /b %errorlevel%

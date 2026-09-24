@@ -1,5 +1,7 @@
 # OPENFOOTBALL_CURRENT_SNAPSHOT / JSON_ADAPTER V1 契约
 
+**Accepted for software release 1.2.0 — OpenFootball candidate CI Review PASSED**：commit `df47ba4cf34eb4f0a964c2e5ab5d0e88ea6a57f6` / tree `034372ea5297d391bcfef74d76d92d4175461689`。本次仅更新发布状态；以下Stage 3技术正文及parsing/timezone/qualification语义保持冻结。最终production binding与运行库维护见1.2.0发布报告。
+
 Stage 3实现候选，2026-09-22；基线v1.1.0 / `5ed940a8af8077be80549603a2da38aea77fc1bf`。
 本轮是**独立、additive的有限文件qualification与bootstrap preparation lane**，不执行production admission、training、release或real-bridge写入。
 

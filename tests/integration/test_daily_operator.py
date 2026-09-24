@@ -123,8 +123,8 @@ def test_explicit_initialization_and_physical_separation(tmp_path):
     assert op.check() == record
     assert record["schema_version"] == "DAILY_OPERATOR_INSTALL_V2"
     identity = record["software_identity"]
-    assert identity["software"] == "football-system" and identity["software_version"] == "1.1.0"
-    assert identity["execution_profile"] == "OPENFOOTBALL_CANDIDATE_V1"
+    assert identity["software"] == "football-system" and identity["software_version"] == "1.2.0"
+    assert identity["execution_profile"] == "OPENFOOTBALL_RELEASE_V1"
     assert identity["migration_head"] == "7d96abc3840f"
     assert identity["implementation_revision"].startswith("package:")
     assert record["databases"]["production.sqlite"] != record["databases"]["synthetic.sqlite"]
@@ -396,7 +396,7 @@ def test_closed_capture_and_secret_paths_rejected_without_reads(tmp_path, path):
 
 
 def test_frozen_core_version_hashes_and_input_only_surface():
-    module.verify_core()
+    module.verify_frozen_core()
     for method in ("prepare", "lock", "settle", "report", "create_epoch", "replace", "train", "fetch", "export_packet"):
         assert not hasattr(Operator, method)
     assert not any(name in vars(module) for name in ("ProspectiveService", "TheOddsApiMarketOddsProvider"))
