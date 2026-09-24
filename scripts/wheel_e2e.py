@@ -17,7 +17,8 @@ from typing import Sequence
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_VERSION = "1.1.0"
-EXPECTED_MIGRATION_HEAD = "6c859ab273fe"
+EXPECTED_MIGRATION_HEAD = "7d96abc3840f"
+PINNED_TIMEZONE_DEPENDENCY = "tzdata==2025.2"
 PROVIDER_CODE = "SYNTHETIC_ACCEPTANCE_V1"
 QUANT_RUN_ID = "wheel-e2e-quant"
 BLEND_RUN_ID = "wheel-e2e-blend"
@@ -129,6 +130,7 @@ EXPECTED_RESOURCE_FILES = frozenset(
         "migrations/versions/4a637e9051dc_add_return_distribution_graph.py",
         "migrations/versions/5b748fa162ed_add_prospective_validation.py",
         "migrations/versions/6c859ab273fe_add_real_prospective_bridge.py",
+        "migrations/versions/7d96abc3840f_add_openfootball_production_binding.py",
     }
 )
 
@@ -425,6 +427,7 @@ def _exercise_wheel(wheel: Path, work_dir: Path, offline_wheelhouse: Path | None
             "--disable-pip-version-check",
             *(["--no-index", "--find-links", str(offline_wheelhouse.resolve())] if offline_wheelhouse is not None else []),
             wheel,
+            PINNED_TIMEZONE_DEPENDENCY,
         ],
         cwd=work_dir,
         environment=environment,
@@ -463,6 +466,39 @@ print(json.dumps({
         f"installed version must remain {EXPECTED_VERSION}",
     )
     resource_root = Path(str(provenance["resource_root"])).resolve()
+    timezone_proof = _run_json(
+        "verify installed pinned OpenFootball timezone dependency",
+        python,
+        """
+import hashlib
+import importlib.metadata
+from importlib.resources import files
+import json
+from pathlib import Path
+import sys
+import tzdata
+from football_system.domain.openfootball_snapshot import OpenFootballAdapterPolicyV1, TZIF_SHA256
+from football_system.infrastructure.providers.real.openfootball_observed import local_kickoff_to_utc
+
+assert importlib.metadata.version('tzdata') == tzdata.__version__ == '2025.2'
+assert tzdata.IANA_VERSION == '2025b'
+assert Path(sys.prefix).resolve() in Path(tzdata.__file__).resolve().parents
+digest = hashlib.sha256(files('tzdata').joinpath('zoneinfo/Europe/Berlin').read_bytes()).hexdigest()
+assert digest == TZIF_SHA256 == 'a7fd9932d785d4d690900b834c3563c1810c1cf2e01711bcc0926af6c0767cb7'
+policy = OpenFootballAdapterPolicyV1(timezone='Europe/Berlin', tzdata_version='2025.2', iana_version='2025b', tzif_sha256=digest)
+assert local_kickoff_to_utc('2025-01-15', '15:30', policy=policy).isoformat() == '2025-01-15T14:30:00+00:00'
+assert local_kickoff_to_utc('2025-08-15', '15:30', policy=policy).isoformat() == '2025-08-15T13:30:00+00:00'
+print(json.dumps(dict(version=tzdata.__version__, iana_version=tzdata.IANA_VERSION,
+    tzif_sha256=digest, origin=tzdata.__file__, timezone='Europe/Berlin', cet_cest='PASS')))
+""",
+        (),
+        cwd=work_dir,
+        environment=environment,
+    )
+    (work_dir / "tzdata-proof.json").write_text(
+        json.dumps(timezone_proof, sort_keys=True, indent=2) + "\n", encoding="utf-8"
+    )
+    print("[wheel-e2e] pinned timezone: " + json.dumps(timezone_proof, sort_keys=True))
     archive = resource_root / "data" / "fixtures" / "historical_acceptance"
     _require(archive.is_dir(), f"installed historical archive is missing: {archive}")
 

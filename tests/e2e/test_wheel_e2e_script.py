@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tomllib
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -51,6 +52,27 @@ def test_setuptools_data_files_are_explicit_complete_and_scoped() -> None:
         or source.endswith((".db", ".env"))
         for source in declared_sources
     )
+
+
+def test_candidate_resources_preserve_exact_v110_manifest_and_add_one_migration():
+    baseline = tomllib.loads(subprocess.check_output(
+        ["git", "show", "5ed940a8af8077be80549603a2da38aea77fc1bf:pyproject.toml"], cwd=ROOT
+    ).decode("utf-8"))
+    old = _installed_resource_paths(baseline["tool"]["setuptools"]["data-files"])
+    new = set(wheel_e2e.EXPECTED_RESOURCE_FILES)
+    # The actual v1.1.0 baseline has 86 resources, rather than the earlier 83 count.
+    assert len(old) == 86 and len(new) == 87
+    assert old <= new
+    assert new - old == {"migrations/versions/7d96abc3840f_add_openfootball_production_binding.py"}
+    assert wheel_e2e.EXPECTED_MIGRATION_HEAD == "7d96abc3840f"
+
+
+def test_ci_and_isolated_wheel_install_the_same_real_pinned_timezone_dependency():
+    requirements = (ROOT / "config/openfootball_snapshot_requirements.txt").read_text(encoding="utf-8")
+    packages = [line.strip() for line in requirements.splitlines() if line.strip() and not line.startswith("#")]
+    assert packages == [wheel_e2e.PINNED_TIMEZONE_DEPENDENCY] == ["tzdata==2025.2"]
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    assert "-r config/openfootball_snapshot_requirements.txt" in workflow
 
 
 @pytest.mark.parametrize(

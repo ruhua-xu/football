@@ -207,8 +207,9 @@ def exercise(work,*,precision=28,reverse=False):
             assert session.scalar(text("SELECT count(*) FROM rb_prediction_slots"))==2
             rows=session.execute(text("SELECT artifact_id,artifact_json FROM rb_artifacts ORDER BY artifact_id")).all()
             fingerprint=sha(canonical_json([tuple(row) for row in rows]))
+            migration_head=session.scalar(text("SELECT version_num FROM alembic_version"))
         summary=dict(provenance="SYNTHETIC_SOFTWARE_ACCEPTANCE",provider_http_sends=0,llm_api_http_sends=0,real_observation_count=0,
-            real_performance_claim=False,migration_head="6c859ab273fe",artifact_count=len(rows),artifact_graph_hash=fingerprint,
+            real_performance_claim=False,migration_head=migration_head,artifact_count=len(rows),artifact_graph_hash=fingerprint,
             run_id=run.artifact_id,lock_id=lock.artifact_id,report_id=report.artifact_id,performance_evidence_status=report.performance_evidence_status)
         (work/"acceptance-summary.json").write_text(canonical_json(summary),encoding="utf-8")
         return summary

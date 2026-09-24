@@ -16,6 +16,11 @@ PROJECT = Path(__file__).resolve().parents[1]
 MODE = "INPUT_PREPARATION"
 BANNER = "MODE = INPUT_PREPARATION\nPRODUCTION DECISION = UNAVAILABLE\nREAL PERFORMANCE = INSUFFICIENT_PROSPECTIVE_SAMPLE"
 HEAD = "6c859ab273fe"
+# V1 is a released contract, not an alias for whichever migration is newest.
+LEGACY_OPERATOR_CODE_HASH = "f0d9215911d7f83ff6d44720a4bebc320f0a9c301b3ce8b544984cc996941799"
+LEGACY_RELEASE_COMMIT = "5ed940a8af8077be80549603a2da38aea77fc1bf"
+CANDIDATE_HEAD = "7d96abc3840f"
+INSTALL_V2 = "DAILY_OPERATOR_INSTALL_V2"
 KINDS = {"SLATE", "FIXTURE", "SPORTTERY", "EVIDENCE"}
 LIMIT = 4*1024*1024
 FORBIDDEN = {"bundesliga_acceptance_20260911", "bundesliga_observed_training_draft", "bundesliga_probe_20260908"}
@@ -30,6 +35,7 @@ HINTS = {
     "DATABASE_MISSING_OR_REPLACED": "数据库缺失/被替换；检查已登记路径，禁止自动新建。",
     "OPERATOR_BUSY_OR_RECOVERY_REQUIRED": "另一个入口运行中或上次异常退出；请核对进程和回执，不自动清锁。",
     "ACTION_NOT_ALLOWED": "只允许菜单1至6以及0退出。",
+    "OPERATOR_IMPLEMENTATION_CHANGED_REVIEW_REQUIRED": "安装的软件身份/head与当前执行环境不兼容；保持停止，交维护者审核，不重标安装hash或降级数据库。",
 }
 
 
@@ -73,6 +79,38 @@ def operator_code_hash():
     for name in ("daily.cmd", "scripts/daily_operator.py", "scripts/preparation_inputs.py", "src/football_system/infrastructure/files/real_bridge_frozen.py"):
         digest.update(name.encode()+b"\0"+(PROJECT / name).read_bytes().replace(b"\r\n", b"\n")+b"\0")
     return digest.hexdigest()
+
+
+def candidate_software_identity():
+    """Bind actual installed/source bytes without pretending to release a version."""
+    import football_system
+    from football_system.application.run_analysis import _code_revision
+
+    require(football_system.__version__ == "1.1.0", "FROZEN_VERSION_REQUIRED")
+    return dict(schema_version="DAILY_OPERATOR_SOFTWARE_IDENTITY_V1", software="football-system",
+        software_version=football_system.__version__, implementation_revision=_code_revision(),
+        release_base_commit=LEGACY_RELEASE_COMMIT, execution_profile="OPENFOOTBALL_CANDIDATE_V1",
+        migration_head=CANDIDATE_HEAD)
+
+
+def installation_profile(installation):
+    """V1's missing identity fields mean the exact published V1 profile only.
+
+    This read-only interpretation never rewrites an old installation manifest.
+    V2 explicitly binds software/version/implementation/head plus the glue hash.
+    """
+    common = {"schema_version", "mode", "installation_id", "operator_code_hash", "runtime", "backups", "databases", "created_at_utc"}
+    schema = installation.get("schema_version")
+    if schema == "DAILY_OPERATOR_INSTALL_V1":
+        require(set(installation) == common and installation.get("operator_code_hash") == LEGACY_OPERATOR_CODE_HASH,
+            "OPERATOR_IMPLEMENTATION_CHANGED_REVIEW_REQUIRED")
+        return dict(legacy=True, migration_head=HEAD)
+    require(schema == INSTALL_V2 and set(installation) == common | {"software_identity"},
+        "OPERATOR_IMPLEMENTATION_CHANGED_REVIEW_REQUIRED")
+    require(installation.get("operator_code_hash") == operator_code_hash()
+        and installation.get("software_identity") == candidate_software_identity(),
+        "OPERATOR_IMPLEMENTATION_CHANGED_REVIEW_REQUIRED")
+    return dict(legacy=False, migration_head=CANDIDATE_HEAD)
 
 
 def safe_path(path):
@@ -168,6 +206,8 @@ class Operator:
         require(confirmation == self.confirmation, "INITIALIZATION_NOT_CONFIRMED")
         require(not self.root.exists() and not self.backups.exists(), "EXISTING_OR_PARTIAL_INSTALLATION_REQUIRES_REVIEW")
         require(self.root.parent.parent.is_dir() and self.backups.parent.parent.is_dir(), "EXPECTED_PARENT_REQUIRED")
+        software = candidate_software_identity()
+        implementation = operator_code_hash()
         self.root.mkdir(parents=True, exist_ok=False)
         self.backups.mkdir(parents=True, exist_ok=False)
         for name in ("db", "inbox", "ops/p", "ops/s"):
@@ -180,9 +220,11 @@ class Operator:
             upgrade_database("sqlite:///"+path.as_posix(), PROJECT / "alembic.ini")
             with closing(sqlite3.connect(path)) as connection:
                 connection.execute(f"PRAGMA application_id={application_id}")
+                require(connection.execute("SELECT version_num FROM alembic_version").fetchall() == [(software["migration_head"],)], "MIGRATION_HEAD_MISMATCH")
             identities[name] = dict(application_id=application_id, file_identity=file_identity(path))
-        installation = dict(schema_version="DAILY_OPERATOR_INSTALL_V1", mode=MODE, installation_id=uuid.uuid4().hex,
-            operator_code_hash=operator_code_hash(), runtime=str(self.root), backups=str(self.backups),
+        require(software == candidate_software_identity() and implementation == operator_code_hash(), "OPERATOR_IMPLEMENTATION_CHANGED_REVIEW_REQUIRED")
+        installation = dict(schema_version=INSTALL_V2, mode=MODE, installation_id=uuid.uuid4().hex,
+            operator_code_hash=implementation, software_identity=software, runtime=str(self.root), backups=str(self.backups),
             databases=identities, created_at_utc=self.clock.now().isoformat())
         write_new(self.backups / "installation.json", encoded(installation))
         write_new(self.root / "operator-install.json", encoded(installation))  # Final marker only after both DBs exist.
@@ -190,9 +232,9 @@ class Operator:
 
     def check(self):
         installation = read_json(self.root / "operator-install.json")
-        require(installation["schema_version"] == "DAILY_OPERATOR_INSTALL_V1" and installation["mode"] == MODE
+        require(installation["mode"] == MODE
                 and installation["runtime"] == str(self.root) and installation["backups"] == str(self.backups), "INSTALLATION_PATH_MISMATCH")
-        require(installation["operator_code_hash"] == operator_code_hash(), "OPERATOR_IMPLEMENTATION_CHANGED_REVIEW_REQUIRED")
+        profile = installation_profile(installation)
         require(read_json(self.backups / "installation.json") == installation, "BACKUP_INSTALLATION_MISMATCH")
         require(set(installation["databases"]) == {"production.sqlite", "synthetic.sqlite"}
                 and len({d["application_id"] for d in installation["databases"].values()}) == 2,
@@ -202,19 +244,27 @@ class Operator:
             require(path.is_file() and file_identity(path) == expected["file_identity"], "DATABASE_MISSING_OR_REPLACED")
             with closing(sqlite3.connect(path.as_uri()+"?mode=ro", uri=True)) as conn:
                 require(conn.execute("PRAGMA application_id").fetchone()[0] == expected["application_id"], "DATABASE_IDENTITY_MISMATCH")
-                require(conn.execute("SELECT version_num FROM alembic_version").fetchall() == [(HEAD,)], "MIGRATION_HEAD_MISMATCH")
+                require(conn.execute("SELECT version_num FROM alembic_version").fetchall() == [(profile["migration_head"],)],
+                    "OPERATOR_IMPLEMENTATION_CHANGED_REVIEW_REQUIRED" if profile["legacy"] else "MIGRATION_HEAD_MISMATCH")
         return installation
+
+    def _require_current_installation(self, installation):
+        require(not installation_profile(installation)["legacy"], "OPERATOR_IMPLEMENTATION_CHANGED_REVIEW_REQUIRED")
 
     @contextmanager
     def guard(self, *, writing=False):
-        self.check()
+        installation = self.check()
+        if writing:
+            self._require_current_installation(installation)
         lock = safe_path(self.root / "operator.lock")
         try:
             write_new(lock, encoded(dict(pid=os.getpid(), at=self.clock.now().isoformat())))
         except FileExistsError:
             raise PreparationError("OPERATOR_BUSY_OR_RECOVERY_REQUIRED") from None
         try:
-            self.check()
+            installation = self.check()
+            if writing:
+                self._require_current_installation(installation)
             latest = [timestamp(self._intent(p)["recorded_at_utc"]) for p in self.operations.iterdir() if p.is_dir()]
             require(not latest or self.clock.now() >= max(latest), "OPERATOR_CLOCK_REGRESSION")
             if writing:
@@ -233,7 +283,7 @@ class Operator:
         from football_system.infrastructure.database.session import configure_sqlite_engine
         # No parent mkdir and no SQLite default creation, even if the DB disappears.
         def connect():
-            self.check()
+            self._require_current_installation(self.check())
             return sqlite3.connect(self.database.as_uri()+"?mode=rw", uri=True, check_same_thread=False)
         return configure_sqlite_engine(create_engine("sqlite://", creator=connect, poolclass=NullPool))
 
@@ -403,12 +453,16 @@ class Operator:
     def backup(self):
         with self.guard():
             checked = self._validate()
+            installation = read_json(self.root / "operator-install.json")
             destination = self.backups / uuid.uuid4().hex[:12]
             destination.mkdir(exist_ok=False)
             manifest = dict(schema_version="DAILY_OPERATOR_BACKUP_V1", database=self.database_name,
                 installation_id=read_json(self.root / "operator-install.json")["installation_id"],
                 created_at_utc=self.clock.now().isoformat(), files={}, excluded_expired=[], retention_by_operation={}, status="COMPLETE",
                 operator_state=checked["status"], unfinished_operations=checked["unfinished_operations"])
+            if installation["schema_version"] == INSTALL_V2:
+                manifest.update(schema_version="DAILY_OPERATOR_BACKUP_V2", software_identity=installation["software_identity"],
+                    operator_code_hash=installation["operator_code_hash"], migration_head=installation["software_identity"]["migration_head"])
             snapshot = destination / self.database_name
             with closing(sqlite3.connect(self.database.as_uri()+"?mode=ro", uri=True)) as source, closing(sqlite3.connect(snapshot)) as target:
                 source.backup(target)
@@ -457,6 +511,7 @@ def main(argv=None, *, input_fn=input, output=print):
     operator = Operator(PROJECT.parent / "football_runtime/v1.1.0", PROJECT.parent / "football_backups/v1.1.0")
     if not (operator.root / "operator-install.json").exists():
         output("首次初始化仅准备数据；不会运行预测或发送HTTP。")
+        output("新建安装类型："+INSTALL_V2+" / OPENFOOTBALL_CANDIDATE_V1 / head="+CANDIDATE_HEAD)
         output(str(operator.root)+"\n"+str(operator.backups))
         output("将创建独立production.sqlite与synthetic.sqlite；输入完整确认语句：\n"+operator.confirmation)
         operator.initialize(input_fn("> ").strip())

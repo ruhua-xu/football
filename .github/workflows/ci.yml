@@ -18,7 +18,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install test and build dependencies
-        run: python -m pip install -e ".[test]" ruff build
+        run: python -m pip install -e ".[test]" -r config/openfootball_snapshot_requirements.txt ruff build
       - name: Lint
         run: ruff check .
       - name: Compile

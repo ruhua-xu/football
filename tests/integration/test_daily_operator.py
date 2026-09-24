@@ -18,6 +18,9 @@ from scripts import daily_operator as module
 from scripts.daily_operator import Operator, PreparationError, encoded, sha
 from tests.contract.test_fixture_manual_provider import _write_archive
 from tests.contract.test_sporttery_manual_provider import _document_data
+from tests.integration.openfootball_upgrade_support import archive_v110, run_v110
+from tests.integration.test_market_v2_upgrade import config_for
+from alembic import command
 
 NOW = datetime(2030, 1, 1, tzinfo=timezone.utc)
 KICKOFF = NOW+timedelta(days=1)
@@ -118,6 +121,12 @@ def test_explicit_initialization_and_physical_separation(tmp_path):
     assert not op.root.exists() and not op.backups.exists()
     record = op.initialize(op.confirmation)
     assert op.check() == record
+    assert record["schema_version"] == "DAILY_OPERATOR_INSTALL_V2"
+    identity = record["software_identity"]
+    assert identity["software"] == "football-system" and identity["software_version"] == "1.1.0"
+    assert identity["execution_profile"] == "OPENFOOTBALL_CANDIDATE_V1"
+    assert identity["migration_head"] == "7d96abc3840f"
+    assert identity["implementation_revision"].startswith("package:")
     assert record["databases"]["production.sqlite"] != record["databases"]["synthetic.sqlite"]
     with pytest.raises(PreparationError, match="PARTIAL_INSTALLATION"):
         op.initialize(op.confirmation)
@@ -293,6 +302,78 @@ def test_expired_bytes_not_read_by_validation_backup_or_receipt(op, monkeypatch)
     backup = op.backup()
     assert backup["excluded_expired"]
     assert not any("payload/" in name or "/c/" in name for name in backup["files"])
+
+
+@pytest.fixture
+def legacy_installation(tmp_path):
+    checkout = archive_v110(tmp_path / "v110")
+    base = tmp_path / "legacy-install"
+    (base / "football_runtime").mkdir(parents=True)
+    (base / "football_backups").mkdir()
+    result = run_v110(checkout, """
+import json, sys
+from pathlib import Path
+from datetime import datetime, timezone
+import football_system
+from football_system.infrastructure.files.prospective import SyntheticProspectiveClock
+from scripts.daily_operator import Operator
+assert football_system.__version__ == '1.1.0'
+assert Path(sys.argv[1]) in Path(football_system.__file__).parents
+base = Path(sys.argv[2])
+op = Operator(base/'football_runtime/v1.1.0', base/'football_backups/v1.1.0', synthetic=True,
+    clock=SyntheticProspectiveClock(datetime(2030,1,1,tzinfo=timezone.utc)))
+record = op.initialize(op.confirmation)
+assert op.check() == record
+print(json.dumps(dict(runtime=str(op.root),backups=str(op.backups),installation=record)))
+""", base)
+    op = Operator(result["runtime"], result["backups"], synthetic=True, clock=SyntheticProspectiveClock(NOW))
+    return op, result["installation"]
+
+
+def test_old_v110_installation_old_head_is_valid_without_rewriting(legacy_installation):
+    op, original = legacy_installation
+    path = op.root / "operator-install.json"
+    before = path.read_bytes()
+    assert original["schema_version"] == "DAILY_OPERATOR_INSTALL_V1"
+    assert original["operator_code_hash"] == module.LEGACY_OPERATOR_CODE_HASH
+    assert op.check() == original and op.validate()["status"] == "FILES_CHECKED"
+    assert path.read_bytes() == before
+    # Compatibility validation does not grant candidate writers access to V1.
+    with pytest.raises(PreparationError, match="OPERATOR_IMPLEMENTATION_CHANGED_REVIEW_REQUIRED"):
+        with op.guard(writing=True):
+            pytest.fail("candidate writer accepted legacy installation")
+
+
+def test_old_v110_installation_new_head_requires_review(legacy_installation):
+    op, original = legacy_installation
+    manifest_before = (op.root / "operator-install.json").read_bytes()
+    command.upgrade(config_for(op.database), "7d96abc3840f")
+    with pytest.raises(PreparationError, match="OPERATOR_IMPLEMENTATION_CHANGED_REVIEW_REQUIRED"):
+        op.check()
+    assert (op.root / "operator-install.json").read_bytes() == manifest_before
+    with closing(sqlite3.connect(op.database)) as db:
+        assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "7d96abc3840f"
+
+
+@pytest.mark.parametrize("field,value", [("software_version", "1.0.0"), ("migration_head", "6c859ab273fe"),
+    ("implementation_revision", "package:"+"0"*64), ("execution_profile", "RELEASED_V110")])
+def test_candidate_installation_rejects_changed_software_identity(op, field, value):
+    record = module.read_json(op.root / "operator-install.json")
+    record["software_identity"][field] = value
+    # Both files are test-owned; keeping them mutually equal must not create trust.
+    (op.root / "operator-install.json").write_bytes(encoded(record))
+    (op.backups / "installation.json").write_bytes(encoded(record))
+    with pytest.raises(PreparationError, match="OPERATOR_IMPLEMENTATION_CHANGED_REVIEW_REQUIRED"):
+        op.check()
+
+
+def test_candidate_backup_binds_version_implementation_and_head(op):
+    record = op.check()
+    backup = op.backup()
+    assert backup["schema_version"] == "DAILY_OPERATOR_BACKUP_V2"
+    assert backup["software_identity"] == record["software_identity"]
+    assert backup["operator_code_hash"] == record["operator_code_hash"]
+    assert backup["migration_head"] == "7d96abc3840f"
 
 
 def test_busy_stale_lock_and_clock_regression_are_fail_closed(op):
