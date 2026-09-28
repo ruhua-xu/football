@@ -189,6 +189,10 @@ class QuantIntegrityPilotService:
         self.repository = repository
         self.clock = clock
 
+    def run_openfootball(self, production_repository, *, request_key):
+        """Explicit versioned adapter for the OpenFootball observed source graph."""
+        return production_repository.openfootball_binding().run_pilot(request_key=request_key)
+
     def seal_plan(
         self,
         definition: QuantIntegrityPlanDefinitionV1

@@ -3434,3 +3434,8 @@ _prospective_tables = prospective_tables(Base.metadata)
 from football_system.infrastructure.database.real_bridge_schema import real_bridge_tables  # noqa: E402
 
 _real_bridge_tables = real_bridge_tables(Base.metadata)
+
+# Independent OpenFootball bindings; existing observed V1 models are unchanged.
+from football_system.infrastructure.database.openfootball_production_schema import openfootball_production_tables  # noqa: E402
+
+_openfootball_production_tables = openfootball_production_tables(Base.metadata)

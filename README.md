@@ -5,12 +5,16 @@
 ## 发布状态
 
 - `v0.1.0` 固定在提交 `fceb945d07218290dc85b465e885a47ae9912c3f`，保留原始 MVP 行为。
-- 当前 package metadata 为 **1.1.0**；Production Activation Implementation Review **APPROVED**。接受实现为 `b2544464055b0fda954b1fbed299f5d749dae6a0`，tree为 `6942954d9686b75543749fa4c918aec81bddf49c`，design为 `8b1cdf727c14510e590450406d89a9edae7ff759`。最终门禁及发布身份见 [1.1.0 最终验收报告](fankui/production_activation_v1_final_acceptance_report.md)与独立发布回执。
-- **1.1.0不是新预测算法版本**；新增软件能力与公开`real-bridge`接口，既有Elo、Poisson、MEDIAN、V4、fusion/P_final、EV、Strategy、Return、objective、payout与Settlement数学继续冻结。Migration head保持`6c859ab273fe`。
-- `1.1.0` 仅支持 SQLite。运行时建库、Schema 创建和 Alembic 迁移都会在加载其他数据库驱动前拒绝非 SQLite URL。
+- 当前 package metadata 为 **1.2.0**；OpenFootball candidate CI Review **PASSED**。接受实现为 `df47ba4cf34eb4f0a964c2e5ab5d0e88ea6a57f6`，tree为 `034372ea5297d391bcfef74d76d92d4175461689`，CI #46 SUCCESS。版本、运行库rebind及feature/main/tag门禁见 [1.2.0发布报告](fankui/openfootball_v120_release_report.md)与独立发布回执。
+- **1.2.0不是新预测算法版本**；发布OpenFootball current-snapshot qualification、固定tzdata、observed binding与operator V2身份。ELO_THREE_WAY_BASELINE_V1/model_version=1及既有Poisson、MEDIAN、V4、fusion/P_final、EV、Strategy、Return、objective、payout与Settlement数学继续冻结。Migration head为`7d96abc3840f`。
+- `1.2.0` 仅支持 SQLite。运行时建库、Schema 创建和 Alembic 迁移都会在加载其他数据库驱动前拒绝非 SQLite URL。
 - 只有显式执行 `live ingest-fixtures` 或 `live ingest-market-odds` 才会分别读取 `SPORTMONKS_KEY` 或 `ODDS_API_KEY` 并访问网络；`ingest-fixtures-manual`、Sporttery、reconcile、review import、prepare-analysis 和 run-analysis 均为本地 I/O。项目不连接真实 LLM API，不执行自动下注。
 
 ## 当前能力
+
+**1.2 OpenFootball observed bootstrap support**：独立本地qualification与production binding，tzdata固定为2025.2 / IANA2025b / Europe/Berlin。已接受资料保持612 records / 13 exceptions / 599 admitted facts；2024/25=WARMUP、2025/26=PILOT_TARGET、2026/27=PRODUCTION_TARGET zero-fact。
+
+正式`daily.cmd`通过`.venv`的非editable 1.2.0 wheel运行，并核验metadata/module version、RECORD、checkout一致性与冻结数学。现有`football_runtime/v1.1.0`是稳定的安装布局ID，不因软件版本升级改路径或新建第二个DB；受控维护仅前向升级旧head并将原installation原位rebind至V2，前后均做双库backup。模式继续INPUT_PREPARATION，当前状态为**TARGET_WAITING_FOR_SPORTTERY_SLATE**。
 
 **1.1 Production Activation 软件能力**：独立real artifact / `rb_*`图、无比赛/票据seed的sealed anchor与future epoch、exact UTC kickoff bucket、PRE_LOCK replacement、program级official prediction slots和DecisionLock V2锁定重校验。复用已有合法pinned model与完整market/SP/source replay；不可用模型保留P_quant/P_base为空和整桶UNAVAILABLE。
 

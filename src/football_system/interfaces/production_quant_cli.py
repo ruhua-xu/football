@@ -1232,6 +1232,10 @@ def _execute(
 
 
 def dispatch_production_quant(arguments: Sequence[str]) -> int:
+    if list(arguments[:1]) == ["openfootball"]:
+        from football_system.interfaces.openfootball_production_cli import dispatch_openfootball_production
+
+        return dispatch_openfootball_production(arguments[1:])
     parser = _SafeParser(
         prog="football-system production-quant",
         description=(

@@ -727,6 +727,9 @@ class SqlAlchemyAnalysisRepository:
         session: Session,
         artifacts: AnalysisArtifacts,
     ) -> None:
+        from football_system.infrastructure.database.openfootball_production_schema import assert_no_legacy_openfootball_training
+
+        assert_no_legacy_openfootball_training(session, tuple(f.match_result_id for s in artifacts.quant_model_states for f in s.training_facts))
         if artifacts.production_binding is not None:
             if self._production_release_repository is None:
                 raise ValueError("admitted training facts require production release verification")

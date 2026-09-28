@@ -23,6 +23,10 @@ from tests.integration.test_market_v2_upgrade import config_for, database_snapsh
 
 ROOT = Path(__file__).resolve().parents[2]
 
+# Exact, reviewed adapter entry point; no old computation is excluded from the
+# comparison. Keep this independently spelled out instead of ignoring a file.
+APPROVED_OPENFOOTBALL_HOOK = b'\n    def run_openfootball(self, production_repository, *, request_key):\n        """Explicit versioned adapter for the OpenFootball observed source graph."""\n        return production_repository.openfootball_binding().run_pilot(request_key=request_key)\n'
+
 
 def test_fresh_migration_check_and_empty_downgrade(tmp_path):
     path = tmp_path / "fresh.db"
@@ -111,4 +115,8 @@ def test_v090_domain_application_configuration_and_migrations_are_byte_frozen():
     assert len(names) > 119
     for name in names:
         expected = subprocess.check_output(["git", "show", "v0.9.0:"+name], cwd=ROOT)
-        assert (ROOT / name).read_bytes().replace(b"\r\n", b"\n") == expected.replace(b"\r\n", b"\n"), name
+        actual = (ROOT / name).read_bytes().replace(b"\r\n", b"\n")
+        if name == "src/football_system/application/quant_integrity.py":
+            assert actual.count(APPROVED_OPENFOOTBALL_HOOK) == 1
+            actual = actual.replace(APPROVED_OPENFOOTBALL_HOOK, b"", 1)
+        assert actual == expected.replace(b"\r\n", b"\n"), name

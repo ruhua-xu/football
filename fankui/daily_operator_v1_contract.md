@@ -1,5 +1,18 @@
 # DAILY_OPERATOR_V1 — INPUT_PREPARATION contract
 
+## 1.2.0 正式软件身份与受控维护（当前）
+
+- 已接受OpenFootball candidate：`df47ba4cf34eb4f0a964c2e5ab5d0e88ea6a57f6` / tree `034372ea5297d391bcfef74d76d92d4175461689` / CI #46 SUCCESS。
+- `DAILY_OPERATOR_INSTALL_V2`使用1.2.0、`OPENFOOTBALL_RELEASE_V1`、实际package implementation revision、glue hash与head `7d96abc3840f`。不改变Elo或其他算法版本。
+- `daily.cmd`只从已配置`.venv`的非editable wheel加载核心，核验module/metadata版本、RECORD及checkout normalized bytes；无系统Python fallback、不再插入checkout/src、不自动安装。
+- 已有`football_runtime/v1.1.0`及`football_backups/v1.1.0`布局继续保留。显式维护API`scripts/operator_release_upgrade.py`仅处理idle INPUT_PREPARATION：前后SQLite双库snapshot backup，验证旧安装与原DB物理身份/app_id，必要时原位前向迁移，最后按journal替换两份installation manifest。
+- Formal maintenance backup为`DAILY_OPERATOR_RELEASE_BACKUP_V1`；保留原manifest、两个数据库、显式授权且未过期的证据及完整hash manifest。它允许备份已知旧V1安装+6c/7d混合head，不授予日常写入。
+- Maintenance前提是无inbox/ops未处理材料、无partial backup、旧manifest与backup installation一致。缺失/替换DB、非允许head、过期证据、备份篡改或state drift均拒绝。数据库只用既存文件方式打开；不拷贝backup为active库，不downgrade、不重建。
+- Rebind保留installation ID、created_at、paths与DB身份；新增软件身份在独立维护intent/receipt中可审计。写入中断保留lock/journal，普通operator继续fail closed，无force/skip/自动回滚入口。
+- 六项菜单、INPUT_PREPARATION banner、既有五/六个冻结hashes及用户资料契约不变；未启动model bootstrap或真实观察。
+
+以下为1.1.0及更早版本的历史接受记录；当前软件身份与维护规则以上节和1.2.0发布回执为准。
+
 **Accepted — Bridge Review APPROVED / Production Activation Implementation Review APPROVED。无 implementation blocker。**
 
 发布身份：**1.1.0 — Production Activation software release**；不是新预测算法版本。
