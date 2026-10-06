@@ -17,7 +17,7 @@ from typing import Sequence
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_VERSION = "1.2.0"
-EXPECTED_MIGRATION_HEAD = "7d96abc3840f"
+EXPECTED_MIGRATION_HEAD = "8ea7bcd49510"
 PINNED_TIMEZONE_DEPENDENCY = "tzdata==2025.2"
 PROVIDER_CODE = "SYNTHETIC_ACCEPTANCE_V1"
 QUANT_RUN_ID = "wheel-e2e-quant"
@@ -131,6 +131,7 @@ EXPECTED_RESOURCE_FILES = frozenset(
         "migrations/versions/5b748fa162ed_add_prospective_validation.py",
         "migrations/versions/6c859ab273fe_add_real_prospective_bridge.py",
         "migrations/versions/7d96abc3840f_add_openfootball_production_binding.py",
+        "migrations/versions/8ea7bcd49510_add_ofp_real_model_pin_source.py",
     }
 )
 
@@ -471,7 +472,7 @@ print(json.dumps({
     )
     resource_root = Path(str(provenance["resource_root"])).resolve()
     _run_checked(
-        "installed v1.2 operator upgrade and backup acceptance",
+        "installed candidate operator synthetic upgrade and backup acceptance",
         [python, "-I", PROJECT_ROOT / "scripts/operator_release_acceptance.py", work_dir / "operator-release-acceptance"],
         cwd=work_dir, environment=environment,
         markers=("V120_OPERATOR_INSTALLED_RELEASE_ACCEPTANCE_PASS",), timeout=1200,

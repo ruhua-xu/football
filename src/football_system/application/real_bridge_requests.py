@@ -1,12 +1,13 @@
 """Closed real bridge requests; trusted event timestamps are never caller fields."""
 
 from typing import Literal
-from pydantic import Field, model_validator
+from pydantic import Field, model_validator, model_serializer
 from football_system.domain.common import Identifier, UtcDateTime
 from football_system.domain.market_v2 import Hash, MultiMarketModel
 from football_system.domain.prospective import CorrectionReasonV1, ManualResultImportV1
 from football_system.domain.real_bridge import Provenance
 from football_system.domain.services.elo_baseline import EloBaselineState
+from football_system.domain.pinned_model_source import ModelSourceV1, LegacyModelSourceV1
 from football_system.domain.strategy_pass_v2 import Money, TicketRequestV2
 
 
@@ -58,6 +59,21 @@ class ModelPinRequest(Request):
     source_analysis_id: Identifier | None = None
     scope_match_ids: tuple[Identifier, ...]
     test_state: EloBaselineState | None = None
+    model_source: ModelSourceV1 = Field(default_factory=LegacyModelSourceV1)
+
+    @model_validator(mode="after")
+    def source_shape(self):
+        if self.model_source.source_type == "OPENFOOTBALL" and any(v is not None for v in
+                (self.release_id, self.model_state_id, self.source_analysis_id, self.test_state)):
+            raise ValueError("OFP_SOURCE_CANNOT_USE_LEGACY_IDS_OR_TEST_STATE")
+        return self
+
+    @model_serializer(mode="wrap")
+    def legacy_wire(self, handler):
+        value = handler(self)
+        if self.model_source.source_type == "LEGACY":
+            value.pop("model_source", None)
+        return value
 
 
 class PolicyRequest(Request):

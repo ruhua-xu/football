@@ -120,6 +120,7 @@ where = ["src"]
     "migrations/versions/5b748fa162ed_add_prospective_validation.py",
     "migrations/versions/6c859ab273fe_add_real_prospective_bridge.py",
     "migrations/versions/7d96abc3840f_add_openfootball_production_binding.py",
+    "migrations/versions/8ea7bcd49510_add_ofp_real_model_pin_source.py",
 ]
 
 [tool.pytest.ini_options]

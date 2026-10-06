@@ -1090,7 +1090,7 @@ def test_f51_empty_version_graph_downgrade_preserves_populated_legacy_release(
     release = legacy.build(production, record_v2(production))
     before = release.model_dump_json()
     config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", str(production.lane.engine.url))
+    config.set_main_option("sqlalchemy.url", str(production.lane.engine.url).replace("%", "%%"))
     command.stamp(config, "head")
     command.downgrade(config, "e40d183af576")
     assert production.repo.load_release(release.artifact_id).model_dump_json() == before
@@ -1111,7 +1111,7 @@ def test_f51_populated_downgrade_refusal_leaves_graph_and_guards_intact(correcte
     release = legacy.build(corrected, record_v2(corrected, manifest))
     engine = corrected.lane.engine
     config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", str(engine.url))
+    config.set_main_option("sqlalchemy.url", str(engine.url).replace("%", "%%"))
     command.stamp(config, "head")
     command.downgrade(config, "f51e294b0687")
     before = _schema_signature(engine), _trigger_signature(engine)

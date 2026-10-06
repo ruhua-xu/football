@@ -9,7 +9,12 @@ from football_system.infrastructure.files.training_evidence import LocalTraining
 
 BRIDGE_FILES = ("domain/real_bridge.py", "domain/services/real_bridge.py", "application/real_bridge.py", "application/real_bridge_requests.py", "application/real_bridge_views.py",
     "infrastructure/database/real_bridge_repository.py", "infrastructure/database/real_bridge_schema.py", "infrastructure/database/real_bridge_projections.py",
-    "infrastructure/database/real_bridge_sources.py", "infrastructure/files/real_bridge.py", "interfaces/real_bridge_cli.py")
+    "infrastructure/database/real_bridge_sources.py", "infrastructure/files/real_bridge.py", "interfaces/real_bridge_cli.py",
+    "domain/pinned_model_source.py", "infrastructure/database/openfootball_model_source.py",
+    "infrastructure/database/ofp_real_model_pin_schema.py", "infrastructure/database/real_bridge_head.py")
+
+# Published artifact identities remain historical identities, never rewritten.
+LEGACY_BRIDGE_IMPLEMENTATIONS = frozenset({"aa55cbe20e31b6ea1b4f4bc1f723832ae34474b85b02222c6d05e66e4bb4b11b"})
 
 FROZEN_IDENTITIES = dict(
     return_algorithm="76995ed699a8d054f3865ffbbc0063a46af2123f18ab34aa6b27a91690dc7aa6",

@@ -19,9 +19,10 @@ HEAD = "6c859ab273fe"
 # V1 is a released contract, not an alias for whichever migration is newest.
 LEGACY_OPERATOR_CODE_HASH = "f0d9215911d7f83ff6d44720a4bebc320f0a9c301b3ce8b544984cc996941799"
 LEGACY_RELEASE_COMMIT = "5ed940a8af8077be80549603a2da38aea77fc1bf"
-RELEASE_HEAD = "7d96abc3840f"
+RELEASED_V120_HEAD = "7d96abc3840f"
+RELEASE_HEAD = "8ea7bcd49510"  # Candidate source only; no published/runtime rebind.
 RELEASE_VERSION = "1.2.0"
-APPROVED_IMPLEMENTATION = "df47ba4cf34eb4f0a964c2e5ab5d0e88ea6a57f6"
+APPROVED_IMPLEMENTATION = "8b7cfb3ac2e416a5c3c8f5046150245ab076f490"
 INSTALL_V2 = "DAILY_OPERATOR_INSTALL_V2"
 KINDS = {"SLATE", "FIXTURE", "SPORTTERY", "EVIDENCE"}
 LIMIT = 4*1024*1024
@@ -84,7 +85,7 @@ def operator_code_hash():
 
 
 def release_software_identity():
-    """Actual v1.2 software bytes; model/algorithm versions remain unchanged."""
+    """Unreleased pin-compatibility candidate identity; no production rebind."""
     import importlib.metadata
     import football_system
     from football_system.application.run_analysis import _code_revision
@@ -92,7 +93,7 @@ def release_software_identity():
     require(football_system.__version__ == importlib.metadata.version("football-system") == RELEASE_VERSION, "RELEASE_VERSION_REQUIRED")
     return dict(schema_version="DAILY_OPERATOR_SOFTWARE_IDENTITY_V1", software="football-system",
         software_version=football_system.__version__, implementation_revision=_code_revision(),
-        release_base_commit=APPROVED_IMPLEMENTATION, execution_profile="OPENFOOTBALL_RELEASE_V1",
+        release_base_commit=APPROVED_IMPLEMENTATION, execution_profile="OPENFOOTBALL_PIN_CANDIDATE_V1",
         migration_head=RELEASE_HEAD)
 
 
@@ -538,7 +539,7 @@ def main(argv=None, *, input_fn=input, output=print):
     operator = Operator(PROJECT.parent / "football_runtime/v1.1.0", PROJECT.parent / "football_backups/v1.1.0")
     if not (operator.root / "operator-install.json").exists():
         output("首次初始化仅准备数据；不会运行预测或发送HTTP。")
-        output("新建安装类型："+INSTALL_V2+" / OPENFOOTBALL_RELEASE_V1 / version="+RELEASE_VERSION+" / head="+RELEASE_HEAD)
+        output("新建安装类型："+INSTALL_V2+" / OPENFOOTBALL_PIN_CANDIDATE_V1 / version="+RELEASE_VERSION+" / head="+RELEASE_HEAD)
         output(str(operator.root)+"\n"+str(operator.backups))
         output("将创建独立production.sqlite与synthetic.sqlite；输入完整确认语句：\n"+operator.confirmation)
         operator.initialize(input_fn("> ").strip())

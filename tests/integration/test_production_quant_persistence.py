@@ -1050,7 +1050,7 @@ def test_missing_sealed_child_rejected_on_all_release_reads(production):
 def test_populated_production_downgrade_refuses_lineage_deletion(production):
     manifest(production)
     config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", str(production.lane.engine.url))
+    config.set_main_option("sqlalchemy.url", str(production.lane.engine.url).replace("%", "%%"))
     command.stamp(config, "a0c9e4f6b132")
     with pytest.raises(RuntimeError, match="immutable production lineage"):
         command.downgrade(config, "9b8d3e5f0a21")

@@ -69,7 +69,7 @@ def inspect_installation(operator):
         daily.require(path.is_file() and daily.file_identity(path) == expected["file_identity"], "DATABASE_MISSING_OR_REPLACED")
         state = database_state(path)
         daily.require(state["application_id"] == expected["application_id"], "DATABASE_IDENTITY_MISMATCH")
-        daily.require(state["head"] in {daily.HEAD, daily.RELEASE_HEAD}, "MIGRATION_HEAD_MISMATCH")
+        daily.require(state["head"] in {daily.HEAD, daily.RELEASED_V120_HEAD, daily.RELEASE_HEAD}, "MIGRATION_HEAD_MISMATCH")
         states[name] = state
     return record, original, states
 

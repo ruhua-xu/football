@@ -20,5 +20,5 @@ def upgrade_database(
     ini_path = Path(alembic_ini_path).resolve()
     config = Config(str(ini_path))
     config.set_main_option("script_location", str(ini_path.parent / "migrations"))
-    config.set_main_option("sqlalchemy.url", database_url)
+    config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
     command.upgrade(config, "head")

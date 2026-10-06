@@ -23,10 +23,12 @@ ADDITIVE_HOOKS={
         '\n    def run_openfootball(self, production_repository, *, request_key):\n        """Explicit versioned adapter for the OpenFootball observed source graph."""\n        return production_repository.openfootball_binding().run_pilot(request_key=request_key)\n',),
     "src/football_system/infrastructure/database/models.py": (
         "\n# The real bridge is an additive graph; no legacy table or type is widened.\nfrom football_system.infrastructure.database.real_bridge_schema import real_bridge_tables  # noqa: E402\n\n_real_bridge_tables = real_bridge_tables(Base.metadata)\n",
-        "\n# Independent OpenFootball bindings; existing observed V1 models are unchanged.\nfrom football_system.infrastructure.database.openfootball_production_schema import openfootball_production_tables  # noqa: E402\n\n_openfootball_production_tables = openfootball_production_tables(Base.metadata)\n",),
+        "\n# Independent OpenFootball bindings; existing observed V1 models are unchanged.\nfrom football_system.infrastructure.database.openfootball_production_schema import openfootball_production_tables  # noqa: E402\n\n_openfootball_production_tables = openfootball_production_tables(Base.metadata)\n",
+        "\n# Additive source-specific provenance; legacy pin columns/FKs stay unchanged.\nfrom football_system.infrastructure.database.ofp_real_model_pin_schema import ofp_real_model_pin_table  # noqa: E402\n\n_ofp_real_model_pins = ofp_real_model_pin_table(Base.metadata)\n",),
     "src/football_system/infrastructure/database/immutability.py": (
         "    from football_system.infrastructure.database.real_bridge_schema import install_real_bridge_triggers\n\n    install_real_bridge_triggers(connection)\n",
-        "    from football_system.infrastructure.database.openfootball_production_schema import install_openfootball_production_triggers\n\n    install_openfootball_production_triggers(connection)\n",),
+        "    from football_system.infrastructure.database.openfootball_production_schema import install_openfootball_production_triggers\n\n    install_openfootball_production_triggers(connection)\n",
+        "    from football_system.infrastructure.database.ofp_real_model_pin_schema import install_ofp_real_model_pin_triggers\n\n    install_ofp_real_model_pin_triggers(connection)\n",),
     "src/football_system/interfaces/cli.py": (
         "    if arguments[:1] == [\"real-bridge\"]:\n        from football_system.interfaces.real_bridge_cli import dispatch_real_bridge\n\n        return dispatch_real_bridge(arguments[1:])\n",),
     "pyproject.toml": (
@@ -34,11 +36,14 @@ ADDITIVE_HOOKS={
         ', "data/fixtures/real_bridge_v1.json"',
         '    "migrations/versions/6c859ab273fe_add_real_prospective_bridge.py",\n',
         '    "migrations/versions/7d96abc3840f_add_openfootball_production_binding.py",\n',
+        '    "migrations/versions/8ea7bcd49510_add_ofp_real_model_pin_source.py",\n',
         '    "fankui/real_prospective_activation_bridge_v1_contract.md",\n',
         '    "fankui/pre_lock_replacement_v1_contract.md",\n',
         '    "fankui/daily_operator_v1_contract.md",\n',),
 }
 RELEASE_VERSION_PROJECTION={
+    # Exact URL-encoding compatibility only; no migration or database semantics change.
+    "src/football_system/infrastructure/database/migrations.py": ('config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))', 'config.set_main_option("sqlalchemy.url", database_url)'),
     "pyproject.toml": ('version = "1.2.0"', 'version = "1.0.0"'),
     "src/football_system/__init__.py": ('__version__ = "1.2.0"', '__version__ = "1.0.0"'),
     "src/football_system/infrastructure/database/session.py": ('football-system v1.2.0 supports SQLite only.', 'football-system v1.0.0 supports SQLite only.'),

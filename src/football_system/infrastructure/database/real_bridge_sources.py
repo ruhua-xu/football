@@ -196,6 +196,15 @@ class ExistingPinnedModelAccess:
         self.inference = inference
 
     def verify(self, session, request, at):
+        descriptor = self.verify_descriptor(session, request, at)
+        return descriptor.state, descriptor.release_hash, descriptor.authority_hash
+
+    def verify_descriptor(self, session, request, at, *, existing_pin=False):
+        from football_system.domain.pinned_model_source import VerifiedPinnedModelDescriptorV1, LegacyModelSourceV1
+        source = getattr(request, "model_source", LegacyModelSourceV1())
+        if source.source_type == "OPENFOOTBALL":
+            from football_system.infrastructure.database.openfootball_model_source import OpenFootballPinnedModelReader
+            return OpenFootballPinnedModelReader(self.inference._production).read(session, request, at, existing_pin=existing_pin)
         binding = self.inference.load_binding(request.source_analysis_id)
         require(binding is not None and binding.release.artifact_id == request.release_id
                 and binding.quant_model_state_id == request.model_state_id, "MODEL_BINDING_SCOPE_MISMATCH")
@@ -204,4 +213,7 @@ class ExistingPinnedModelAccess:
         # Exact target set is supplied by the already approved binding, not by a new fit.
         plan = self.inference.load_target_plan(binding.target_acceptance_plan.artifact_id)
         require(set(request.scope_match_ids) <= {t.match_id for t in plan.content_payload.targets}, "MODEL_TARGET_NOT_PINNED")
-        return state, release_hash, authority_hash
+        lineage,configuration,meta_release,meta_authority=model_metadata(session,request.model_state_id,request.source_analysis_id,request.release_id)
+        require((meta_release,meta_authority)==(release_hash,authority_hash), "MODEL_METADATA_MISMATCH")
+        return VerifiedPinnedModelDescriptorV1(source=source,state=state,configuration=configuration,lineage=lineage,
+            release_hash=release_hash,authority_hash=authority_hash,scope_match_ids=tuple(sorted(request.scope_match_ids)),season_id=state.season_id)

@@ -840,7 +840,7 @@ def test_missing_controlled_component_is_detected_by_historical_v1_replay(
 
 def test_migration_preserves_populated_v1_admission_children_and_result_lineage(lane):
     config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", str(lane.engine.url))
+    config.set_main_option("sqlalchemy.url", str(lane.engine.url).replace("%", "%%"))
     command.stamp(config, "e40d183af576")
     command.downgrade(config, "d3fc0729e465")
     prepare(lane, count=1)
