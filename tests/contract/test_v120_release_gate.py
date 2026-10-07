@@ -26,6 +26,7 @@ NEW_FILES={
     "src/football_system/infrastructure/database/ofp_real_model_pin_schema.py", "src/football_system/infrastructure/database/real_bridge_head.py",
     "migrations/versions/8ea7bcd49510_add_ofp_real_model_pin_source.py",
 }
+RELEASE_ONLY_VERSIONS={"src/football_system/__init__.py", "src/football_system/infrastructure/database/session.py"}
 
 
 def old_text(name):
@@ -41,6 +42,9 @@ def test_v120_unmodified_math_qualification_and_legacy_source_files_are_byte_fro
                 continue
             expected=archive.extractfile(member).read().replace(b"\r\n",b"\n")
             actual=(ROOT/member.name).read_bytes().replace(b"\r\n",b"\n")
+            if member.name in RELEASE_ONLY_VERSIONS:
+                assert actual.count(b"1.3.0")==1
+                actual=actual.replace(b"1.3.0",b"1.2.0",1)
             if member.name not in INTEGRATION_CHANGES:
                 assert actual==expected,member.name
             checked.add(member.name)
@@ -53,7 +57,9 @@ def test_v120_unmodified_math_qualification_and_legacy_source_files_are_byte_fro
     after=tomllib.loads((ROOT/"pyproject.toml").read_text(encoding="utf-8"))
     after["tool"]["setuptools"]["data-files"]["football_system_resources/migrations/versions"].remove(
         "migrations/versions/8ea7bcd49510_add_ofp_real_model_pin_source.py")
-    assert before==after  # No package-version, dependency or other packaging drift.
+    assert after["project"]["version"]=="1.3.0"
+    after["project"]["version"]="1.2.0"
+    assert before==after  # Only the explicit release version; no dependency/packaging drift.
     migration_helper="src/football_system/infrastructure/database/migrations.py"
     expected=old_text(migration_helper).replace('config.set_main_option("sqlalchemy.url", database_url)',
         'config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))')
@@ -86,7 +92,7 @@ def test_real_bridge_configuration_and_other_lifecycle_classes_are_unchanged():
 
 def test_v120_version_dependency_and_frozen_model_identities():
     project=tomllib.loads((ROOT/"pyproject.toml").read_text(encoding="utf-8"))
-    assert project["project"]["version"]==football_system.__version__=="1.2.0"  # Unreleased candidate base; final version recommendation is separate.
+    assert project["project"]["version"]==football_system.__version__=="1.3.0"
     assert "tzdata==2025.2" in project["project"]["dependencies"]
     assert MODEL_VERSION=="1" and EloBaselineConfig().config_hash=="c98d595d3afb03fe629e776fa9a0e70f24e31fcd49884be3ff11e9c979ca78e4"
     module=ast.parse(old_text("src/football_system/infrastructure/files/real_bridge.py"))

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.0 - 2026-10-07
+
+- OFP → REAL_MODEL_PIN synthetic fix review通过；接受commit `a6952a4f9b86e1c273aa66e9f48c7930d8687a0a`、tree `31e46e3059f2b9855fe30af1591d6afd9b5b1cb4`、CI #50 SUCCESS，保留审核业务历史。
+- 正式发布typed LEGACY/OPENFOOTBALL model-source、verified descriptor/reader与additive migration `8ea7bcd49510`；旧wire/FK保持，wheel显式资源为88项。
+- OPENFOOTBALL基础设施已建立，当前qualified implementation scope仍仅Bundesliga 2026/27；其他competition需要独立qualification及reader泛化。正式lifecycle为program → MODEL admission → model-pin。
+- 维护路径接受精确已发布v1.2.0 V2 binding，执行原位7d→8e、schema guards、双库backup及operator rebind；阻止cwd/src旧metadata遮蔽installed wheel，中断保留journal/lock。
+- Package 1.3.0、profile OPENFOOTBALL_PIN_RELEASE_V1；保持所有预测/策略数学、固定Elo配置、612/13/599和三个数据roots。v1.2.0 tag/wheel/commit/history不移动或覆盖。
+- Release与runtime升级完成即停在INPUT_PREPARATION，真实pin/program/epoch/run/DecisionLock保持0；下一步才按独立REAL BOOTSTRAP PLAN使用2026-10-10前中国体彩官方future slate做target discovery。
+
 ## 1.2.0 - 2026-09-24
 
 - OpenFootball candidate CI Review PASSED；接受commit `df47ba4cf34eb4f0a964c2e5ab5d0e88ea6a57f6`、tree `034372ea5297d391bcfef74d76d92d4175461689`、CI #46 SUCCESS。

@@ -8,26 +8,13 @@ import pytest
 
 from scripts import daily_operator as daily
 from scripts import operator_release_upgrade as upgrade
-from tests.integration.openfootball_upgrade_support import archive_v110, run_v110
+from scripts.operator_release_acceptance import previous_installation
 from football_system.infrastructure.files.prospective import SyntheticProspectiveClock
 
 
-@pytest.fixture
-def legacy(tmp_path):
-    checkout = archive_v110(tmp_path / "v110")
-    base = tmp_path / "中文 space"
-    (base / "football_runtime").mkdir(parents=True)
-    (base / "football_backups").mkdir()
-    result = run_v110(checkout, """
-import json,sys
-from pathlib import Path
-from datetime import datetime,timezone
-from scripts.daily_operator import Operator
-from football_system.infrastructure.files.prospective import SyntheticProspectiveClock
-base=Path(sys.argv[2])
-op=Operator(base/'football_runtime/v1.1.0',base/'football_backups/v1.1.0',synthetic=True,clock=SyntheticProspectiveClock(datetime(2030,1,1,tzinfo=timezone.utc)))
-print(json.dumps(op.initialize(op.confirmation)))
-""", base)
+@pytest.fixture(params=["1.1.0", "1.2.0"])
+def legacy(tmp_path, request):
+    result = previous_installation(tmp_path / "中文 space", request.param)
     return daily.Operator(result["runtime"],result["backups"],synthetic=True,clock=SyntheticProspectiveClock(datetime(2030,1,1,tzinfo=timezone.utc)))
 
 
@@ -74,9 +61,9 @@ def test_rebind_preconditions_fail_before_mutation(legacy,monkeypatch,tmp_path,f
     else:
         (Path(before["path"]) / "operator-install.json").write_bytes(b"changed")
     with pytest.raises(daily.PreparationError):
-        upgrade.rebind_release(legacy,before_backup=before["path"],confirmation="UPGRADE "+str(legacy.root)+" TO 1.2.0")
+        upgrade.rebind_release(legacy,before_backup=before["path"],confirmation="UPGRADE "+str(legacy.root)+" TO 1.3.0")
     assert (legacy.root / "operator-install.json").read_bytes() == original
-    assert not (legacy.root / "release-v1.2.0").exists()
+    assert not (legacy.root / "release-v1.3.0").exists()
     if fault == "missing":
         assert not legacy.database.exists()
 
@@ -91,9 +78,32 @@ def test_interrupted_manifest_rebind_stays_locked_and_fail_closed(legacy,monkeyp
         original(path,old,new)
     monkeypatch.setattr(upgrade,"_replace_manifest",interrupted)
     with pytest.raises(OSError,match="synthetic interruption"):
-        upgrade.rebind_release(legacy,before_backup=before["path"],confirmation="UPGRADE "+str(legacy.root)+" TO 1.2.0")
+        upgrade.rebind_release(legacy,before_backup=before["path"],confirmation="UPGRADE "+str(legacy.root)+" TO 1.3.0")
     assert (legacy.root / "operator.lock").is_file()
-    assert (legacy.root / "release-v1.2.0/intent.json").is_file()
-    assert not (legacy.root / "release-v1.2.0/receipt.json").exists()
-    with pytest.raises(daily.PreparationError,match="BACKUP_INSTALLATION_MISMATCH"):
+    assert (legacy.root / "release-v1.3.0/intent.json").is_file()
+    assert not (legacy.root / "release-v1.3.0/receipt.json").exists()
+    assert daily.read_bytes(legacy.backups / "installation.json") != daily.read_bytes(legacy.root / "operator-install.json")
+    with pytest.raises(daily.PreparationError,match="BACKUP_INSTALLATION_MISMATCH|OPERATOR_IMPLEMENTATION_CHANGED_REVIEW_REQUIRED"):
         legacy.check()
+
+
+@pytest.mark.parametrize("field", ["software_identity", "operator_code_hash"])
+def test_previous_v120_binding_tamper_rejected_before_maintenance(tmp_path, field):
+    record = previous_installation(tmp_path / "old", "1.2.0")
+    if field == "software_identity":
+        record[field] = dict(record[field], implementation_revision="package:"+"0"*64)
+    else:
+        record[field] = "0"*64
+    with pytest.raises(daily.PreparationError):
+        upgrade.maintenance_profile(record)
+
+
+def test_installed_maintenance_does_not_prepend_source_metadata(tmp_path, monkeypatch):
+    from alembic import command
+    path = tmp_path / "existing.sqlite"
+    path.touch()
+    seen = []
+    monkeypatch.setattr(command, "upgrade", lambda config, head: seen.append((config.get_main_option("prepend_sys_path"), head)))
+    monkeypatch.setattr(command, "check", lambda config: None)
+    upgrade.upgrade_existing_database(path)
+    assert seen == [("", "8ea7bcd49510")]

@@ -44,9 +44,9 @@ ADDITIVE_HOOKS={
 RELEASE_VERSION_PROJECTION={
     # Exact URL-encoding compatibility only; no migration or database semantics change.
     "src/football_system/infrastructure/database/migrations.py": ('config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))', 'config.set_main_option("sqlalchemy.url", database_url)'),
-    "pyproject.toml": ('version = "1.2.0"', 'version = "1.0.0"'),
-    "src/football_system/__init__.py": ('__version__ = "1.2.0"', '__version__ = "1.0.0"'),
-    "src/football_system/infrastructure/database/session.py": ('football-system v1.2.0 supports SQLite only.', 'football-system v1.0.0 supports SQLite only.'),
+    "pyproject.toml": ('version = "1.3.0"', 'version = "1.0.0"'),
+    "src/football_system/__init__.py": ('__version__ = "1.3.0"', '__version__ = "1.0.0"'),
+    "src/football_system/infrastructure/database/session.py": ('football-system v1.3.0 supports SQLite only.', 'football-system v1.0.0 supports SQLite only.'),
 }
 
 
