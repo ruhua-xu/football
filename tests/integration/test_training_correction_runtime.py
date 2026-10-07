@@ -75,7 +75,7 @@ def test_complete_runtime_and_migration_head_schema_and_triggers_are_identical(
     migrated = create_database_engine(
         f"sqlite:///{(tmp_path / 'migrated.db').as_posix()}"
     )
-    config.set_main_option("sqlalchemy.url", str(migrated.url))
+    config.set_main_option("sqlalchemy.url", str(migrated.url).replace("%", "%%"))
     try:
         create_schema(runtime)
         command.upgrade(config, "head")
@@ -91,7 +91,7 @@ def test_complete_runtime_and_migration_head_schema_and_triggers_are_identical(
 
 def test_create_schema_automatically_upgrades_and_preserves_legacy_v1_rows(lane):
     config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", str(lane.engine.url))
+    config.set_main_option("sqlalchemy.url", str(lane.engine.url).replace("%", "%%"))
     command.stamp(config, "e40d183af576")
     command.downgrade(config, "d3fc0729e465")
     correction_cases.prepare(lane, count=1)
@@ -215,7 +215,7 @@ def test_populated_controlled_downgrade_fails_without_modifying_v1_or_v2(
         ctx, correction_cases.reviewed_intent(ctx, equal_time=True)
     )
     config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", str(ctx.engine.url))
+    config.set_main_option("sqlalchemy.url", str(ctx.engine.url).replace("%", "%%"))
     command.stamp(config, "e40d183af576")
     before = correction_cases.counts(ctx)
     with pytest.raises(RuntimeError, match="immutable correction lineage"):

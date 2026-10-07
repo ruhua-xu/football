@@ -43,6 +43,9 @@ def test_openfootball_populated_downgrade_refused(tmp_path):
         connection.execute(text("INSERT INTO ofp_artifacts VALUES (:id,:kind,:hash,:json,:at)"),
             dict(id=artifact.artifact_id, kind=artifact.kind, hash=artifact.artifact_hash, json=canonical_json(artifact),
                  at=artifact.model_dump(mode="json")["recorded_at_utc"]))
+    # The new OFP-pin extension is empty; its own migration is removable.
+    # Compare the refused populated OFP data revision at its exact 7d boundary.
+    command.downgrade(config, "7d96abc3840f")
     before = database_snapshot(path)
     with pytest.raises(RuntimeError, match="populated OpenFootball"):
         command.downgrade(config, "6c859ab273fe")

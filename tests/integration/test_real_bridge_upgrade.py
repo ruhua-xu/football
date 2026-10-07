@@ -95,7 +95,12 @@ engine.dispose()
     bridge=SqlAlchemyRealBridgeRepository(sessions,evidence_root=tmp_path,clock=SyntheticProspectiveClock(DECISION))
     bridge.execute("program",ProgramRequest(request_key="program",observation_program_id="upgrade-software-only",competition_ids=("test",),season_id="2026/27",
         scope_reference="SYNTHETIC_SOFTWARE_ACCEPTANCE",provenance="SYNTHETIC_SOFTWARE_ACCEPTANCE"))
+    extended=sqlite_snapshot(path)
+    assert not extended["rows"]["ofp_real_model_pins"]
+    command.downgrade(cfg,"7d96abc3840f")
     full=sqlite_snapshot(path)
+    for section in ("schema","rows","layout","artifacts"):
+        assert all(extended[section][key]==value for key,value in full[section].items())
     # A multi-revision downgrade is not one atomic revision. Empty OFP is
     # explicitly removable; prove that step changes ONLY its additive objects.
     assert all(not full["rows"][name] for name in OFP_TABLES)
@@ -168,10 +173,13 @@ engine.dispose()
     assert any(before["artifacts"].values())
     cfg = config_for(path)
     command.upgrade(cfg, "7d96abc3840f")
-    command.check(cfg)
     after = sqlite_snapshot(path)
     assert after["head"] == "7d96abc3840f"
     proof = assert_openfootball_additive(before, after)
+    command.upgrade(cfg, "head")
+    command.check(cfg)
+    command.downgrade(cfg, "7d96abc3840f")
+    assert sqlite_snapshot(path) == after
 
     # The normalization helper must not hide an absent constraint/index/row.
     index_key = next(key for key in before["schema"] if key[0] == "index")

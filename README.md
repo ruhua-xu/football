@@ -5,22 +5,24 @@
 ## 发布状态
 
 - `v0.1.0` 固定在提交 `fceb945d07218290dc85b465e885a47ae9912c3f`，保留原始 MVP 行为。
-- 当前 package metadata 为 **1.2.0**；OpenFootball candidate CI Review **PASSED**。接受实现为 `df47ba4cf34eb4f0a964c2e5ab5d0e88ea6a57f6`，tree为 `034372ea5297d391bcfef74d76d92d4175461689`，CI #46 SUCCESS。版本、运行库rebind及feature/main/tag门禁见 [1.2.0发布报告](fankui/openfootball_v120_release_report.md)与独立发布回执。
-- **1.2.0不是新预测算法版本**；发布OpenFootball current-snapshot qualification、固定tzdata、observed binding与operator V2身份。ELO_THREE_WAY_BASELINE_V1/model_version=1及既有Poisson、MEDIAN、V4、fusion/P_final、EV、Strategy、Return、objective、payout与Settlement数学继续冻结。Migration head为`7d96abc3840f`。
-- `1.2.0` 仅支持 SQLite。运行时建库、Schema 创建和 Alembic 迁移都会在加载其他数据库驱动前拒绝非 SQLite URL。
+- 当前 package metadata 为 **1.3.0**；OFP → REAL_MODEL_PIN synthetic fix review已通过。接受实现为 `a6952a4f9b86e1c273aa66e9f48c7930d8687a0a`，tree为 `31e46e3059f2b9855fe30af1591d6afd9b5b1cb4`，candidate CI #50 SUCCESS。发布与原位升级门禁见 [1.3.0发布说明](fankui/openfootball_v130_release_report.md)及`upload/v1.3.0/`精确回执。
+- **1.3.0不是新预测算法版本**；发布已审typed model-source infrastructure、verified OFP reader与additive head `8ea7bcd49510`。ELO_THREE_WAY_BASELINE_V1/model_version=1及既有Poisson、MEDIAN、V4、fusion/P_final、EV、Strategy、Return、objective、payout与Settlement数学继续冻结。v1.2.0 tag/wheel/commit及release history保留。
+- `1.3.0` 仅支持 SQLite。运行时建库、Schema 创建和 Alembic 迁移都会在加载其他数据库驱动前拒绝非 SQLite URL。
 - 只有显式执行 `live ingest-fixtures` 或 `live ingest-market-odds` 才会分别读取 `SPORTMONKS_KEY` 或 `ODDS_API_KEY` 并访问网络；`ingest-fixtures-manual`、Sporttery、reconcile、review import、prepare-analysis 和 run-analysis 均为本地 I/O。项目不连接真实 LLM API，不执行自动下注。
 
 ## 当前能力
 
 **1.2 OpenFootball observed bootstrap support**：独立本地qualification与production binding，tzdata固定为2025.2 / IANA2025b / Europe/Berlin。已接受资料保持612 records / 13 exceptions / 599 admitted facts；2024/25=WARMUP、2025/26=PILOT_TARGET、2026/27=PRODUCTION_TARGET zero-fact。
 
-正式`daily.cmd`通过`.venv`的非editable 1.2.0 wheel运行，并核验metadata/module version、RECORD、checkout一致性与冻结数学。现有`football_runtime/v1.1.0`是稳定的安装布局ID，不因软件版本升级改路径或新建第二个DB；受控维护仅前向升级旧head并将原installation原位rebind至V2，前后均做双库backup。模式继续INPUT_PREPARATION，当前状态为**TARGET_WAITING_FOR_SPORTTERY_SLATE**。
+**1.3 OPENFOOTBALL typed model-source infrastructure已建立；当前正式qualified implementation scope仅为Bundesliga 2026/27。** 英超、西甲、意甲、法甲等扩展必须单独完成competition qualification与reader scope泛化，不能把当前实现声明为任意OpenFootball competition可用。现有历史窗口、612/13/599与mapping/window/facts roots保持。
+
+正式`daily.cmd`通过`.venv`的非editable 1.3.0 wheel运行，并核验metadata/module version、RECORD、checkout一致性与冻结数学。现有`football_runtime/v1.1.0`是稳定的安装布局ID；受控维护验证精确v1.2.0 V2 binding，原位执行7d→8e及operator rebind，保留双库物理身份/application_id，前后均做双库backup。模式继续INPUT_PREPARATION，具体升级状态以独立发布回执为准。
 
 **1.1 Production Activation 软件能力**：独立real artifact / `rb_*`图、无比赛/票据seed的sealed anchor与future epoch、exact UTC kickoff bucket、PRE_LOCK replacement、program级official prediction slots和DecisionLock V2锁定重校验。复用已有合法pinned model与完整market/SP/source replay；不可用模型保留P_quant/P_base为空和整桶UNAVAILABLE。
 
 合同：[Real bridge](fankui/real_prospective_activation_bridge_v1_contract.md)、[Pre-lock replacement](fankui/pre_lock_replacement_v1_contract.md)、[Daily operator](fankui/daily_operator_v1_contract.md)。使用`football-system real-bridge --help`查看闭集离线接口；`daily.cmd`保持INPUT_PREPARATION六项菜单。
 
-发布后默认仍为 **INPUT_PREPARATION**。`REAL_PROSPECTIVE_OBSERVATIONS=0`，`REAL PERFORMANCE=INSUFFICIENT_PROSPECTIVE_SAMPLE`，`AUTO_BETTING=NO`。Runtime初始化、source/credential admissions、合法existing model pin、real program、sealed anchor和future epoch等待独立GO-LIVE CHECKLIST；不自动激活。
+发布后默认仍为 **INPUT_PREPARATION**。`REAL_PROSPECTIVE_OBSERVATIONS=0`，`REAL PERFORMANCE=INSUFFICIENT_PROSPECTIVE_SAMPLE`，`AUTO_BETTING=NO`。合法model release/state binding就绪后，正式顺序为 **program → MODEL admission → model-pin → sealed anchor → future epoch**，等待独立bootstrap/activation授权。本release不创建真实model pin、program、epoch、run或DecisionLock。
 
 **1.0 Prospective Validation / Production Framework 能力继续保留**：本地 `prospective` 路径提供typed evidence、可信本地receipt/cutoff、赛前decision lock、追加式赛果修订/结算、全epoch描述性验证与审计。ADR-0012为Accepted，功能及既有数学保持已审查版本。
 见 [合同与CLI流程](fankui/prospective_validation_v1_contract.md)、[ADR-0012](fankui/decisions/ADR-0012-prospective-validation-production-closeout.md)、[候选实施报告](fankui/phase_10_implementation_report.md)和[最终验收报告](fankui/phase_10_final_acceptance_report.md)。

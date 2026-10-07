@@ -3439,3 +3439,8 @@ _real_bridge_tables = real_bridge_tables(Base.metadata)
 from football_system.infrastructure.database.openfootball_production_schema import openfootball_production_tables  # noqa: E402
 
 _openfootball_production_tables = openfootball_production_tables(Base.metadata)
+
+# Additive source-specific provenance; legacy pin columns/FKs stay unchanged.
+from football_system.infrastructure.database.ofp_real_model_pin_schema import ofp_real_model_pin_table  # noqa: E402
+
+_ofp_real_model_pins = ofp_real_model_pin_table(Base.metadata)

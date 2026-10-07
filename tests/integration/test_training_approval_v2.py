@@ -642,7 +642,7 @@ def test_populated_v1_upgrade_preserves_every_row_request_json_checksum_and_colu
     approval = legacy.seed_approval_fixture(production)
     legacy.build(production, approval)
     config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", str(production.lane.engine.url))
+    config.set_main_option("sqlalchemy.url", str(production.lane.engine.url).replace("%", "%%"))
     with production.lane.engine.begin() as connection:
         for name in approval_v2_trigger_sql():
             connection.exec_driver_sql(f"DROP TRIGGER IF EXISTS {name}")

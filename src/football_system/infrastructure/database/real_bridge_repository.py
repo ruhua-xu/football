@@ -35,7 +35,7 @@ from football_system.infrastructure.database.prospective_repository import SqlAl
 from football_system.infrastructure.database.real_bridge_schema import ARTIFACTS, KIND_TABLE, EXTERNAL_COLUMNS, reference_index, assert_real_schema
 from football_system.infrastructure.database.real_bridge_sources import match_identity, fixture_at, fixture_ref, market_values, sp_values, model_metadata
 from football_system.infrastructure.files.prospective import SystemProspectiveClock, default_prospective_policy
-from football_system.infrastructure.files.real_bridge import BridgeEvidence, identities
+from football_system.infrastructure.files.real_bridge import BridgeEvidence, identities, LEGACY_BRIDGE_IMPLEMENTATIONS
 from football_system.infrastructure.files.return_distribution import default_return_configuration, strict_return_json
 
 MAX_BYTES = 64*1024*1024
@@ -118,6 +118,23 @@ class SqlAlchemyRealBridgeRepository:
     def _model_valid(self, session, pin, at):
         self._admit(session, pin.admission, at)
         require(not self._visible(session,"REAL_MODEL_PIN_INVALIDATION_V1",at,scope=("pin",pin.artifact_id)), "MODEL_INVALIDATED")
+        if pin.model_source.source_type == "OPENFOOTBALL":
+            require(self.model_access is not None, "MODEL_AUTHORITY_CONTEXT_REQUIRED")
+            if session.info.get("rb_replaying"):
+                watermark=session.info.pop("rb_watermark",None)
+                try:
+                    self._admit(session,pin.admission,self.clock.now())
+                finally:
+                    if watermark is not None:
+                        session.info["rb_watermark"]=watermark
+            from football_system.infrastructure.database.ofp_real_model_pin_schema import assert_ofp_real_model_pin_schema
+            assert_ofp_real_model_pin_schema(session.connection())
+            descriptor = self.model_access.verify_descriptor(session,pin,at,existing_pin=True)
+            program=self._ref(session,pin.program,"REAL_OBSERVATION_PROGRAM_V1")
+            require(descriptor.competition_id in program.competition_ids and descriptor.season_id==program.season_id, "MODEL_COMPETITION_SCOPE_MISMATCH")
+            require(descriptor.lineage==pin.model_lineage and descriptor.release_hash==pin.release_hash
+                and descriptor.authority_hash==pin.authority_hash and descriptor.configuration==pin.configuration, "PINNED_MODEL_REPLAY_MISMATCH")
+            return descriptor.state
         if pin.provenance == "LIVE_OBSERVATION":
             require(self.model_access is not None, "MODEL_AUTHORITY_CONTEXT_REQUIRED")
             if session.info.get("rb_replaying"):
@@ -318,6 +335,27 @@ class SqlAlchemyRealBridgeRepository:
             ad = self._get(s,r.admission_id,"REAL_SOURCE_ADMISSION_FACT_V1")
             self._admit(s,ArtifactRefV1.of(ad),at)
             require(ad.program.artifact_id==p.artifact_id and ad.kind=="MODEL" and ad.source_identity==r.source_identity, "MODEL_ADMISSION_SCOPE_MISMATCH")
+            if r.model_source.source_type == "OPENFOOTBALL":
+                from football_system.infrastructure.database.ofp_real_model_pin_schema import assert_ofp_real_model_pin_schema
+                assert_ofp_real_model_pin_schema(s.connection())
+                require(self.model_access is not None, "MODEL_AUTHORITY_CONTEXT_REQUIRED")
+                if s.info.get("rb_replaying"):
+                    watermark=s.info.pop("rb_watermark",None)
+                    try:
+                        self._admit(s,ArtifactRefV1.of(ad),self.clock.now())
+                    finally:
+                        if watermark is not None:
+                            s.info["rb_watermark"]=watermark
+                descriptor=self.model_access.verify_descriptor(s,r,at)
+                require(descriptor.competition_id in p.competition_ids and descriptor.season_id==p.season_id, "MODEL_COMPETITION_SCOPE_MISMATCH")
+                require(not set(r.scope_match_ids)&set(descriptor.state.training_match_ids), "MODEL_SCOPE_OR_TRAINING_INTERSECTION")
+                value=RealModelPinV1.freeze(**self._context(s,p,at),program=ArtifactRefV1.of(p),admission=ArtifactRefV1.of(ad),source_identity=r.source_identity,
+                    release_id=None,model_state_id=None,source_analysis_id=None,state=None,model_source=descriptor.source,
+                    release_hash=descriptor.release_hash,authority_hash=descriptor.authority_hash,scope_match_ids=descriptor.scope_match_ids,
+                    configuration=descriptor.configuration,model_lineage=descriptor.lineage)
+                relation=dict(pin_id=value.artifact_id,release_id=descriptor.source.release_id,release_hash=descriptor.source.release_hash,
+                    binding_id=descriptor.source.binding_id,binding_hash=descriptor.source.binding_hash)
+                return value,empty,(("ofp_real_model_pins",relation),)
             if p.provenance == "SYNTHETIC_SOFTWARE_ACCEPTANCE":
                 require(r.test_state is not None and r.release_id is None and r.model_state_id is None and r.source_analysis_id is None, "TEST_STATE_ONLY_IN_TEST_PROGRAM")
                 state, release_hash, authority_hash = r.test_state,content_hash("TEST_MODEL_RELEASE",r.test_state),ad.content_hash
@@ -359,6 +397,10 @@ class SqlAlchemyRealBridgeRepository:
             else:
                 self._model_valid(s,pin,at)
             digest, hashes = identities()
+            if s.info.get("rb_replaying"):
+                historical=s.info.get("rb_replay_bridge_hash")
+                require(historical in LEGACY_BRIDGE_IMPLEMENTATIONS | {digest}, "UNSUPPORTED_HISTORICAL_BRIDGE_IMPLEMENTATION")
+                digest=historical
             implementation = RealBridgeImplementationIdentityV1.freeze(**self._context(s,p,at),bridge_hash=digest,frozen_hashes=hashes)
             value = RealEpochConfigurationAnchorV1.freeze(**self._context(s,p,at),program=ArtifactRefV1.of(p),implementation=implementation,policy=policy,
                 model_pin=ArtifactRefV1.of(pin),planned_start_at_utc=r.starts_at_utc,planned_end_at_utc=r.ends_at_utc,
@@ -764,10 +806,14 @@ class SqlAlchemyRealBridgeRepository:
             if isinstance(value,tuple(REAL_ARTIFACT_TYPES.values())):
                 require(stamp(value.event_at_utc)==receipt["event_at"] and micros(value.event_at_utc)==receipt["event_us"]
                         and value.clock_basis==receipt["clock_basis"] and value.provenance==receipt["provenance"] and value.receipt_sequence==receipt["sequence"],"FORGED_REAL_EVENT_RECEIPT")
-            saved={k:s.info.get(k) for k in ("rb_watermark","rb_replaying","rb_source_limits","rb_sequence","rb_anchor_sealed_at")}
+            saved={k:s.info.get(k) for k in ("rb_watermark","rb_replaying","rb_source_limits","rb_sequence","rb_anchor_sealed_at","rb_replay_bridge_hash")}
             try:
                 s.info.update(rb_watermark=receipt["sequence"]-1,rb_replaying=True,rb_source_limits=json.loads(receipt["source_limits_json"]),rb_sequence=receipt["sequence"])
                 s.info["rb_anchor_sealed_at"]=datetime.fromisoformat(receipt["anchor_sealed_at"].replace("Z","+00:00")) if receipt["anchor_sealed_at"] else None
+                if receipt["operation"]=="anchor":
+                    anchor_raw=s.scalar(text("SELECT artifact_json FROM rb_artifacts WHERE artifact_id=:id"),{"id":receipt["response_id"]})
+                    require(anchor_raw is not None,"MISSING_HISTORICAL_ANCHOR")
+                    s.info["rb_replay_bridge_hash"]=strict_return_json(anchor_raw.encode(),limit=MAX_BYTES)["implementation"]["bridge_hash"]
                 request=REQUEST_TYPES[receipt["operation"]].model_validate(strict_return_json(receipt["request_json"].encode()))
                 require(request.request_key==receipt["request_key"],"REQUEST_KEY_BINDING_MISMATCH")
                 root,extra,relations=self._build(s,receipt["operation"],request,datetime.fromisoformat(receipt["event_at"].replace("Z","+00:00")))

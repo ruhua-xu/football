@@ -745,7 +745,7 @@ def test_audit_immutability_and_nonempty_downgrade(audited):
             with audited.lane.engine.begin() as connection:
                 connection.execute(text(sql))
     config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", str(audited.lane.engine.url))
+    config.set_main_option("sqlalchemy.url", str(audited.lane.engine.url).replace("%", "%%"))
     command.stamp(config, "c2ebf618d354")
     with pytest.raises(RuntimeError, match="immutable production audit"):
         command.downgrade(config, "b1dae507c243")

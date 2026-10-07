@@ -32,7 +32,7 @@ def test_setuptools_data_files_are_explicit_complete_and_scoped() -> None:
         source for sources in data_files.values() for source in sources
     }
 
-    assert project["project"]["version"] == "1.2.0"
+    assert project["project"]["version"] == "1.3.0"
     assert "tzdata==2025.2" in project["project"]["dependencies"]
     assert _installed_resource_paths(data_files) == set(
         wheel_e2e.EXPECTED_RESOURCE_FILES
@@ -62,10 +62,15 @@ def test_candidate_resources_preserve_exact_v110_manifest_and_add_one_migration(
     old = _installed_resource_paths(baseline["tool"]["setuptools"]["data-files"])
     new = set(wheel_e2e.EXPECTED_RESOURCE_FILES)
     # The actual v1.1.0 baseline has 86 resources, rather than the earlier 83 count.
-    assert len(old) == 86 and len(new) == 87
+    assert len(old) == 86 and len(new) == 88
     assert old <= new
-    assert new - old == {"migrations/versions/7d96abc3840f_add_openfootball_production_binding.py"}
-    assert wheel_e2e.EXPECTED_MIGRATION_HEAD == "7d96abc3840f"
+    assert new - old == {"migrations/versions/7d96abc3840f_add_openfootball_production_binding.py",
+        "migrations/versions/8ea7bcd49510_add_ofp_real_model_pin_source.py"}
+    released = tomllib.loads(subprocess.check_output(["git", "show", "v1.2.0:pyproject.toml"], cwd=ROOT).decode())
+    v120 = _installed_resource_paths(released["tool"]["setuptools"]["data-files"])
+    assert len(v120) == 87 and v120 <= new
+    assert new - v120 == {"migrations/versions/8ea7bcd49510_add_ofp_real_model_pin_source.py"}
+    assert wheel_e2e.EXPECTED_MIGRATION_HEAD == "8ea7bcd49510"
 
 
 def test_ci_and_isolated_wheel_install_the_same_real_pinned_timezone_dependency():

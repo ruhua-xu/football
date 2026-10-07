@@ -1,4 +1,4 @@
-"""Controlled v1.2 operator maintenance; no prediction, source admission or networking.
+"""Controlled v1.3 operator maintenance; no prediction, source admission or networking.
 
 Only an idle INPUT_PREPARATION installation is supported. Backups use SQLite's
 snapshot API; active database paths/inodes/application_ids are never replaced.
@@ -14,6 +14,26 @@ import sqlite3
 import uuid
 
 from scripts import daily_operator as daily
+
+
+RELEASED_V120_IDENTITY = dict(schema_version="DAILY_OPERATOR_SOFTWARE_IDENTITY_V1", software="football-system",
+    software_version="1.2.0", implementation_revision="package:54e579fa7cf27e969872c4a5b40955a01c1cae30714ae99199d00c7357e6c148",
+    release_base_commit="df47ba4cf34eb4f0a964c2e5ab5d0e88ea6a57f6", execution_profile="OPENFOOTBALL_RELEASE_V1",
+    migration_head="7d96abc3840f")
+RELEASED_V120_OPERATOR_HASH = "21d5f788111a58bf748243dea205c3b6e300efecef26ea9713e50850db9cdd64"
+
+
+def maintenance_profile(record):
+    """The exact published V2 identity is accepted only for explicit maintenance."""
+    if record.get("software_identity") == RELEASED_V120_IDENTITY:
+        common = {"schema_version", "mode", "installation_id", "operator_code_hash", "runtime", "backups",
+            "databases", "created_at_utc", "software_identity"}
+        daily.require(set(record) == common and record["schema_version"] == daily.INSTALL_V2
+            and record["operator_code_hash"] == RELEASED_V120_OPERATOR_HASH, "RELEASED_V120_IDENTITY_REQUIRED")
+        return dict(previous_release=True, heads={daily.RELEASED_V120_HEAD})
+    profile = daily.installation_profile(record)
+    return dict(previous_release=profile["legacy"], heads={daily.HEAD, daily.RELEASED_V120_HEAD, daily.RELEASE_HEAD}
+        if profile["legacy"] else {daily.RELEASE_HEAD})
 
 
 def digest_file(path):
@@ -55,7 +75,7 @@ def inspect_installation(operator):
     record = daily.read_json(operator.root / "operator-install.json")
     daily.require(record["mode"] == daily.MODE and record["runtime"] == str(operator.root)
         and record["backups"] == str(operator.backups), "INSTALLATION_PATH_MISMATCH")
-    daily.installation_profile(record)  # Fixed legacy V1, or the exact released V2 identity.
+    profile = maintenance_profile(record)
     daily.require(set(record["databases"]) == {"production.sqlite", "synthetic.sqlite"}
         and len({v["application_id"] for v in record["databases"].values()}) == 2, "DATABASE_ROLES_MUST_BE_DISTINCT")
     # This closeout never guesses retention/recovery for prior input operations.
@@ -69,7 +89,10 @@ def inspect_installation(operator):
         daily.require(path.is_file() and daily.file_identity(path) == expected["file_identity"], "DATABASE_MISSING_OR_REPLACED")
         state = database_state(path)
         daily.require(state["application_id"] == expected["application_id"], "DATABASE_IDENTITY_MISMATCH")
-        daily.require(state["head"] in {daily.HEAD, daily.RELEASE_HEAD}, "MIGRATION_HEAD_MISMATCH")
+        daily.require(state["head"] in profile["heads"], "MIGRATION_HEAD_MISMATCH")
+        daily.require(all(state["tables"][table]["count"] == 0 for table in (
+            "rb_programs", "rb_model_pins", "rb_epochs", "rb_runs", "rb_locks", "pv_epochs", "pv_runs", "pv_locks")),
+            "IDLE_REAL_LIFECYCLE_REQUIRED")
         states[name] = state
     return record, original, states
 
@@ -78,7 +101,7 @@ def inspect_installation(operator):
 def maintenance_lock(operator):
     lock = operator.root / "operator.lock"
     try:
-        daily.write_new(lock, daily.encoded(dict(pid=os.getpid(), at=operator.clock.now().isoformat(), mode="V120_RELEASE_MAINTENANCE")))
+        daily.write_new(lock, daily.encoded(dict(pid=os.getpid(), at=operator.clock.now().isoformat(), mode="V130_RELEASE_MAINTENANCE")))
     except FileExistsError:
         raise daily.PreparationError("OPERATOR_BUSY_OR_RECOVERY_REQUIRED") from None
     try:
@@ -103,7 +126,7 @@ def release_backup(operator, *, phase, evidence_root=None, evidence=None):
             raw = daily.read_bytes(daily.relative(evidence_root, name))
             daily.require(daily.sha(raw) == authorization["sha256"], "BACKUP_SOURCE_HASH_MISMATCH")
             payloads[name] = raw
-        destination = operator.backups / ("release12-"+uuid.uuid4().hex[:12])
+        destination = operator.backups / ("release13-"+uuid.uuid4().hex[:12])
         destination.mkdir(exist_ok=False)
         for name, state in before.items():
             source_path = operator.root / "db" / name
@@ -173,6 +196,8 @@ def upgrade_existing_database(path):
     daily.require(path.is_file(), "DATABASE_MISSING_OR_REPLACED")
     resources = _resource_root()
     config = Config(str(resources / "alembic.ini"))
+    # Keep installed distribution metadata isolated from stale cwd/src egg-info.
+    config.set_main_option("prepend_sys_path", "")
     config.set_main_option("script_location", str(resources / "migrations"))
     # mode=rw refuses missing paths; do not use an implicit-create SQLite URL.
     config.set_main_option("sqlalchemy.url", ("sqlite:///"+path.as_uri()+"?mode=rw&uri=true").replace("%", "%%"))
@@ -180,27 +205,45 @@ def upgrade_existing_database(path):
     command.check(config)
 
 
+def validate_release_schema(path):
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.orm import Session
+    from football_system.infrastructure.database.session import configure_sqlite_engine
+    from football_system.infrastructure.database.real_bridge_head import assert_real_bridge_head
+    engine = configure_sqlite_engine(create_engine("sqlite:///"+path.as_uri()+"?mode=ro&uri=true"))
+    try:
+        with Session(engine) as session:
+            session.execute(text("PRAGMA query_only=ON"))
+            assert_real_bridge_head(session)
+            daily.require(session.scalar(text("SELECT version_num FROM alembic_version")) == daily.RELEASE_HEAD,
+                "MIGRATION_HEAD_MISMATCH")
+            daily.require(session.scalar(text("SELECT count(*) FROM ofp_real_model_pins")) == 0,
+                "IDLE_REAL_LIFECYCLE_REQUIRED")
+    finally:
+        engine.dispose()
+
+
 def _replace_manifest(path, original, new):
     daily.require(daily.read_bytes(path) == original, "INSTALLATION_CHANGED_DURING_REBIND")
-    temporary = path.with_name("."+path.name+".v120-new")
+    temporary = path.with_name("."+path.name+".v130-new")
     daily.write_new(temporary, new)
     os.replace(temporary, path)
 
 
 def rebind_release(operator, *, before_backup, confirmation):
     """Explicit one-time rebind; a failure after intent retains the maintenance lock."""
-    daily.require(confirmation == "UPGRADE "+str(operator.root)+" TO 1.2.0", "RELEASE_UPGRADE_NOT_CONFIRMED")
+    daily.require(confirmation == "UPGRADE "+str(operator.root)+" TO 1.3.0", "RELEASE_UPGRADE_NOT_CONFIRMED")
     daily.verify_core()
     backup = verify_backup(operator, Path(before_backup))
     record, original, before = inspect_installation(operator)
-    daily.require(record["schema_version"] == "DAILY_OPERATOR_INSTALL_V1", "LEGACY_RELEASE_INSTALLATION_REQUIRED")
+    daily.require(maintenance_profile(record)["previous_release"], "PREVIOUS_RELEASE_INSTALLATION_REQUIRED")
     daily.require(backup["installation_id"] == record["installation_id"] and backup["installation_sha256"] == daily.sha(original)
         and backup["databases"] == before, "BACKUP_NOT_CURRENT")
-    journal = operator.root / "release-v1.2.0"
+    journal = operator.root / "release-v1.3.0"
     daily.require(not journal.exists(), "RELEASE_UPGRADE_ALREADY_STARTED_REVIEW_REQUIRED")
     lock = operator.root / "operator.lock"
     try:
-        daily.write_new(lock, daily.encoded(dict(pid=os.getpid(), at=operator.clock.now().isoformat(), mode="V120_RELEASE_REBIND")))
+        daily.write_new(lock, daily.encoded(dict(pid=os.getpid(), at=operator.clock.now().isoformat(), mode="V130_RELEASE_REBIND")))
     except FileExistsError:
         raise daily.PreparationError("OPERATOR_BUSY_OR_RECOVERY_REQUIRED") from None
     try:
@@ -222,6 +265,7 @@ def rebind_release(operator, *, before_backup, confirmation):
                 and all(state["tables"].get(k) == v for k, v in previous["tables"].items()), "OLD_DATABASE_CONTENT_CHANGED")
             if previous["head"] == daily.RELEASE_HEAD:
                 daily.require(state == previous, "CURRENT_HEAD_DATABASE_CHANGED")
+            validate_release_schema(path)
             after[name] = state
         daily.require(software == daily.release_software_identity() and new["operator_code_hash"] == daily.operator_code_hash(),
             "IMPLEMENTATION_CHANGED_DURING_REBIND")

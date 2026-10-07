@@ -4,7 +4,7 @@ from decimal import Decimal
 import json
 from typing import Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator, model_serializer
 
 from football_system.domain.archive import canonical_json
 from football_system.domain.betting import PortfolioConstraints, SportteryRules
@@ -16,6 +16,7 @@ from football_system.domain.prospective_evidence import EvidenceUseV1
 from football_system.domain.review_v4 import GenericFusionPolicyV1, GenericFusionRunV1, ImportedReviewV4
 from football_system.domain.return_distribution import ReturnOptimizationRunV1, ReturnSelectedTicketV1
 from football_system.domain.services.elo_baseline import EloBaselineState, EloBaselineConfig
+from football_system.domain.pinned_model_source import ModelSourceV1, LegacyModelSourceV1
 from football_system.domain.settlement import MatchResult
 from football_system.domain.strategy_pass_v2 import Money, OutcomeCandidateV1, StrategyProfileV2, SystemTicketCandidateV2, SystemTicketV2, StructuralRiskV2, TicketRequestV2
 
@@ -138,6 +139,14 @@ class RealModelPinV1(RealArtifact):
     configuration: EloBaselineConfig
     scope_match_ids: tuple[Identifier, ...] = Field(min_length=1, max_length=64)
     authority_hash: Hash
+    model_source: ModelSourceV1 = Field(default_factory=LegacyModelSourceV1)
+
+    @model_serializer(mode="wrap")
+    def legacy_wire(self, handler):
+        value = handler(self)
+        if self.model_source.source_type == "LEGACY":
+            value.pop("model_source", None)
+        return value
 
     @model_validator(mode="after")
     def pin(self):
@@ -145,7 +154,10 @@ class RealModelPinV1(RealArtifact):
         require(self.model_lineage.training_cutoff_at_utc <= self.model_lineage.generated_at_utc <= self.event_at_utc, "FUTURE_MODEL_STATE")
         require(self.configuration.config_hash == self.model_lineage.config_hash,"MODEL_CONFIGURATION_HASH_MISMATCH")
         require(self.model_lineage.model_name=="ELO_THREE_WAY_BASELINE_V1","PINNED_ELO_MODEL_REQUIRED")
-        if self.provenance == "LIVE_OBSERVATION":
+        if self.model_source.source_type == "OPENFOOTBALL":
+            require(all(v is None for v in (self.release_id,self.model_state_id,self.source_analysis_id,self.state)), "OFP_PIN_USES_SOURCE_SPECIFIC_PROVENANCE")
+            require(self.release_hash == self.model_source.release_hash, "OFP_PIN_RELEASE_HASH_MISMATCH")
+        elif self.provenance == "LIVE_OBSERVATION":
             require(self.release_id and self.model_state_id and self.source_analysis_id and self.state is None, "LIVE_MODEL_LINEAGE_REQUIRED")
         else:
             require(self.state is not None and self.state.state_hash==self.model_lineage.state_hash,"TEST_MODEL_STATE_REQUIRED")

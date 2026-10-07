@@ -710,7 +710,7 @@ def test_binding_fk_append_only_and_sql_completion_guards(inference):
             )
     assert artifacts.production_binding is not None
     config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", str(inference.lane.engine.url))
+    config.set_main_option("sqlalchemy.url", str(inference.lane.engine.url).replace("%", "%%"))
     command.stamp(config, "b1dae507c243")
     with pytest.raises(RuntimeError, match="immutable production inference"):
         command.downgrade(config, "a0c9e4f6b132")

@@ -5,7 +5,6 @@ from pathlib import Path
 import sys
 
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy import text
 
 from football_system.application.real_bridge_requests import REQUEST_TYPES
 from football_system.application.real_bridge import RealProspectiveDecisionAdapterV1
@@ -16,6 +15,7 @@ from football_system.infrastructure.files.return_distribution import strict_retu
 from football_system.infrastructure.files.strategy_pass import write_strategy_file
 from football_system.infrastructure.files.real_bridge import BridgeEvidence
 from football_system.infrastructure.database.real_bridge_sources import ExistingPinnedModelAccess
+from football_system.infrastructure.database.real_bridge_head import assert_real_bridge_head
 
 
 def dispatch_real_bridge(arguments):
@@ -53,8 +53,7 @@ def dispatch_real_bridge(arguments):
         engine = create_database_engine(args.database_url)
         sessions=create_session_factory(engine)
         with sessions() as session:
-            if session.scalar(text("SELECT version_num FROM alembic_version"))!="6c859ab273fe":
-                raise ValueError("REAL_BRIDGE_MIGRATION_HEAD_REQUIRED")
+            assert_real_bridge_head(session)
         access=None
         if args.authority_pins:
             from football_system.interfaces.production_quant_cli import AuthorityPinsV1, production_inference_context

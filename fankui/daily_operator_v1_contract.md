@@ -1,6 +1,17 @@
 # DAILY_OPERATOR_V1 — INPUT_PREPARATION contract
 
-## 1.2.0 正式软件身份与受控维护（当前）
+## 1.3.0 正式软件身份与受控维护（当前）
+
+- 已接受OFP pin实现：`a6952a4f9b86e1c273aa66e9f48c7930d8687a0a`，tree `31e46e3059f2b9855fe30af1591d6afd9b5b1cb4`。
+- `DAILY_OPERATOR_INSTALL_V2`绑定1.3.0、`OPENFOOTBALL_PIN_RELEASE_V1`、实际package revision/glue hash及head `8ea7bcd49510`。
+- OPENFOOTBALL typed model-source infrastructure已建立，当前qualified implementation scope仅**Bundesliga 2026/27**。其他competition需要独立qualification与reader scope泛化。
+- 受控维护专门接受精确发布的v1.2.0 package identity及operator hash；双库必须仍是7d。旧V1维护兼容保持，日常入口不会自动接受旧V2绑定或改head。
+- 升级前后均做双库snapshot backup；原位7d→8e，验证原file identity/application_id、旧DDL/rows、integrity/FK、新schema guards和零真实activation对象，然后journal化rebind两个manifest。保留v1.2历史journal及制品。
+- 迁移从installed resource root执行，并禁用Alembic的cwd/src prepend；RECORD/metadata仍须对应正式wheel。失败保持lock/journal，不提供自动重建、恢复替换或降级。
+- 正式lifecycle是 **program → MODEL admission → model-pin**；release维护只到INPUT_PREPARATION，真实pin/program/epoch/run/DecisionLock仍0。
+- 发布结果与production before/after证据见`upload/v1.3.0/`和v1.3.0 handoff。
+
+## 1.2.0 正式软件身份与受控维护（历史）
 
 - 已接受OpenFootball candidate：`df47ba4cf34eb4f0a964c2e5ab5d0e88ea6a57f6` / tree `034372ea5297d391bcfef74d76d92d4175461689` / CI #46 SUCCESS。
 - `DAILY_OPERATOR_INSTALL_V2`使用1.2.0、`OPENFOOTBALL_RELEASE_V1`、实际package implementation revision、glue hash与head `7d96abc3840f`。不改变Elo或其他算法版本。
@@ -11,7 +22,7 @@
 - Rebind保留installation ID、created_at、paths与DB身份；新增软件身份在独立维护intent/receipt中可审计。写入中断保留lock/journal，普通operator继续fail closed，无force/skip/自动回滚入口。
 - 六项菜单、INPUT_PREPARATION banner、既有五/六个冻结hashes及用户资料契约不变；未启动model bootstrap或真实观察。
 
-以下为1.1.0及更早版本的历史接受记录；当前软件身份与维护规则以上节和1.2.0发布回执为准。
+以下为1.1.0及更早版本的历史接受记录；当前软件身份与维护规则以1.3.0节及精确发布回执为准。
 
 **Accepted — Bridge Review APPROVED / Production Activation Implementation Review APPROVED。无 implementation blocker。**
 

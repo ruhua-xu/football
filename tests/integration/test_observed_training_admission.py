@@ -905,7 +905,7 @@ def test_additive_migration_preserves_original_results_and_indexes(lane):
     # Downgrade only empty observed tables in this populated synthetic database.
     url = str(lane.engine.url)
     config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", url)
+    config.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
     command.stamp(config, "head")
     command.downgrade(config, "f51e294b0687")
     engine = create_database_engine(url)
@@ -1061,7 +1061,7 @@ def test_missing_child_detected_and_populated_downgrade_refuses_before_ddl(obser
     declare(observed, exception=True)
     value = admit(observed, (capture(observed, raw=raw_fixture(status="CANCELLED")),))
     config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", str(observed.engine.url))
+    config.set_main_option("sqlalchemy.url", str(observed.engine.url).replace("%", "%%"))
     command.stamp(config, "head")
     command.downgrade(config, "062f3a5c1798")
     before = _schema_signature(observed.engine), _trigger_signature(observed.engine)
@@ -2101,7 +2101,7 @@ def source_backend(observed, request):
             if name in names
         }
         config = Config("alembic.ini")
-        config.set_main_option("sqlalchemy.url", str(observed.engine.url))
+        config.set_main_option("sqlalchemy.url", str(observed.engine.url).replace("%", "%%"))
         command.stamp(config, "head")
         command.downgrade(config, "f51e294b0687")
         command.upgrade(config, "062f3a5c1798")

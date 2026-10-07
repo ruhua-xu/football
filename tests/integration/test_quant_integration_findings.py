@@ -364,7 +364,7 @@ def test_f51_downgrade_preserves_populated_exact_v1_plan_rows(
     lane = actual_admission
     monkeypatch.setattr(q, "_code_revision", lambda: "package:synthetic-v1-downgrade")
     config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", str(lane.engine.url))
+    config.set_main_option("sqlalchemy.url", str(lane.engine.url).replace("%", "%%"))
     command.stamp(config, "head")
     if migrated:
         command.downgrade(config, "e40d183af576")
@@ -415,7 +415,7 @@ def test_f51_downgrade_refuses_nonlegacy_plan_without_dropping_guards(
     )
     plan = QuantIntegrityPilotService(repo, lane.clock).seal_plan(definition)
     config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", str(lane.engine.url))
+    config.set_main_option("sqlalchemy.url", str(lane.engine.url).replace("%", "%%"))
     command.stamp(config, "head")
     command.downgrade(config, "f51e294b0687")
     if kind != "V2":
