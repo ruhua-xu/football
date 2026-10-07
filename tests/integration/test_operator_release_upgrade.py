@@ -107,3 +107,12 @@ def test_installed_maintenance_does_not_prepend_source_metadata(tmp_path, monkey
     monkeypatch.setattr(command, "check", lambda config: None)
     upgrade.upgrade_existing_database(path)
     assert seen == [("", "8ea7bcd49510")]
+
+
+def test_previous_v120_fixture_reproduces_released_bytes_under_lf_git_default(tmp_path, monkeypatch):
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "core.autocrlf")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "false")
+    record = previous_installation(tmp_path / "published", "1.2.0")
+    assert record["software_identity"] == upgrade.RELEASED_V120_IDENTITY
+    assert record["operator_code_hash"] == upgrade.RELEASED_V120_OPERATOR_HASH

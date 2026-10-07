@@ -26,7 +26,11 @@ def previous_installation(work, version):
     work.mkdir(parents=True, exist_ok=False)
     old = work / "previous-source"
     old.mkdir()
-    raw = subprocess.check_output(["git", "archive", reference, "src", "config", "migrations", "alembic.ini", "scripts", "daily.cmd"], cwd=ROOT)
+    # The released Windows wheel has CRLF Python bytes. git archive applies
+    # core.autocrlf: pin this export explicitly, rather than weakening the exact
+    # published raw-byte identity when the acceptance host defaults to LF.
+    raw = subprocess.check_output(["git", "-c", "core.autocrlf=true", "archive", reference,
+        "src", "config", "migrations", "alembic.ini", "scripts", "daily.cmd"], cwd=ROOT)
     with tarfile.open(fileobj=BytesIO(raw)) as archive:
         archive.extractall(old, filter="data")
     metadata = old / "src" / ("football_system-"+version+".dist-info")
