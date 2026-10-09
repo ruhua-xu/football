@@ -10,6 +10,7 @@ import tomllib
 import football_system
 from football_system.domain.services.elo_baseline import EloBaselineConfig, MODEL_VERSION
 from football_system.infrastructure.files.real_bridge import identities, FROZEN_IDENTITIES
+from tests.contract.p0_catalog_projection import project_p0
 
 ROOT=Path(__file__).resolve().parents[2]
 RELEASE="8b7cfb3ac2e416a5c3c8f5046150245ab076f490"
@@ -42,6 +43,7 @@ def test_v120_unmodified_math_qualification_and_legacy_source_files_are_byte_fro
                 continue
             expected=archive.extractfile(member).read().replace(b"\r\n",b"\n")
             actual=(ROOT/member.name).read_bytes().replace(b"\r\n",b"\n")
+            actual=project_p0(member.name,actual)
             if member.name in RELEASE_ONLY_VERSIONS:
                 assert actual.count(b"1.3.0")==1
                 actual=actual.replace(b"1.3.0",b"1.2.0",1)

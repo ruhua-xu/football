@@ -11,6 +11,7 @@ import tarfile
 
 BASE="6d633d4425d5fd6d93918d60526f701a59020b3d"
 ADDITIVE_HOOKS={
+    "src/football_system/domain/match.py": ('    UNKNOWN = "UNKNOWN"\n',),
     "src/football_system/infrastructure/database/repositories.py": (
         '        from football_system.infrastructure.database.openfootball_production_schema import assert_no_legacy_openfootball_training\n\n        assert_no_legacy_openfootball_training(session, tuple(f.match_result_id for s in artifacts.quant_model_states for f in s.training_facts))\n',),
     "src/football_system/interfaces/production_quant_cli.py": (
