@@ -5,6 +5,7 @@ import subprocess
 import tarfile
 
 from tests.contract.p0_catalog_projection import project_p0
+from tests.contract.release131_projection import project_release131
 from football_system.domain.services.elo_baseline import EloBaselineConfig
 from football_system.infrastructure.files.real_bridge import FROZEN_IDENTITIES,identities
 
@@ -20,7 +21,7 @@ def test_p0_exact_source_projection_preserves_released_reader_math_and_migration
             if not member.isfile():
                 continue
             expected=archive.extractfile(member).read().replace(b"\r\n",b"\n")
-            actual=project_p0(member.name,(ROOT/member.name).read_bytes().replace(b"\r\n",b"\n"))
+            actual=project_p0(member.name,project_release131(member.name,(ROOT/member.name).read_bytes().replace(b"\r\n",b"\n")))
             assert actual==expected,member.name
             checked.add(member.name)
     current={p.relative_to(ROOT).as_posix() for folder in ("src/football_system","config","migrations","scripts")

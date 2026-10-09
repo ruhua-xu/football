@@ -1,6 +1,7 @@
-"""Installed v1.3 maintenance over archived v1.1/v1.2 source fixtures (synthetic)."""
+"""Installed v1.3.1 maintenance over archived v1.1/v1.2/v1.3 source fixtures (synthetic)."""
 
 from datetime import datetime, timezone
+import hashlib
 from io import BytesIO
 import json
 import os
@@ -12,16 +13,25 @@ import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
 
+# Exact released wheel 2578bc97... has these LF lines among otherwise CRLF code.
+# This is a fixture byte profile, not an alternative accepted runtime identity.
+V130_BYTE_PROFILE = {
+    "src/football_system/__init__.py": ((3,), "f9f0b7519b0f0d48b93f7c4a21186032eb3aa79f8d893f4a99f1f470fc0e313f"),
+    "src/football_system/infrastructure/database/session.py": ((74,), "228fc5919398f89be563bd3f9fd7a620b7540da033a858839c0eca82a1782b61"),
+    "src/football_system/infrastructure/files/real_bridge_frozen.py": ((47, 48, 49), "d875fa4c3f975619047d008d3cee098a01dc621d5b89578f9fdab9760825ce35"),
+}
+
 
 def previous_installation(work, version):
     """Previous code is a pinned source fixture, not claimed to be an installed wheel.
 
     Its local metadata fixture supplies the archived version to importlib.metadata;
-    no old source bytes, operator hashes or software identity are substituted.
+    source content, operator hashes and software identity are not substituted.
     The new release itself must pass genuine installed-wheel verification.
     """
     references = {"1.1.0": "5ed940a8af8077be80549603a2da38aea77fc1bf",
-        "1.2.0": "8b7cfb3ac2e416a5c3c8f5046150245ab076f490"}
+        "1.2.0": "8b7cfb3ac2e416a5c3c8f5046150245ab076f490",
+        "1.3.0": "0f677e834d5e2b6eb092ecaf86e4c70a60e38e98"}
     reference = references[version]
     work.mkdir(parents=True, exist_ok=False)
     old = work / "previous-source"
@@ -33,6 +43,13 @@ def previous_installation(work, version):
         "src", "config", "migrations", "alembic.ini", "scripts", "daily.cmd"], cwd=ROOT)
     with tarfile.open(fileobj=BytesIO(raw)) as archive:
         archive.extractall(old, filter="data")
+    if version == "1.3.0":
+        for name, (lf_lines, expected_hash) in V130_BYTE_PROFILE.items():
+            path = old / name
+            value = b"".join(line.replace(b"\r\n", b"\n") if i in lf_lines else line
+                for i, line in enumerate(path.read_bytes().splitlines(keepends=True), 1))
+            assert hashlib.sha256(value).hexdigest() == expected_hash
+            path.write_bytes(value)
     metadata = old / "src" / ("football_system-"+version+".dist-info")
     metadata.mkdir()
     (metadata / "METADATA").write_text("Metadata-Version: 2.1\nName: football-system\nVersion: "+version+"\n", encoding="utf-8")
@@ -58,7 +75,7 @@ print(json.dumps(op.initialize(op.confirmation)))
 
 def exercise(work, previous_version):
     from scripts import daily_operator as daily
-    from scripts.operator_release_upgrade import release_backup, rebind_release, upgrade_existing_database, database_state, RELEASED_V120_IDENTITY
+    from scripts.operator_release_upgrade import release_backup, rebind_release, upgrade_existing_database, database_state, RELEASED_V120_IDENTITY, RELEASED_V130_IDENTITY
     from football_system.infrastructure.files.prospective import SyntheticProspectiveClock
     from football_system.domain.openfootball_production import OpenFootballProductionArtifactV1
     from football_system.domain.archive import canonical_json
@@ -73,7 +90,11 @@ def exercise(work, previous_version):
     if previous_version == "1.1.0":
         upgrade_existing_database(production)
     else:
-        assert legacy["software_identity"] == RELEASED_V120_IDENTITY
+        assert legacy["software_identity"] == {"1.2.0": RELEASED_V120_IDENTITY, "1.3.0": RELEASED_V130_IDENTITY}[previous_version]
+    old_journal = op.root / "release-v1.3.0"
+    if previous_version == "1.3.0":
+        old_journal.mkdir()
+        (old_journal / "receipt.json").write_bytes(b"SYNTHETIC_PREVIOUS_RELEASE_HISTORY\n")
     artifact = OpenFootballProductionArtifactV1.freeze(kind="DATA_BINDING", payload={"classification": "SYNTHETIC_RELEASE_ACCEPTANCE_ONLY"},
         parents=(), recorded_at_utc=op.clock.now())
     with closing(sqlite3.connect(production)) as db:
@@ -82,10 +103,10 @@ def exercise(work, previous_version):
         db.commit()
     before_state = database_state(production)
     before = release_backup(op, phase="BEFORE")
-    result = rebind_release(op, before_backup=before["path"], confirmation="UPGRADE "+str(op.root)+" TO 1.3.0")
+    result = rebind_release(op, before_backup=before["path"], confirmation="UPGRADE "+str(op.root)+" TO 1.3.1")
     assert result["status"] == "COMPLETE"
     current = database_state(production)
-    if previous_version == "1.1.0":
+    if previous_version in {"1.1.0", "1.3.0"}:
         assert current == before_state
     else:
         assert before_state["head"] == "7d96abc3840f" and current["head"] == "8ea7bcd49510"
@@ -95,8 +116,11 @@ def exercise(work, previous_version):
         assert current["tables"]["ofp_real_model_pins"]["count"] == 0
     assert op.check()["installation_id"] == legacy["installation_id"]
     assert op.validate()["status"] == "FILES_CHECKED"
+    if previous_version == "1.3.0":
+        assert (old_journal / "receipt.json").read_bytes() == b"SYNTHETIC_PREVIOUS_RELEASE_HISTORY\n"
+        assert result["databases_before"] == result["databases_after"]
     after = release_backup(op, phase="AFTER")
-    summary = dict(status="PASS",provenance="SYNTHETIC_SOFTWARE_ACCEPTANCE_ONLY",previous_source_version=previous_version,version="1.3.0",head=daily.RELEASE_HEAD,
+    summary = dict(status="PASS",provenance="SYNTHETIC_SOFTWARE_ACCEPTANCE_ONLY",previous_source_version=previous_version,version="1.3.1",head=daily.RELEASE_HEAD,
         software_identity=result["software_identity"],operator_code_hash=result["operator_code_hash"],
         both_database_identities_preserved=True,production_bytes_unchanged=current["sha256"] == before_state["sha256"],old_rows_unchanged=True,
         old_heads={n:s["head"] for n,s in result["databases_before"].items()},new_heads={n:s["head"] for n,s in result["databases_after"].items()},
@@ -113,8 +137,8 @@ if __name__ == "__main__":
     socket.socket.connect = denied
     work = Path(sys.argv[1]).resolve()
     work.mkdir(parents=True, exist_ok=False)
-    results = {version: exercise(work / version, version) for version in ("1.1.0", "1.2.0")}
-    summary = dict(status="PASS",version="1.3.0",upgrades=results,provenance="SYNTHETIC_SOFTWARE_ACCEPTANCE_ONLY")
+    results = {version: exercise(work / version, version) for version in ("1.1.0", "1.2.0", "1.3.0")}
+    summary = dict(status="PASS",version="1.3.1",upgrades=results,provenance="SYNTHETIC_SOFTWARE_ACCEPTANCE_ONLY")
     (work / "acceptance-summary.json").write_text(json.dumps(summary,indent=2)+"\n",encoding="utf-8")
     print(json.dumps(summary, sort_keys=True))
-    print("V130_OPERATOR_INSTALLED_RELEASE_ACCEPTANCE_PASS")
+    print("V131_OPERATOR_INSTALLED_RELEASE_ACCEPTANCE_PASS")

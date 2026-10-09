@@ -123,7 +123,7 @@ def test_explicit_initialization_and_physical_separation(tmp_path):
     assert op.check() == record
     assert record["schema_version"] == "DAILY_OPERATOR_INSTALL_V2"
     identity = record["software_identity"]
-    assert identity["software"] == "football-system" and identity["software_version"] == "1.3.0"
+    assert identity["software"] == "football-system" and identity["software_version"] == "1.3.1"
     assert identity["execution_profile"] == "OPENFOOTBALL_PIN_RELEASE_V1"
     assert identity["migration_head"] == "8ea7bcd49510"
     assert identity["implementation_revision"].startswith("package:")

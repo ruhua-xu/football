@@ -11,6 +11,7 @@ import football_system
 from football_system.domain.services.elo_baseline import EloBaselineConfig, MODEL_VERSION
 from football_system.infrastructure.files.real_bridge import identities, FROZEN_IDENTITIES
 from tests.contract.p0_catalog_projection import project_p0
+from tests.contract.release131_projection import project_release131
 
 ROOT=Path(__file__).resolve().parents[2]
 RELEASE="8b7cfb3ac2e416a5c3c8f5046150245ab076f490"
@@ -43,7 +44,7 @@ def test_v120_unmodified_math_qualification_and_legacy_source_files_are_byte_fro
                 continue
             expected=archive.extractfile(member).read().replace(b"\r\n",b"\n")
             actual=(ROOT/member.name).read_bytes().replace(b"\r\n",b"\n")
-            actual=project_p0(member.name,actual)
+            actual=project_p0(member.name,project_release131(member.name,actual))
             if member.name in RELEASE_ONLY_VERSIONS:
                 assert actual.count(b"1.3.0")==1
                 actual=actual.replace(b"1.3.0",b"1.2.0",1)
@@ -59,7 +60,7 @@ def test_v120_unmodified_math_qualification_and_legacy_source_files_are_byte_fro
     after=tomllib.loads((ROOT/"pyproject.toml").read_text(encoding="utf-8"))
     after["tool"]["setuptools"]["data-files"]["football_system_resources/migrations/versions"].remove(
         "migrations/versions/8ea7bcd49510_add_ofp_real_model_pin_source.py")
-    assert after["project"]["version"]=="1.3.0"
+    assert after["project"]["version"]=="1.3.1"
     after["project"]["version"]="1.2.0"
     assert before==after  # Only the explicit release version; no dependency/packaging drift.
     migration_helper="src/football_system/infrastructure/database/migrations.py"
@@ -94,7 +95,7 @@ def test_real_bridge_configuration_and_other_lifecycle_classes_are_unchanged():
 
 def test_v120_version_dependency_and_frozen_model_identities():
     project=tomllib.loads((ROOT/"pyproject.toml").read_text(encoding="utf-8"))
-    assert project["project"]["version"]==football_system.__version__=="1.3.0"
+    assert project["project"]["version"]==football_system.__version__=="1.3.1"
     assert "tzdata==2025.2" in project["project"]["dependencies"]
     assert MODEL_VERSION=="1" and EloBaselineConfig().config_hash=="c98d595d3afb03fe629e776fa9a0e70f24e31fcd49884be3ff11e9c979ca78e4"
     module=ast.parse(old_text("src/football_system/infrastructure/files/real_bridge.py"))

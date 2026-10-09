@@ -32,7 +32,7 @@ def test_setuptools_data_files_are_explicit_complete_and_scoped() -> None:
         source for sources in data_files.values() for source in sources
     }
 
-    assert project["project"]["version"] == "1.3.0"
+    assert project["project"]["version"] == "1.3.1"
     assert "tzdata==2025.2" in project["project"]["dependencies"]
     assert _installed_resource_paths(data_files) == set(
         wheel_e2e.EXPECTED_RESOURCE_FILES
