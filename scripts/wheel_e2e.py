@@ -16,7 +16,7 @@ from typing import Sequence
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_VERSION = "1.3.0"
+EXPECTED_VERSION = "1.3.1"
 EXPECTED_MIGRATION_HEAD = "8ea7bcd49510"
 PINNED_TIMEZONE_DEPENDENCY = "tzdata==2025.2"
 PROVIDER_CODE = "SYNTHETIC_ACCEPTANCE_V1"
@@ -475,7 +475,7 @@ print(json.dumps({
         "installed v1.3 operator upgrade and backup acceptance",
         [python, "-I", PROJECT_ROOT / "scripts/operator_release_acceptance.py", work_dir / "operator-release-acceptance"],
         cwd=work_dir, environment=environment,
-        markers=("V130_OPERATOR_INSTALLED_RELEASE_ACCEPTANCE_PASS",), timeout=1200,
+        markers=("V131_OPERATOR_INSTALLED_RELEASE_ACCEPTANCE_PASS",), timeout=1200,
     )
     timezone_proof = _run_json(
         "verify installed pinned OpenFootball timezone dependency",

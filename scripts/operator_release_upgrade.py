@@ -22,9 +22,21 @@ RELEASED_V120_IDENTITY = dict(schema_version="DAILY_OPERATOR_SOFTWARE_IDENTITY_V
     migration_head="7d96abc3840f")
 RELEASED_V120_OPERATOR_HASH = "21d5f788111a58bf748243dea205c3b6e300efecef26ea9713e50850db9cdd64"
 
+RELEASED_V130_IDENTITY = dict(schema_version="DAILY_OPERATOR_SOFTWARE_IDENTITY_V1", software="football-system",
+    software_version="1.3.0", implementation_revision="package:45ce420e3eeffded6282e6a5390fe5487994125722004940d83f4f59c9f2cc9c",
+    release_base_commit="a6952a4f9b86e1c273aa66e9f48c7930d8687a0a", execution_profile="OPENFOOTBALL_PIN_RELEASE_V1",
+    migration_head="8ea7bcd49510")
+RELEASED_V130_OPERATOR_HASH = "8132d15b954cd9966584fcf6f94540daa6ee9268e8991eee6e7d58a54430fe2d"
+
 
 def maintenance_profile(record):
     """The exact published V2 identity is accepted only for explicit maintenance."""
+    if record.get("software_identity") == RELEASED_V130_IDENTITY:
+        common = {"schema_version", "mode", "installation_id", "operator_code_hash", "runtime", "backups",
+            "databases", "created_at_utc", "software_identity"}
+        daily.require(set(record) == common and record["schema_version"] == daily.INSTALL_V2
+            and record["operator_code_hash"] == RELEASED_V130_OPERATOR_HASH, "RELEASED_V130_IDENTITY_REQUIRED")
+        return dict(previous_release=True, heads={daily.RELEASE_HEAD})
     if record.get("software_identity") == RELEASED_V120_IDENTITY:
         common = {"schema_version", "mode", "installation_id", "operator_code_hash", "runtime", "backups",
             "databases", "created_at_utc", "software_identity"}
@@ -101,7 +113,7 @@ def inspect_installation(operator):
 def maintenance_lock(operator):
     lock = operator.root / "operator.lock"
     try:
-        daily.write_new(lock, daily.encoded(dict(pid=os.getpid(), at=operator.clock.now().isoformat(), mode="V130_RELEASE_MAINTENANCE")))
+        daily.write_new(lock, daily.encoded(dict(pid=os.getpid(), at=operator.clock.now().isoformat(), mode="V131_RELEASE_MAINTENANCE")))
     except FileExistsError:
         raise daily.PreparationError("OPERATOR_BUSY_OR_RECOVERY_REQUIRED") from None
     try:
@@ -126,7 +138,7 @@ def release_backup(operator, *, phase, evidence_root=None, evidence=None):
             raw = daily.read_bytes(daily.relative(evidence_root, name))
             daily.require(daily.sha(raw) == authorization["sha256"], "BACKUP_SOURCE_HASH_MISMATCH")
             payloads[name] = raw
-        destination = operator.backups / ("release13-"+uuid.uuid4().hex[:12])
+        destination = operator.backups / ("release131-"+uuid.uuid4().hex[:12])
         destination.mkdir(exist_ok=False)
         for name, state in before.items():
             source_path = operator.root / "db" / name
@@ -225,25 +237,25 @@ def validate_release_schema(path):
 
 def _replace_manifest(path, original, new):
     daily.require(daily.read_bytes(path) == original, "INSTALLATION_CHANGED_DURING_REBIND")
-    temporary = path.with_name("."+path.name+".v130-new")
+    temporary = path.with_name("."+path.name+".v131-new")
     daily.write_new(temporary, new)
     os.replace(temporary, path)
 
 
 def rebind_release(operator, *, before_backup, confirmation):
     """Explicit one-time rebind; a failure after intent retains the maintenance lock."""
-    daily.require(confirmation == "UPGRADE "+str(operator.root)+" TO 1.3.0", "RELEASE_UPGRADE_NOT_CONFIRMED")
+    daily.require(confirmation == "UPGRADE "+str(operator.root)+" TO 1.3.1", "RELEASE_UPGRADE_NOT_CONFIRMED")
     daily.verify_core()
     backup = verify_backup(operator, Path(before_backup))
     record, original, before = inspect_installation(operator)
     daily.require(maintenance_profile(record)["previous_release"], "PREVIOUS_RELEASE_INSTALLATION_REQUIRED")
     daily.require(backup["installation_id"] == record["installation_id"] and backup["installation_sha256"] == daily.sha(original)
         and backup["databases"] == before, "BACKUP_NOT_CURRENT")
-    journal = operator.root / "release-v1.3.0"
+    journal = operator.root / "release-v1.3.1"
     daily.require(not journal.exists(), "RELEASE_UPGRADE_ALREADY_STARTED_REVIEW_REQUIRED")
     lock = operator.root / "operator.lock"
     try:
-        daily.write_new(lock, daily.encoded(dict(pid=os.getpid(), at=operator.clock.now().isoformat(), mode="V130_RELEASE_REBIND")))
+        daily.write_new(lock, daily.encoded(dict(pid=os.getpid(), at=operator.clock.now().isoformat(), mode="V131_RELEASE_REBIND")))
     except FileExistsError:
         raise daily.PreparationError("OPERATOR_BUSY_OR_RECOVERY_REQUIRED") from None
     try:

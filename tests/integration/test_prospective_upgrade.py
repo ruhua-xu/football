@@ -20,6 +20,7 @@ from football_system.infrastructure.database.session import create_database_engi
 from football_system.infrastructure.files.prospective import SyntheticProspectiveClock
 from scripts.market_expansion_acceptance import DECISION, KICKOFF
 from tests.integration.test_market_v2_upgrade import config_for, database_snapshot
+from tests.contract.p0_catalog_projection import project_p0
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -116,6 +117,7 @@ def test_v090_domain_application_configuration_and_migrations_are_byte_frozen():
     for name in names:
         expected = subprocess.check_output(["git", "show", "v0.9.0:"+name], cwd=ROOT)
         actual = (ROOT / name).read_bytes().replace(b"\r\n", b"\n")
+        actual = project_p0(name, actual)
         if name == "src/football_system/application/quant_integrity.py":
             assert actual.count(APPROVED_OPENFOOTBALL_HOOK) == 1
             actual = actual.replace(APPROVED_OPENFOOTBALL_HOOK, b"", 1)

@@ -28,6 +28,7 @@ class MatchStatus(StrEnum):
     FINISHED = "FINISHED"
     POSTPONED = "POSTPONED"
     CANCELLED = "CANCELLED"
+    UNKNOWN = "UNKNOWN"
 
 
 class SaleStatus(StrEnum):
