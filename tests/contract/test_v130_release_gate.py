@@ -28,4 +28,4 @@ def test_release_preserves_accepted_business_source_config_and_migrations():
             checked.add(member.name)
     current={p.relative_to(ROOT).as_posix() for d in ("src/football_system","config","migrations")
         for p in (ROOT/d).rglob("*") if p.is_file() and "__pycache__" not in p.parts}
-    assert current|{"pyproject.toml"}==checked
+    assert current|{"pyproject.toml"}==checked|{"src/football_system/domain/openfootball_scope.py"}

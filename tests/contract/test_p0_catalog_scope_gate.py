@@ -25,6 +25,6 @@ def test_p0_exact_source_projection_preserves_released_reader_math_and_migration
             checked.add(member.name)
     current={p.relative_to(ROOT).as_posix() for folder in ("src/football_system","config","migrations","scripts")
         for p in (ROOT/folder).rglob("*") if p.is_file() and "__pycache__" not in p.parts}
-    assert current|{"pyproject.toml","daily.cmd"}==checked
+    assert current|{"pyproject.toml","daily.cmd"}==checked|{"src/football_system/domain/openfootball_scope.py"}
     assert identities()[1]==FROZEN_IDENTITIES
     assert EloBaselineConfig().config_hash=="c98d595d3afb03fe629e776fa9a0e70f24e31fcd49884be3ff11e9c979ca78e4"

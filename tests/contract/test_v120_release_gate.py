@@ -23,6 +23,7 @@ INTEGRATION_CHANGES={
     "src/football_system/infrastructure/database/migrations.py",
 }
 NEW_FILES={
+    "src/football_system/domain/openfootball_scope.py",
     "src/football_system/domain/pinned_model_source.py", "src/football_system/infrastructure/database/openfootball_model_source.py",
     "src/football_system/infrastructure/database/ofp_real_model_pin_schema.py", "src/football_system/infrastructure/database/real_bridge_head.py",
     "migrations/versions/8ea7bcd49510_add_ofp_real_model_pin_source.py",
