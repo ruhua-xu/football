@@ -202,7 +202,7 @@ class ExistingPinnedModelAccess:
     def verify_descriptor(self, session, request, at, *, existing_pin=False):
         from football_system.domain.pinned_model_source import VerifiedPinnedModelDescriptorV1, LegacyModelSourceV1
         source = getattr(request, "model_source", LegacyModelSourceV1())
-        if source.source_type == "OPENFOOTBALL":
+        if source.source_type != "LEGACY":
             from football_system.infrastructure.database.openfootball_model_source import OpenFootballPinnedModelReader
             return OpenFootballPinnedModelReader(self.inference._production).read(session, request, at, existing_pin=existing_pin)
         binding = self.inference.load_binding(request.source_analysis_id)

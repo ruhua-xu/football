@@ -5,6 +5,7 @@ import subprocess
 import tarfile
 from tests.contract.p0_catalog_projection import project_p0
 from tests.contract.release131_projection import project_release131
+from tests.contract.scoped_projection import project_scoped, SCOPED_NEW_FILES
 
 ROOT=Path(__file__).resolve().parents[2]
 ACCEPTED="a6952a4f9b86e1c273aa66e9f48c7930d8687a0a"
@@ -21,7 +22,7 @@ def test_release_preserves_accepted_business_source_config_and_migrations():
                 continue
             expected=archive.extractfile(member).read().replace(b"\r\n",b"\n")
             actual=(ROOT/member.name).read_bytes().replace(b"\r\n",b"\n")
-            actual=project_p0(member.name,project_release131(member.name,actual))
+            actual=project_p0(member.name,project_release131(member.name,project_scoped(member.name,actual)))
             if member.name in VERSION_FILES:
                 assert actual.count(b"1.3.0")==expected.count(b"1.2.0")>0
                 actual=actual.replace(b"1.3.0",b"1.2.0")
@@ -29,4 +30,4 @@ def test_release_preserves_accepted_business_source_config_and_migrations():
             checked.add(member.name)
     current={p.relative_to(ROOT).as_posix() for d in ("src/football_system","config","migrations")
         for p in (ROOT/d).rglob("*") if p.is_file() and "__pycache__" not in p.parts}
-    assert current|{"pyproject.toml"}==checked|{"src/football_system/domain/openfootball_scope.py"}
+    assert current|{"pyproject.toml"}==checked|{"src/football_system/domain/openfootball_scope.py"}|SCOPED_NEW_FILES

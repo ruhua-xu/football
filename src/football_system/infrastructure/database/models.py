@@ -3444,3 +3444,8 @@ _openfootball_production_tables = openfootball_production_tables(Base.metadata)
 from football_system.infrastructure.database.ofp_real_model_pin_schema import ofp_real_model_pin_table  # noqa: E402
 
 _ofp_real_model_pins = ofp_real_model_pin_table(Base.metadata)
+
+# Qualified V2 scopes own their facts and model graph independently of V1.
+from football_system.infrastructure.database.openfootball_scoped_schema import scoped_tables  # noqa: E402
+
+_ofpv2_tables = scoped_tables(Base.metadata)

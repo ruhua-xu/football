@@ -279,6 +279,12 @@ class SqlAlchemyProductionQuantRepository:
 
         return SqlAlchemyOpenFootballProductionRepository(self)
 
+    def openfootball_scoped_binding(self):
+        """Explicit V2 persistence; P1-A references alone never grant qualification."""
+        from football_system.infrastructure.database.openfootball_scoped_repository import SqlAlchemyOpenFootballScopedRepository
+
+        return SqlAlchemyOpenFootballScopedRepository(self)
+
     def _now(self):
         with self._clock_lock:
             at = _utc(self._clock())

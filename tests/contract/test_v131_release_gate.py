@@ -5,6 +5,7 @@ import subprocess
 import tarfile
 
 from tests.contract.release131_projection import project_release131
+from tests.contract.scoped_projection import project_scoped, SCOPED_NEW_FILES
 
 ROOT = Path(__file__).resolve().parents[2]
 APPROVED = "9429bcf695527d5c1d2663b2915faa388ab4a065"
@@ -19,8 +20,8 @@ def test_release131_exactly_preserves_approved_p0_and_all_nonrelease_bytes():
             if member.isfile():
                 expected = archive.extractfile(member).read().replace(b"\r\n", b"\n")
                 actual = (ROOT / member.name).read_bytes().replace(b"\r\n", b"\n")
-                assert project_release131(member.name, actual) == expected, member.name
+                assert project_release131(member.name, project_scoped(member.name, actual)) == expected, member.name
                 checked.add(member.name)
     current = {p.relative_to(ROOT).as_posix() for folder in ("src/football_system", "config", "migrations", "scripts")
         for p in (ROOT / folder).rglob("*") if p.is_file() and "__pycache__" not in p.parts}
-    assert current | {"pyproject.toml", "daily.cmd"} == checked | {"src/football_system/domain/openfootball_scope.py"}
+    assert current | {"pyproject.toml", "daily.cmd"} == checked | {"src/football_system/domain/openfootball_scope.py"} | SCOPED_NEW_FILES

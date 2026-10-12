@@ -12,6 +12,7 @@ from football_system.domain.services.elo_baseline import EloBaselineConfig, MODE
 from football_system.infrastructure.files.real_bridge import identities, FROZEN_IDENTITIES
 from tests.contract.p0_catalog_projection import project_p0
 from tests.contract.release131_projection import project_release131
+from tests.contract.scoped_projection import project_scoped, SCOPED_NEW_FILES
 
 ROOT=Path(__file__).resolve().parents[2]
 RELEASE="8b7cfb3ac2e416a5c3c8f5046150245ab076f490"
@@ -45,7 +46,7 @@ def test_v120_unmodified_math_qualification_and_legacy_source_files_are_byte_fro
                 continue
             expected=archive.extractfile(member).read().replace(b"\r\n",b"\n")
             actual=(ROOT/member.name).read_bytes().replace(b"\r\n",b"\n")
-            actual=project_p0(member.name,project_release131(member.name,actual))
+            actual=project_p0(member.name,project_release131(member.name,project_scoped(member.name,actual)))
             if member.name in RELEASE_ONLY_VERSIONS:
                 assert actual.count(b"1.3.0")==1
                 actual=actual.replace(b"1.3.0",b"1.2.0",1)
@@ -55,10 +56,10 @@ def test_v120_unmodified_math_qualification_and_legacy_source_files_are_byte_fro
     current={p.relative_to(ROOT).as_posix() for directory in ("src/football_system","config","migrations")
         for p in (ROOT/directory).rglob("*") if p.is_file() and "__pycache__" not in p.parts}
     current.add("pyproject.toml")
-    assert current-checked==NEW_FILES
+    assert current-checked==NEW_FILES|SCOPED_NEW_FILES
     assert checked<=current
     before=tomllib.loads(old_text("pyproject.toml"))
-    after=tomllib.loads((ROOT/"pyproject.toml").read_text(encoding="utf-8"))
+    after=tomllib.loads(project_scoped("pyproject.toml", (ROOT/"pyproject.toml").read_bytes().replace(b"\r\n",b"\n")).decode())
     after["tool"]["setuptools"]["data-files"]["football_system_resources/migrations/versions"].remove(
         "migrations/versions/8ea7bcd49510_add_ofp_real_model_pin_source.py")
     assert after["project"]["version"]=="1.3.1"
@@ -96,7 +97,7 @@ def test_real_bridge_configuration_and_other_lifecycle_classes_are_unchanged():
 
 def test_v120_version_dependency_and_frozen_model_identities():
     project=tomllib.loads((ROOT/"pyproject.toml").read_text(encoding="utf-8"))
-    assert project["project"]["version"]==football_system.__version__=="1.3.1"
+    assert project["project"]["version"]==football_system.__version__=="1.4.0.dev0"
     assert "tzdata==2025.2" in project["project"]["dependencies"]
     assert MODEL_VERSION=="1" and EloBaselineConfig().config_hash=="c98d595d3afb03fe629e776fa9a0e70f24e31fcd49884be3ff11e9c979ca78e4"
     module=ast.parse(old_text("src/football_system/infrastructure/files/real_bridge.py"))
