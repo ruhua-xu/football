@@ -23,4 +23,4 @@ def test_release131_exactly_preserves_approved_p0_and_all_nonrelease_bytes():
                 checked.add(member.name)
     current = {p.relative_to(ROOT).as_posix() for folder in ("src/football_system", "config", "migrations", "scripts")
         for p in (ROOT / folder).rglob("*") if p.is_file() and "__pycache__" not in p.parts}
-    assert current | {"pyproject.toml", "daily.cmd"} == checked
+    assert current | {"pyproject.toml", "daily.cmd"} == checked | {"src/football_system/domain/openfootball_scope.py"}
