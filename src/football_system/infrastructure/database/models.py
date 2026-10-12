@@ -3449,3 +3449,8 @@ _ofp_real_model_pins = ofp_real_model_pin_table(Base.metadata)
 from football_system.infrastructure.database.openfootball_scoped_schema import scoped_tables  # noqa: E402
 
 _ofpv2_tables = scoped_tables(Base.metadata)
+
+# Independent Portfolio graphs share ownership with the unchanged legacy ledger.
+from football_system.infrastructure.database.portfolio_schema import portfolio_tables  # noqa: E402
+
+_portfolio_tables = portfolio_tables(Base.metadata)

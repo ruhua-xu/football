@@ -5,6 +5,7 @@ import subprocess
 import tarfile
 from tests.contract.release131_projection import project_release131
 from tests.contract.scoped_projection import project_scoped, SCOPED_NEW_FILES
+from tests.contract.portfolio_projection import PORTFOLIO_NEW_FILES
 
 ROOT = Path(__file__).resolve().parents[2]
 NEW = {"src/football_system/domain/openfootball_scope.py"}
@@ -20,4 +21,4 @@ def test_p1a_preserves_every_existing_source_configuration_migration_and_operato
                 checked.add(member.name)
     current = {p.relative_to(ROOT).as_posix() for folder in ("src/football_system", "config", "migrations", "scripts")
         for p in (ROOT / folder).rglob("*") if p.is_file() and "__pycache__" not in p.parts} | {"pyproject.toml", "daily.cmd"}
-    assert current - checked == NEW | SCOPED_NEW_FILES and checked <= current
+    assert current - checked == NEW | SCOPED_NEW_FILES | PORTFOLIO_NEW_FILES and checked <= current

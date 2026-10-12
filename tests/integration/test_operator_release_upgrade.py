@@ -116,7 +116,7 @@ def test_installed_maintenance_does_not_prepend_source_metadata(tmp_path, monkey
     monkeypatch.setattr(command, "upgrade", lambda config, head: seen.append((config.get_main_option("prepend_sys_path"), head)))
     monkeypatch.setattr(command, "check", lambda config: None)
     upgrade.upgrade_existing_database(path)
-    assert seen == [("", "9fb8cde5a621")]
+    assert seen == [("", "a0c9def6b732")]
 
 
 @pytest.mark.parametrize("version", ["1.2.0", "1.3.0", "1.3.1"])

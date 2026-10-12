@@ -141,6 +141,12 @@ class LockRequest(Request):
     invalidation_reason: str | None = Field(default=None, min_length=1, max_length=2000)
 
 
+class ReviewImportRequest(Request):
+    run_id: Identifier
+    raw_review: str | None = Field(default=None, max_length=4*1024*1024)
+    reasons: tuple[CorrectionReasonV1, ...] | None = None
+
+
 class ModelInvalidationRequest(Request):
     pin_id: Identifier
     reason: str = Field(min_length=1, max_length=2000)
@@ -178,5 +184,6 @@ REQUEST_TYPES = {"program": ProgramRequest, "admission": AdmissionRequest, "mode
     "policy": PolicyRequest, "anchor": AnchorRequest, "epoch": EpochRequest, "slate": SlateRequest,
     "bucket": BucketRequest, "market-bind": SourceRequest, "sp-bind": SourceRequest,
     "prepare": RealProspectivePrepareV1, "replace": ReplaceRequest, "lock": LockRequest,
+    "review-import": ReviewImportRequest,
     "model-invalidate": ModelInvalidationRequest, "source-invalidate": SourceInvalidationRequest, "result-import": ResultRequest, "settle": SettleRequest,
     "report": ReportRequest, "epoch-close": CloseRequest}

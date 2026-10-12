@@ -58,6 +58,12 @@ ADDITIVE_HOOKS["pyproject.toml"] += ('    "migrations/versions/9fb8cde5a621_add_
 ADDITIVE_HOOKS["src/football_system/infrastructure/database/production_quant_repository.py"] += (
     '\n    def openfootball_scoped_binding(self):\n        """Explicit V2 persistence; P1-A references alone never grant qualification."""\n        from football_system.infrastructure.database.openfootball_scoped_repository import SqlAlchemyOpenFootballScopedRepository\n\n        return SqlAlchemyOpenFootballScopedRepository(self)\n',)
 
+ADDITIVE_HOOKS["src/football_system/infrastructure/database/models.py"] += (
+    "\n# Independent Portfolio graphs share ownership with the unchanged legacy ledger.\nfrom football_system.infrastructure.database.portfolio_schema import portfolio_tables  # noqa: E402\n\n_portfolio_tables = portfolio_tables(Base.metadata)\n",)
+ADDITIVE_HOOKS["src/football_system/infrastructure/database/immutability.py"] += (
+    "    from football_system.infrastructure.database.portfolio_schema import install_portfolio_triggers\n\n    install_portfolio_triggers(connection)\n",)
+ADDITIVE_HOOKS["pyproject.toml"] += ('    "migrations/versions/a0c9def6b732_add_portfolio_shared_ownership.py",\n',)
+
 
 def verify_frozen_checkout(root):
     root=Path(root)

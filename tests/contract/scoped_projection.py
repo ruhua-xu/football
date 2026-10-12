@@ -2,12 +2,14 @@
 import hashlib
 import json
 from pathlib import Path
+from tests.contract.portfolio_projection import project_portfolio
 
 MANIFEST = json.loads((Path(__file__).with_name("p1b_projection.json")).read_text(encoding="utf-8"))
 SCOPED_NEW_FILES = set(MANIFEST["new_files"])
 
 
 def project_scoped(relative, raw):
+    raw = project_portfolio(relative, raw)
     record = MANIFEST["files"].get(relative)
     if record is None:
         return raw

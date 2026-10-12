@@ -253,9 +253,10 @@ class SqlAlchemyRealBridgeRepository:
                                 self._admit(session,unit.consensus.admission,final)
                                 self._admit(session,unit.sporttery.admission,final)
                                 self._fresh_sources(unit.consensus,unit.sporttery,anchor,final)
-                        elif operation in {"prepare","replace"}:
-                            self._epoch(session,response.epoch.artifact_id,final)
-                            self._kickoff(session,self._ref(session,response.bucket,"REAL_KICKOFF_BUCKET_V1"),final)
+                        elif operation in {"prepare","replace","review-import"}:
+                            source_run=response if operation!="review-import" else self._ref(session,response.run,"REAL_PROSPECTIVE_RUN_V1")
+                            self._epoch(session,source_run.epoch.artifact_id,final)
+                            self._kickoff(session,self._ref(session,source_run.bucket,"REAL_KICKOFF_BUCKET_V1"),final)
                         receipt.update(response_id=response.artifact_id,outcome="COMMITTED",provenance=response.provenance,
                             epoch_id=getattr(getattr(response,"epoch",None),"artifact_id",receipt["epoch_id"]),
                             anchor_sealed_at=stamp(response.sealed_at_utc) if operation=="anchor" else None)
@@ -270,8 +271,8 @@ class SqlAlchemyRealBridgeRepository:
                             require(committed<response.planned_start_at_utc,"ANCHOR_NOT_SEALED_BEFORE_START")
                         if operation=="epoch":
                             require(committed<response.starts_at_utc,"EPOCH_NOT_DECLARED_BEFORE_START")
-                        if operation in {"lock","prepare","replace"}:
-                            run=response if operation!="lock" else self._ref(session,response.run,"REAL_PROSPECTIVE_RUN_V1")
+                        if operation in {"lock","prepare","replace","review-import"}:
+                            run=response if operation in {"prepare","replace"} else self._ref(session,response.run,"REAL_PROSPECTIVE_RUN_V1")
                             self._epoch(session,run.epoch.artifact_id,committed)
                             require(committed+timedelta(seconds=60)<min(i.kickoff_at_utc for i in run.identities),"LOOKAHEAD_RISK")
                             if operation=="lock":
@@ -315,6 +316,9 @@ class SqlAlchemyRealBridgeRepository:
     def _build(self, s, op, r, at):
         """The same closed builder is used for source replay with a historical receipt watermark."""
         empty = ()
+        if op == "review-import":
+            from football_system.application.portfolio_review import import_source_review
+            return import_source_review(self, s, r, at)
         if op == "program":
             require(s.info.get("rb_replaying") or (r.provenance == "SYNTHETIC_SOFTWARE_ACCEPTANCE") == (self.clock.basis == "SYNTHETIC_TEST_CLOCK"), "TEST_PROGRAM_CLOCK_MISMATCH")
             basis = "SYNTHETIC_TEST_CLOCK" if r.provenance == "SYNTHETIC_SOFTWARE_ACCEPTANCE" else "LOCAL_SYSTEM_UTC"
@@ -681,6 +685,10 @@ class SqlAlchemyRealBridgeRepository:
         anchor=self._ref(s,epoch.anchor,"REAL_EPOCH_CONFIGURATION_ANCHOR_V1")
         cutoff=r.as_of_at_utc if op=="report" else at
         require(epoch.starts_at_utc<=cutoff<=at,"REPORT_ASOF_INVALID")
+        if s.scalar(text("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='pf_shared_heads'")):
+            owned=s.scalar(text("SELECT count(*) FROM pf_shared_heads h JOIN pf_seals z ON z.artifact_id=h.portfolio_lock_id JOIN rb_artifacts a ON a.artifact_id=h.parent_run_id WHERE json_extract(a.artifact_json,'$.epoch.artifact_id')=:epoch AND z.published_us<=:at"),
+                {"epoch":epoch.artifact_id,"at":micros(cutoff)})
+            require(not owned,"PORTFOLIO_AWARE_REPORT_REQUIRED")
         if op=="epoch-close":
             require(at>=epoch.ends_at_utc,"EPOCH_NOT_FINISHED")
         census=[]

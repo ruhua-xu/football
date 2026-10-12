@@ -124,8 +124,8 @@ def test_explicit_initialization_and_physical_separation(tmp_path):
     assert record["schema_version"] == "DAILY_OPERATOR_INSTALL_V2"
     identity = record["software_identity"]
     assert identity["software"] == "football-system" and identity["software_version"] == "1.4.0.dev0"
-    assert identity["execution_profile"] == "OPENFOOTBALL_SCOPED_DEVELOPMENT_V2"
-    assert identity["migration_head"] == "9fb8cde5a621"
+    assert identity["execution_profile"] == "PORTFOLIO_SCOPED_DEVELOPMENT_V1"
+    assert identity["migration_head"] == "a0c9def6b732"
     assert identity["implementation_revision"].startswith("package:")
     assert record["databases"]["production.sqlite"] != record["databases"]["synthetic.sqlite"]
     with pytest.raises(PreparationError, match="PARTIAL_INSTALLATION"):
@@ -373,7 +373,7 @@ def test_candidate_backup_binds_version_implementation_and_head(op):
     assert backup["schema_version"] == "DAILY_OPERATOR_BACKUP_V2"
     assert backup["software_identity"] == record["software_identity"]
     assert backup["operator_code_hash"] == record["operator_code_hash"]
-    assert backup["migration_head"] == "9fb8cde5a621"
+    assert backup["migration_head"] == "a0c9def6b732"
 
 
 def test_busy_stale_lock_and_clock_regression_are_fail_closed(op):
