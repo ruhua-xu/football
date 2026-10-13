@@ -2,7 +2,7 @@
 from datetime import timedelta
 
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from football_system.application.portfolio_requests import REQUEST_TYPES
 from football_system.application.portfolio_math import calculate_portfolio, source_frames, settle_portfolio
@@ -247,7 +247,7 @@ class SqlAlchemyPortfolioRepository:
                     require(completed+timedelta(seconds=60)<response.content_payload.earliest_member_kickoff, "PF_FINAL_PUBLICATION_TOO_LATE")
                 require(not session.execute(text("PRAGMA foreign_key_check")).all(), "PF_INCOMPLETE_TRANSACTION")
                 return response
-        except (ValueError, KeyError, IntegrityError) as error:
+        except (ValueError, KeyError, IntegrityError, NoResultFound) as error:
             reason = str(error)
             reason = reason if 0 < len(reason) <= 120 and all(c.isupper() or c.isdigit() or c == "_" for c in reason) else "PF_INPUT_OR_SOURCE_REJECTED"
             if not checked:

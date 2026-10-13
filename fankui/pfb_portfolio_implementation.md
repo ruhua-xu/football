@@ -85,6 +85,11 @@ back the full lock; an independent rejection audit cannot reserve money or slots
 
 An empty PF business graph can downgrade after verified legacy mirror checks;
 any PF artifact, authority, rejection or claim refuses destructive downgrade.
+Genuine legacy post-lock version chains are included in this proof. Their derived
+PF mirrors are removed newest-first before dropping the self-referencing table,
+inside the same downgrade transaction. An injected failure after the first mirror
+deletion restores the complete PF schema/guards/rows; original legacy history is
+never deleted to perform this roundtrip.
 
 ## Audit and compatibility
 

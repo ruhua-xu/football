@@ -21,7 +21,7 @@ from tests.integration.openfootball_upgrade_support import sqlite_snapshot
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def genuine_database(tmp_path):
+def genuine_database(tmp_path, *, postlock=False):
     old = tmp_path / "published-v131"
     old.mkdir()
     raw = subprocess.check_output(["git", "archive", "f689ff7340598fd37f061473383461117ecb637d", "src", "config", "migrations", "scripts", "data/fixtures", "alembic.ini", "pyproject.toml"], cwd=ROOT)
@@ -29,14 +29,54 @@ def genuine_database(tmp_path):
         archive.extractall(old, filter="data")
     work = tmp_path / "old-lifecycle"
     code = """
-import json,sys
+from datetime import timedelta
+import json,socket,sys
 from pathlib import Path
+from sqlalchemy import text
 import football_system
 from scripts.real_bridge_acceptance import exercise
+from football_system.application.real_bridge_requests import REQUEST_TYPES
+from football_system.infrastructure.database.real_bridge_repository import SqlAlchemyRealBridgeRepository
 assert football_system.__version__=='1.3.1' and Path(sys.argv[1]) in Path(football_system.__file__).parents
-print(json.dumps(exercise(Path(sys.argv[2]))))
+def denied(*args,**kwargs):raise AssertionError('GENUINE_LEGACY_ACCEPTANCE_NETWORK_FORBIDDEN')
+socket.socket.connect=denied
+if sys.argv[3]=='False':
+    summary=exercise(Path(sys.argv[2]))
+else:
+    # Stop the real old lifecycle at its first committed lock, while all source
+    # quotes and pre-kickoff times remain valid for a genuine post-lock revision.
+    class Captured(Exception):pass
+    held={}
+    original=SqlAlchemyRealBridgeRepository.execute
+    def capture(self,operation,request):
+        value=original(self,operation,request)
+        if operation=='lock' and request.request_key=='lock':
+            held.update(repository=self,lock=value)
+            raise Captured()
+        return value
+    SqlAlchemyRealBridgeRepository.execute=capture
+    try:exercise(Path(sys.argv[2]))
+    except Captured:pass
+    finally:SqlAlchemyRealBridgeRepository.execute=original
+    repo,lock=held['repository'],held['lock']
+    repo.clock.at+=timedelta(seconds=1)
+    with repo.sessions() as session:
+        initial=json.loads(session.execute(text("SELECT request_json FROM rb_receipts WHERE request_key='prepare'")).scalar_one())
+    initial.update(request_key='old-binary-postlock-prepare',supersedes_lock_id=lock.artifact_id)
+    run=repo.execute('prepare',REQUEST_TYPES['prepare'].model_validate(initial))
+    repo.clock.at+=timedelta(seconds=1)
+    revision=repo.execute('lock',REQUEST_TYPES['lock'](request_key='old-binary-postlock-lock',run_id=run.artifact_id,
+        invalidation_reason='self-authored old-binary prediction revision'))
+    with repo.sessions() as session:
+        versions=[list(row) for row in session.execute(text('SELECT version,previous_version,count(*) FROM rb_prediction_versions GROUP BY version,previous_version ORDER BY version'))]
+        assert versions==[[0,None,2],[1,0,2]]
+        assert not session.execute(text('PRAGMA foreign_key_check')).all()
+    assert repo.audit(revision.artifact_id)['status']=='AUDIT_PASS'
+    summary=dict(provenance='SYNTHETIC_SOFTWARE_ACCEPTANCE',migration_head='8ea7bcd49510',lock_id=lock.artifact_id,
+        replacement_lock_id=revision.artifact_id,versions=versions,old_api_postlock_revision=True,real_observation_count=0)
+print(json.dumps(summary))
 """
-    result = subprocess.run([sys.executable, "-B", "-c", code, str(old), str(work)], cwd=old,
+    result = subprocess.run([sys.executable, "-B", "-c", code, str(old), str(work), str(postlock)], cwd=old,
         env=os.environ | {"PYTHONPATH": str(old / "src"), "PYTHONDONTWRITEBYTECODE": "1", "PYTHONUTF8": "1"},
         capture_output=True, text=True, encoding="utf-8", timeout=900)
     assert result.returncode == 0, result.stdout + result.stderr
@@ -52,8 +92,9 @@ def config(path):
     return cfg
 
 
-def test_complete_genuine_v131_ledger_backfill_and_empty_portfolio_roundtrip(tmp_path):
-    path,legacy,old = genuine_database(tmp_path)
+@pytest.mark.parametrize("postlock",[False,True])
+def test_complete_genuine_v131_ledger_backfill_and_empty_portfolio_roundtrip(tmp_path,postlock):
+    path,legacy,old = genuine_database(tmp_path,postlock=postlock)
     before = sqlite_snapshot(path)
     cfg = config(path)
     command.upgrade(cfg, HEAD)
@@ -73,6 +114,8 @@ def test_complete_genuine_v131_ledger_backfill_and_empty_portfolio_roundtrip(tmp
                 counts[old_name] = old_count
             assert conn.scalar(text("SELECT count(*) FROM pf_artifacts")) == 0
             assert conn.scalar(text("SELECT count(*) FROM pf_backfill_proofs")) == 1
+            if postlock:
+                assert [list(row) for row in conn.execute(text("SELECT version,previous_version,count(*) FROM pf_shared_versions GROUP BY version,previous_version ORDER BY version"))]==legacy["versions"]
     finally:
         engine.dispose()
     old_reader = """
@@ -85,10 +128,23 @@ assert dispatch_real_bridge(['show','--database-url','sqlite:///'+Path(sys.argv[
     '--evidence-root',sys.argv[3],'--artifact-id',sys.argv[4]])==1
 print('ACTUAL_V131_BINARY_UNKNOWN_HEAD_REFUSAL')
 """
-    refusal = subprocess.run([sys.executable,"-B","-c",old_reader,str(old),str(path),str(path.parent),legacy["report_id"]],cwd=old,
+    refusal = subprocess.run([sys.executable,"-B","-c",old_reader,str(old),str(path),str(path.parent),legacy.get("report_id",legacy["lock_id"])],cwd=old,
         env=os.environ|{"PYTHONPATH":str(old/"src"),"PYTHONUTF8":"1"},capture_output=True,text=True,encoding="utf-8",timeout=60)
     assert refusal.returncode==0 and "ACTUAL_V131_BINARY_UNKNOWN_HEAD_REFUSAL" in refusal.stdout,refusal.stdout+refusal.stderr
     assert sqlite_snapshot(path)==after
+    if postlock:
+        remaining=[]
+        def fail_after_mirror_delete(connection,cursor,statement,parameters,context,executemany):
+            if statement.startswith("DELETE FROM pf_shared_versions WHERE version="):
+                remaining.append(connection.scalar(text("SELECT count(*) FROM pf_shared_versions")))
+                raise ValueError("SYNTHETIC_EMPTY_DOWNGRADE_FAILURE")
+        event.listen(Engine,"after_cursor_execute",fail_after_mirror_delete)
+        try:
+            with pytest.raises(ValueError,match="SYNTHETIC_EMPTY_DOWNGRADE_FAILURE"):
+                command.downgrade(cfg,"8ea7bcd49510")
+        finally:
+            event.remove(Engine,"after_cursor_execute",fail_after_mirror_delete)
+        assert remaining==[2] and sqlite_snapshot(path)==after
     # Pure legacy shadows are derived metadata; empty PF business can downgrade.
     command.downgrade(cfg, "8ea7bcd49510")
     assert sqlite_snapshot(path) == before
@@ -96,7 +152,8 @@ print('ACTUAL_V131_BINARY_UNKNOWN_HEAD_REFUSAL')
     command.check(cfg)
     (tmp_path / "portfolio-genuine-backfill-proof.json").write_text(json.dumps(dict(status="PASS_GENUINE_LEGACY_BACKFILL",
         archived_commit="f689ff7340598fd37f061473383461117ecb637d", old_rows_ddl_json_unchanged=True,
-        counts=counts, legacy_lifecycle=legacy, actual_v131_binary_unknown_head_refused=True,
+        counts=counts, legacy_lifecycle=legacy, actual_v131_binary_unknown_head_refused=True,postlock_version_chain=postlock,
+        derived_mirror_delete_failure_rolls_back=postlock,
         empty_pf_roundtrip=True, production_touched=False), indent=2), encoding="utf-8")
 
 

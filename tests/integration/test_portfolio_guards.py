@@ -194,6 +194,17 @@ def test_duplicate_snapshot_or_same_run_cannot_be_an_extra_leg(g):
     assert counts(g)["pf_budget_claims"]==0
 
 
+def test_missing_artifact_is_a_durable_idempotent_rejection_without_any_claim(g):
+    before=counts(g)
+    for _ in range(2):
+        with pytest.raises(ValueError,match="PF_INPUT_OR_SOURCE_REJECTED"):
+            g.pf_call("lock","missing-assembly",assembly_id="unavailable-assembly")
+    with g.sessions() as session:
+        assert session.scalar(text("SELECT count(*) FROM pf_rejections WHERE request_key='missing-assembly'"))==1
+        assert session.scalar(text("SELECT count(*) FROM pf_receipts WHERE request_key='missing-assembly'"))==0
+    assert counts(g)==before
+
+
 def test_budget_review_cannot_be_replaced_by_model_authority_or_amount_override(g):
     subject=g.budget_subject.model_copy(update={"budget_fen":20000,"funding_limit_fen":20000})
     request=REQUEST_TYPES["budget-record"](request_key="changed-budget",subject=subject,review=g.budget_review,authority=g.budget_authority)

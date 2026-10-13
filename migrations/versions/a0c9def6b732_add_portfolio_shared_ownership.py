@@ -26,10 +26,13 @@ def upgrade():
 
 
 def downgrade():
-    from football_system.infrastructure.database.portfolio_schema import TABLES, portfolio_triggers, assert_legacy_mirrors
+    from football_system.infrastructure.database.portfolio_schema import TABLES, portfolio_triggers, assert_legacy_mirrors, assert_portfolio_schema
     connection = op.get_bind()
     if not connection.connection.driver_connection.in_transaction:
         connection.exec_driver_sql("BEGIN IMMEDIATE")
+    assert_portfolio_schema(connection)
+    if connection.execute(sa.text("PRAGMA foreign_key_check")).all():
+        raise RuntimeError("incomplete Portfolio ownership cannot be downgraded")
     if connection.scalar(sa.text("SELECT count(*) FROM pf_artifacts")) or connection.scalar(sa.text("SELECT count(*) FROM pf_receipts")) or connection.scalar(sa.text("SELECT count(*) FROM pf_rejections")):
         raise RuntimeError("populated Portfolio B artifacts cannot be downgraded")
     if connection.scalar(sa.text("SELECT count(*) FROM pf_shared_heads WHERE portfolio_lock_id IS NOT NULL")) or connection.scalar(sa.text("SELECT count(*) FROM pf_shared_slots WHERE initial_portfolio_lock_id IS NOT NULL")):
@@ -37,5 +40,11 @@ def downgrade():
     assert_legacy_mirrors(connection)
     for name in portfolio_triggers():
         connection.exec_driver_sql("DROP TRIGGER IF EXISTS " + name)
+    # SQLite DROP TABLE implicitly deletes rows. Its immediate self-FK RESTRICT
+    # rejects a populated historical version chain even though PF business is
+    # empty. Remove only verified, reproducible legacy mirrors newest-first in
+    # this same transaction; the original rb_* version history is untouched.
+    while connection.scalar(sa.text("SELECT count(*) FROM pf_shared_versions")):
+        connection.exec_driver_sql("DELETE FROM pf_shared_versions WHERE version=(SELECT max(version) FROM pf_shared_versions)")
     for name in reversed(TABLES):
         op.drop_table(name)
