@@ -9,7 +9,7 @@ from football_system.infrastructure.database.portfolio_repository import SqlAlch
 from scripts.scoped_model_acceptance_inputs import graph, source, through_model, create_program_and_pin, write, review
 
 
-def setup(root):
+def setup(root, *, maximum_odds_age_seconds=3600):
     g = graph(root)
     g.sources = [through_model(g, source(g), kickoff_hours=4), through_model(g, source(g, "B", 5, "Europe/London"), kickoff_hours=5)]
     for s in g.sources:
@@ -22,7 +22,7 @@ def setup(root):
                 verified_by="synthetic-operator", evidence_file=s.proof.evidence_reference, evidence_hash=s.proof.evidence_sha256,
                 credential_verified=kind=="MARKET")
         s.policy = s.call("policy", "policy", program_id=s.program.artifact_id, result_source_identity="synthetic-results-"+s.label,
-            maximum_odds_age_seconds=3600, minimum_bookmaker_count=2)
+            maximum_odds_age_seconds=maximum_odds_age_seconds, minimum_bookmaker_count=2)
         s.anchor = s.call("anchor", "anchor", program_id=s.program.artifact_id, policy_id=s.policy.artifact_id, model_pin_id=s.pin.artifact_id,
             starts_at_utc=g.clock()+timedelta(minutes=1), ends_at_utc=s.kickoff+timedelta(days=2))
         s.epoch = s.call("epoch", "epoch", anchor_id=s.anchor.artifact_id)

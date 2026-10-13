@@ -18,11 +18,11 @@ from football_system.domain.portfolio import AtomicPortfolioLockV1, LockContentV
 
 
 @pytest.fixture
-def g(tmp_path, monkeypatch):
+def g(tmp_path, monkeypatch, request):
     def denied(*args,**kwargs):
         raise AssertionError("PF_SOFTWARE_ACCEPTANCE_NETWORK_FORBIDDEN")
     monkeypatch.setattr(socket.socket,"connect",denied)
-    value=setup(tmp_path)
+    value=setup(tmp_path,maximum_odds_age_seconds=getattr(request,"param",3600))
     prepare(value,"2X1")
     yield value
     value.engine.dispose()
@@ -413,7 +413,10 @@ def test_known_result_before_future_kickoff_refuses_every_portfolio_claim(g):
     assert counts(g)==before
 
 
+@pytest.mark.parametrize("g",[86400],indirect=True)
 def test_earliest_unselected_bucket_still_controls_lock_deadline(g):
+    # Keep every quote independently fresh at the tested boundary. Snapshot ID
+    # order varies by private evidence path and must not select the failure gate.
     late=g.sources[1]
     bundle=g.pf_call("ticket-requests","late-only-ticket",requests=({"pass_type":"2X1","choices":[
         dict(match_id=t.match_id,market_key={"market_type":"THREE_WAY"},outcomes=["HOME_WIN"]) for t in late.targets]},))
