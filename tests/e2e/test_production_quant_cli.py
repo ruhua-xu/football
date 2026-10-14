@@ -54,9 +54,12 @@ def offline(monkeypatch):
 
 @pytest.fixture
 def lane(tmp_path):
-    cli.upgrade_database(
-        f"sqlite:///{(tmp_path / 'lane.db').as_posix()}", ROOT / "alembic.ini"
-    )
+    from tests.support.empty_database import fresh_empty_database
+
+    if not fresh_empty_database(tmp_path / "lane.db", kind="migrated"):
+        cli.upgrade_database(
+            f"sqlite:///{(tmp_path / 'lane.db').as_posix()}", ROOT / "alembic.ini"
+        )
     yield from admission_tests.lane.__wrapped__(tmp_path)
 
 

@@ -1,0 +1,8 @@
+# Benchmark/development-only dependencies; application/package requirements stay frozen.
+pytest==8.4.2
+pytest-xdist==3.8.0
+psutil==7.0.0
+build==1.6.1
+ruff==0.17.0
+setuptools==84.0.0
+wheel==0.48.0

@@ -125,8 +125,13 @@ def review_document(*, schema, digest, at):
 
 @pytest.fixture
 def lane(tmp_path):
-    engine = create_database_engine(f"sqlite:///{(tmp_path / 'lane.db').as_posix()}")
-    create_schema(engine)
+    from tests.support.empty_database import fresh_empty_database
+
+    database = tmp_path / "lane.db"
+    initialized = fresh_empty_database(database)
+    engine = create_database_engine(f"sqlite:///{database.as_posix()}")
+    if not initialized:
+        create_schema(engine)
     sessions = create_session_factory(engine)
     clock = Clock()
     authority = write_evidence(
