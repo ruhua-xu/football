@@ -122,6 +122,7 @@ where = ["src"]
     "migrations/versions/7d96abc3840f_add_openfootball_production_binding.py",
     "migrations/versions/8ea7bcd49510_add_ofp_real_model_pin_source.py",
     "migrations/versions/9fb8cde5a621_add_scoped_openfootball_ledger.py",
+    "migrations/versions/a0c9def6b732_add_portfolio_shared_ownership.py",
 ]
 
 [tool.pytest.ini_options]

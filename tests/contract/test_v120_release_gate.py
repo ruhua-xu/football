@@ -13,6 +13,7 @@ from football_system.infrastructure.files.real_bridge import identities, FROZEN_
 from tests.contract.p0_catalog_projection import project_p0
 from tests.contract.release131_projection import project_release131
 from tests.contract.scoped_projection import project_scoped, SCOPED_NEW_FILES
+from tests.contract.portfolio_projection import PORTFOLIO_RUNTIME_NEW_FILES, project_portfolio
 
 ROOT=Path(__file__).resolve().parents[2]
 RELEASE="8b7cfb3ac2e416a5c3c8f5046150245ab076f490"
@@ -56,7 +57,7 @@ def test_v120_unmodified_math_qualification_and_legacy_source_files_are_byte_fro
     current={p.relative_to(ROOT).as_posix() for directory in ("src/football_system","config","migrations")
         for p in (ROOT/directory).rglob("*") if p.is_file() and "__pycache__" not in p.parts}
     current.add("pyproject.toml")
-    assert current-checked==NEW_FILES|SCOPED_NEW_FILES
+    assert current-checked==NEW_FILES|SCOPED_NEW_FILES|PORTFOLIO_RUNTIME_NEW_FILES
     assert checked<=current
     before=tomllib.loads(old_text("pyproject.toml"))
     after=tomllib.loads(project_scoped("pyproject.toml", (ROOT/"pyproject.toml").read_bytes().replace(b"\r\n",b"\n")).decode())
@@ -75,7 +76,7 @@ def test_real_bridge_configuration_and_other_lifecycle_classes_are_unchanged():
     for name,allowed in (("domain/real_bridge.py",{"RealModelPinV1"}), ("application/real_bridge_requests.py",{"ModelPinRequest"})):
         relative="src/football_system/"+name
         old=old_text(relative)
-        new=(ROOT/relative).read_text(encoding="utf-8")
+        new=project_portfolio(relative,(ROOT/relative).read_text(encoding="utf-8").encode()).decode()
         old_nodes={n.name:ast.get_source_segment(old,n) for n in ast.parse(old).body if isinstance(n,ast.ClassDef)}
         new_nodes={n.name:ast.get_source_segment(new,n) for n in ast.parse(new).body if isinstance(n,ast.ClassDef)}
         assert old_nodes.keys()==new_nodes.keys()
@@ -83,7 +84,7 @@ def test_real_bridge_configuration_and_other_lifecycle_classes_are_unchanged():
             assert old_nodes[key]==new_nodes[key],key
     relative="src/football_system/infrastructure/database/real_bridge_repository.py"
     old=old_text(relative)
-    new=(ROOT/relative).read_text(encoding="utf-8")
+    new=project_portfolio(relative,(ROOT/relative).read_text(encoding="utf-8").encode()).decode()
     def operations(source):
         cls=next(n for n in ast.parse(source).body if isinstance(n,ast.ClassDef) and n.name=="SqlAlchemyRealBridgeRepository")
         build=next(n for n in cls.body if isinstance(n,ast.FunctionDef) and n.name=="_build")

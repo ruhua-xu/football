@@ -6,6 +6,7 @@ import tarfile
 from tests.contract.p0_catalog_projection import project_p0
 from tests.contract.release131_projection import project_release131
 from tests.contract.scoped_projection import project_scoped, SCOPED_NEW_FILES
+from tests.contract.portfolio_projection import PORTFOLIO_RUNTIME_NEW_FILES
 
 ROOT=Path(__file__).resolve().parents[2]
 ACCEPTED="a6952a4f9b86e1c273aa66e9f48c7930d8687a0a"
@@ -30,4 +31,4 @@ def test_release_preserves_accepted_business_source_config_and_migrations():
             checked.add(member.name)
     current={p.relative_to(ROOT).as_posix() for d in ("src/football_system","config","migrations")
         for p in (ROOT/d).rglob("*") if p.is_file() and "__pycache__" not in p.parts}
-    assert current|{"pyproject.toml"}==checked|{"src/football_system/domain/openfootball_scope.py"}|SCOPED_NEW_FILES
+    assert current|{"pyproject.toml"}==checked|{"src/football_system/domain/openfootball_scope.py"}|SCOPED_NEW_FILES|PORTFOLIO_RUNTIME_NEW_FILES

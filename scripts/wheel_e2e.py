@@ -17,7 +17,7 @@ from typing import Sequence
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_VERSION = "1.4.0.dev0"
-EXPECTED_MIGRATION_HEAD = "9fb8cde5a621"
+EXPECTED_MIGRATION_HEAD = "a0c9def6b732"
 PINNED_TIMEZONE_DEPENDENCY = "tzdata==2025.2"
 PROVIDER_CODE = "SYNTHETIC_ACCEPTANCE_V1"
 QUANT_RUN_ID = "wheel-e2e-quant"
@@ -133,6 +133,7 @@ EXPECTED_RESOURCE_FILES = frozenset(
         "migrations/versions/7d96abc3840f_add_openfootball_production_binding.py",
         "migrations/versions/8ea7bcd49510_add_ofp_real_model_pin_source.py",
         "migrations/versions/9fb8cde5a621_add_scoped_openfootball_ledger.py",
+        "migrations/versions/a0c9def6b732_add_portfolio_shared_ownership.py",
     }
 )
 
@@ -991,6 +992,12 @@ print(json.dumps({"portfolio_settlement_id": row[0]}))
         )
         real_summaries.append(json.loads((target/"acceptance-summary.json").read_bytes()))
     _require(real_summaries[0]==real_summaries[1],"real bridge differs across input order, hash seed or ambient Decimal")
+
+    _run_checked(
+        "installed two-qualified-model cross-bucket Portfolio lifecycle",
+        [python,"-I",PROJECT_ROOT/"scripts"/"portfolio_acceptance.py","--work-dir",work_dir/"portfolio-acceptance"],
+        cwd=work_dir,environment=environment,markers=("PORTFOLIO_INSTALLED_WHEEL_ACCEPTANCE_PASS",),timeout=1800,
+    )
 
     final_state_code = """
 import json

@@ -45,7 +45,7 @@ print(json.dumps(exercise(Path(sys.argv[2]))))
     cfg.set_main_option("script_location", str(ROOT / "migrations"))
     cfg.set_main_option("sqlalchemy.url", ("sqlite:///" + path.as_posix()).replace("%", "%%"))
     command.upgrade(cfg, HEAD)
-    command.check(cfg)
+    # Retain the exact 9fb checkpoint; Alembic autogenerate requires newest head.
     after = sqlite_snapshot(path)
     assert after["head"] == HEAD
     for part in ("schema", "rows", "layout", "artifacts"):
@@ -61,10 +61,11 @@ print(json.dumps(exercise(Path(sys.argv[2]))))
     command.downgrade(cfg, "8ea7bcd49510")
     assert sqlite_snapshot(path) == before
     command.upgrade(cfg, HEAD)
-    command.check(cfg)
     final = sqlite_snapshot(path)
     for part in ("schema", "rows", "layout", "artifacts"):
         assert all(final[part][key] == value for key, value in before[part].items())
+    command.upgrade(cfg, "head")
+    command.check(cfg)
     (tmp_path / "scoped-genuine-v131-upgrade-proof.json").write_text(json.dumps(dict(status="PASS_GENUINE_RELEASED_CODE_DB_UPGRADE",
         release="f689ff7340598fd37f061473383461117ecb637d", legacy_lifecycle=legacy, old_rows_ddl_artifact_json_unchanged=True,
         added_tables=list(TABLES), empty_roundtrip=True, production_touched=False), indent=2), encoding="utf-8")

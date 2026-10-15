@@ -14,6 +14,6 @@ def test_rendered_sqlite_url_with_percent_is_not_config_interpolation(tmp_path):
     url=URL.create("sqlite+pysqlite",database=str(database)).render_as_string(hide_password=False)
     upgrade_database(url,Path(__file__).resolve().parents[2]/"alembic.ini")
     with sqlite3.connect(database.as_uri()+"?mode=ro",uri=True) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]=="9fb8cde5a621"
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]=="a0c9def6b732"
         assert connection.execute("PRAGMA integrity_check").fetchall()==[("ok",)]
         assert connection.execute("PRAGMA foreign_key_check").fetchall()==[]

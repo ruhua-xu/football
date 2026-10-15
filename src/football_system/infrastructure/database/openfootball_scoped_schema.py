@@ -10,7 +10,7 @@ from football_system.domain.openfootball_scope import CompetitionScopeProfileV2
 from football_system.domain.openfootball_scoped import ScopedArtifactV2
 
 HEAD = "9fb8cde5a621"
-SUPPORTED_HEADS = frozenset({HEAD})
+SUPPORTED_HEADS = frozenset({HEAD, "a0c9def6b732"})
 TABLES = ("ofpv2_scopes", "ofpv2_artifacts", "ofpv2_parents", "ofpv2_seals", "ofpv2_files", "ofpv2_mappings",
           "ofpv2_records", "ofpv2_instances", "ofpv2_phases", "ofpv2_operations", "ofpv2_real_model_pins")
 

@@ -13,11 +13,14 @@ BRIDGE_FILES = ("domain/real_bridge.py", "domain/services/real_bridge.py", "appl
     "domain/pinned_model_source.py", "infrastructure/database/openfootball_model_source.py",
     "infrastructure/database/ofp_real_model_pin_schema.py", "infrastructure/database/real_bridge_head.py",
     "domain/openfootball_scope.py", "domain/openfootball_scoped.py",
-    "infrastructure/database/openfootball_scoped_schema.py", "infrastructure/database/openfootball_scoped_repository.py")
+    "infrastructure/database/openfootball_scoped_schema.py", "infrastructure/database/openfootball_scoped_repository.py",
+    "domain/portfolio.py", "domain/portfolio_math.py", "application/portfolio_math.py", "application/portfolio_requests.py", "application/portfolio_review.py",
+    "infrastructure/database/portfolio_types.py", "infrastructure/database/portfolio_schema.py", "infrastructure/database/portfolio_repository.py")
 
 # Published artifact identities remain historical identities, never rewritten.
 LEGACY_BRIDGE_IMPLEMENTATIONS = frozenset({"aa55cbe20e31b6ea1b4f4bc1f723832ae34474b85b02222c6d05e66e4bb4b11b",
-    "b1bd50a2851df9d54b80a73ac5681834062cad6b9cce4addc25a6e49283ce241"})
+    "b1bd50a2851df9d54b80a73ac5681834062cad6b9cce4addc25a6e49283ce241",
+    "2819acc9d4591b6cd272383f741cef36a05b9ccd8028a5ba90536bf92f6c137e"})
 
 FROZEN_IDENTITIES = dict(
     return_algorithm="76995ed699a8d054f3865ffbbc0063a46af2123f18ab34aa6b27a91690dc7aa6",

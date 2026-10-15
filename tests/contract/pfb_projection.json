@@ -1,0 +1,114 @@
+{
+  "schema_version": "PFB_EXACT_REVIEWED_HUNK_PROJECTION_V1",
+  "base": "4f4ec037a8173008cc07066f3ea02d036a4364f1",
+  "new_files": [
+    "migrations/versions/a0c9def6b732_add_portfolio_shared_ownership.py",
+    "scripts/portfolio_acceptance.py",
+    "scripts/portfolio_acceptance_inputs.py",
+    "scripts/scoped_model_acceptance_inputs.py",
+    "src/football_system/application/portfolio_math.py",
+    "src/football_system/application/portfolio_requests.py",
+    "src/football_system/application/portfolio_review.py",
+    "src/football_system/domain/portfolio.py",
+    "src/football_system/domain/portfolio_math.py",
+    "src/football_system/infrastructure/database/portfolio_repository.py",
+    "src/football_system/infrastructure/database/portfolio_schema.py",
+    "src/football_system/infrastructure/database/portfolio_types.py"
+  ],
+  "files": {
+    "pyproject.toml": {
+      "before_sha256": "62de53ab5436bfa9ab052535294648bb1c1a49bd31596e63e23aab9c813cb9f5",
+      "after_sha256": "ce3b9470236ca6793861e65bbafc6d1e824dbebf0b745ae31e22bd22ef73e53e",
+      "hunks": [{"after_start":124,"before":[],"after":["    \"migrations/versions/a0c9def6b732_add_portfolio_shared_ownership.py\",\n"]}]
+    },
+    "scripts/daily_operator.py": {
+      "before_sha256": "da343df2c2c612fbadf14ce4e5fddab304fb0228d6f40b2672ed64d323aa2040",
+      "after_sha256": "4d014d837f227109f743e7b07e307c6b6ded0aea1c05d681ce4854ae445a762d",
+      "hunks": [
+        {"after_start":22,"before":["RELEASE_HEAD = \"9fb8cde5a621\"\n"],"after":["RELEASE_HEAD = \"a0c9def6b732\"\n"]},
+        {"after_start":24,"before":["APPROVED_IMPLEMENTATION = \"de3f221ea2ea3afedbddb2faf4614c63659ba973\"\n"],"after":["APPROVED_IMPLEMENTATION = \"4f4ec037a8173008cc07066f3ea02d036a4364f1\"\n"]},
+        {"after_start":87,"before":["    \"\"\"Explicit v1.3 release identity; current qualification is Bundesliga 2026/27.\"\"\"\n"],"after":["    \"\"\"Explicit isolated development identity; qualification is always scope-specific.\"\"\"\n"]},
+        {"after_start":95,"before":["        release_base_commit=APPROVED_IMPLEMENTATION, execution_profile=\"OPENFOOTBALL_SCOPED_DEVELOPMENT_V2\",\n"],"after":["        release_base_commit=APPROVED_IMPLEMENTATION, execution_profile=\"PORTFOLIO_SCOPED_DEVELOPMENT_V1\",\n"]},
+        {"after_start":541,"before":["        output(\"新建安装类型：\"+INSTALL_V2+\" / OPENFOOTBALL_SCOPED_DEVELOPMENT_V2 / version=\"+RELEASE_VERSION+\" / head=\"+RELEASE_HEAD)\n"],"after":["        output(\"新建安装类型：\"+INSTALL_V2+\" / PORTFOLIO_SCOPED_DEVELOPMENT_V1 / version=\"+RELEASE_VERSION+\" / head=\"+RELEASE_HEAD)\n"]}
+      ]
+    },
+    "scripts/wheel_e2e.py": {
+      "before_sha256": "24b8e803f4486ea4c967634a9256be7d6f89253d657164fb59851c74fe52fab4",
+      "after_sha256": "83aceab49fea75140831858f6dd5e824f8cbeed2d06eeda6fad7809181b43bf2",
+      "hunks": [
+        {"after_start":19,"before":["EXPECTED_MIGRATION_HEAD = \"9fb8cde5a621\"\n"],"after":["EXPECTED_MIGRATION_HEAD = \"a0c9def6b732\"\n"]},
+        {"after_start":135,"before":[],"after":["        \"migrations/versions/a0c9def6b732_add_portfolio_shared_ownership.py\",\n"]},
+        {"after_start":995,"before":[],"after":[
+          "    _run_checked(\n",
+          "        \"installed two-qualified-model cross-bucket Portfolio lifecycle\",\n",
+          "        [python,\"-I\",PROJECT_ROOT/\"scripts\"/\"portfolio_acceptance.py\",\"--work-dir\",work_dir/\"portfolio-acceptance\"],\n",
+          "        cwd=work_dir,environment=environment,markers=(\"PORTFOLIO_INSTALLED_WHEEL_ACCEPTANCE_PASS\",),timeout=1800,\n",
+          "    )\n","\n"
+        ]}
+      ]
+    },
+    "src/football_system/application/real_bridge_requests.py": {
+      "before_sha256": "8ad8d3a24c0abb3fd482456dd86118c0179a324fa61cead36487a0058ce78515",
+      "after_sha256": "7aff6f8e36adc898c39a4d060634c3646edb408b01659d21bfff17090af0d84e",
+      "hunks": [
+        {"after_start":143,"before":[],"after":["class ReviewImportRequest(Request):\n","    run_id: Identifier\n","    raw_review: str | None = Field(default=None, max_length=4*1024*1024)\n","    reasons: tuple[CorrectionReasonV1, ...] | None = None\n","\n","\n"]},
+        {"after_start":186,"before":[],"after":["    \"review-import\": ReviewImportRequest,\n"]}
+      ]
+    },
+    "src/football_system/infrastructure/database/immutability.py": {
+      "before_sha256": "26748b36bb39556b3797b92eca9b3e40a77f0d40a2736c48c30b1b51834d6145",
+      "after_sha256": "505ee3cece39d2e0a77992aaa9d201514ca1c038c1a3e6fa2747a2d7f5ea10d5",
+      "hunks": [{"after_start":1477,"before":[],"after":["    from football_system.infrastructure.database.portfolio_schema import install_portfolio_triggers\n","\n","    install_portfolio_triggers(connection)\n"]}]
+    },
+    "src/football_system/infrastructure/database/models.py": {
+      "before_sha256": "b8dcf3aec3a52de0f050fb3780f2d6663eee60a149d0a9f189c2c2845220dd9b",
+      "after_sha256": "2da69bb513fa9fecc884e4abf084d172902cb8eb3920de7eb946c5652f7979d5",
+      "hunks": [{"after_start":3451,"before":[],"after":["\n","# Independent Portfolio graphs share ownership with the unchanged legacy ledger.\n","from football_system.infrastructure.database.portfolio_schema import portfolio_tables  # noqa: E402\n","\n","_portfolio_tables = portfolio_tables(Base.metadata)\n"]}]
+    },
+    "src/football_system/infrastructure/database/openfootball_scoped_schema.py": {
+      "before_sha256": "8d027205049f007d1cfca9ec55603ade43c98afd37aa10db64f9925be7814a14",
+      "after_sha256": "3ab783a3150cc05d2999757ab8f91a266abad131046f5fb17fad7ef0235df871",
+      "hunks": [{"after_start":12,"before":["SUPPORTED_HEADS = frozenset({HEAD})\n"],"after":["SUPPORTED_HEADS = frozenset({HEAD, \"a0c9def6b732\"})\n"]}]
+    },
+    "src/football_system/infrastructure/database/real_bridge_head.py": {
+      "before_sha256": "e5ffccedc57660863ed223bbdaf42caecf0b45464a9e93df27aa51865aaf0e9b",
+      "after_sha256": "9642aaaa9d7083a22f06a2dd20548bffed2bc358cb43d4bb570307c5dd3d9641",
+      "hunks": [
+        {"after_start":6,"before":[],"after":["from football_system.infrastructure.database.portfolio_schema import HEAD as PORTFOLIO_HEAD, assert_portfolio_schema, assert_legacy_mirrors\n"]},
+        {"after_start":8,"before":["SUPPORTED_REAL_BRIDGE_HEADS = frozenset({\"6c859ab273fe\", \"7d96abc3840f\", HEAD, SCOPED_HEAD})\n"],"after":["SUPPORTED_REAL_BRIDGE_HEADS = frozenset({\"6c859ab273fe\", \"7d96abc3840f\", HEAD, SCOPED_HEAD, PORTFOLIO_HEAD})\n"]},
+        {"after_start":16,"before":["    if heads[0] in {HEAD, SCOPED_HEAD}:\n"],"after":["    if heads[0] in {HEAD, SCOPED_HEAD, PORTFOLIO_HEAD}:\n"]},
+        {"after_start":18,"before":["    if heads[0] == SCOPED_HEAD:\n"],"after":["    if heads[0] in {SCOPED_HEAD, PORTFOLIO_HEAD}:\n"]},
+        {"after_start":20,"before":[],"after":["    if heads[0] == PORTFOLIO_HEAD:\n","        assert_portfolio_schema(session.connection())\n","        assert_legacy_mirrors(session.connection())\n"]}
+      ]
+    },
+    "src/football_system/infrastructure/database/real_bridge_repository.py": {
+      "before_sha256": "24cbe9bf1e77a6c6aaace1fa536d9b25f9634151bdbb41e61e381540b6807439",
+      "after_sha256": "bb04db3ae89b32aee4ef05d6c23b3cef171fa9b9dafd36e9518b809a7aae795e",
+      "hunks": [
+        {"after_start":255,"before":["                        elif operation in {\"prepare\",\"replace\"}:\n","                            self._epoch(session,response.epoch.artifact_id,final)\n","                            self._kickoff(session,self._ref(session,response.bucket,\"REAL_KICKOFF_BUCKET_V1\"),final)\n"],"after":["                        elif operation in {\"prepare\",\"replace\",\"review-import\"}:\n","                            source_run=response if operation!=\"review-import\" else self._ref(session,response.run,\"REAL_PROSPECTIVE_RUN_V1\")\n","                            self._epoch(session,source_run.epoch.artifact_id,final)\n","                            self._kickoff(session,self._ref(session,source_run.bucket,\"REAL_KICKOFF_BUCKET_V1\"),final)\n"]},
+        {"after_start":273,"before":["                        if operation in {\"lock\",\"prepare\",\"replace\"}:\n","                            run=response if operation!=\"lock\" else self._ref(session,response.run,\"REAL_PROSPECTIVE_RUN_V1\")\n"],"after":["                        if operation in {\"lock\",\"prepare\",\"replace\",\"review-import\"}:\n","                            run=response if operation in {\"prepare\",\"replace\"} else self._ref(session,response.run,\"REAL_PROSPECTIVE_RUN_V1\")\n"]},
+        {"after_start":318,"before":[],"after":["        if op == \"review-import\":\n","            from football_system.application.portfolio_review import import_source_review\n","            return import_source_review(self, s, r, at)\n"]},
+        {"after_start":687,"before":[],"after":["        if s.scalar(text(\"SELECT count(*) FROM sqlite_master WHERE type='table' AND name='pf_shared_heads'\")):\n","            owned=s.scalar(text(\"SELECT count(*) FROM pf_shared_heads h JOIN pf_seals z ON z.artifact_id=h.portfolio_lock_id JOIN rb_artifacts a ON a.artifact_id=h.parent_run_id WHERE json_extract(a.artifact_json,'$.epoch.artifact_id')=:epoch AND z.published_us<=:at\"),\n","                {\"epoch\":epoch.artifact_id,\"at\":micros(cutoff)})\n","            require(not owned,\"PORTFOLIO_AWARE_REPORT_REQUIRED\")\n"]}
+      ]
+    },
+    "src/football_system/infrastructure/files/real_bridge.py": {
+      "before_sha256": "b66a7c52641cfc79816d73f05b12d0bdda09282217020462916b7ba968e0ad90",
+      "after_sha256": "66770afe4cb9977ba71a4c41fbd4d03468f798cc51705bc64cfbb85316ed4eea",
+      "hunks": [
+        {"after_start":15,"before":["    \"infrastructure/database/openfootball_scoped_schema.py\", \"infrastructure/database/openfootball_scoped_repository.py\")\n"],"after":["    \"infrastructure/database/openfootball_scoped_schema.py\", \"infrastructure/database/openfootball_scoped_repository.py\",\n","    \"domain/portfolio.py\", \"domain/portfolio_math.py\", \"application/portfolio_math.py\", \"application/portfolio_requests.py\", \"application/portfolio_review.py\",\n","    \"infrastructure/database/portfolio_types.py\", \"infrastructure/database/portfolio_schema.py\", \"infrastructure/database/portfolio_repository.py\")\n"]},
+        {"after_start":21,"before":["    \"b1bd50a2851df9d54b80a73ac5681834062cad6b9cce4addc25a6e49283ce241\"})\n"],"after":["    \"b1bd50a2851df9d54b80a73ac5681834062cad6b9cce4addc25a6e49283ce241\",\n","    \"2819acc9d4591b6cd272383f741cef36a05b9ccd8028a5ba90536bf92f6c137e\"})\n"]}
+      ]
+    },
+    "src/football_system/infrastructure/files/real_bridge_frozen.py": {
+      "before_sha256": "71fe160f16184912a52e19a2816c2ed4b040eab4654859adf68c05108313ae01",
+      "after_sha256": "74220e0e34697730e2810c9850375c4198f0e374c6b87b0721c5095f70b5ec47",
+      "hunks": [{"after_start":60,"before":[],"after":[
+        "ADDITIVE_HOOKS[\"src/football_system/infrastructure/database/models.py\"] += (\n",
+        "    \"\\n# Independent Portfolio graphs share ownership with the unchanged legacy ledger.\\nfrom football_system.infrastructure.database.portfolio_schema import portfolio_tables  # noqa: E402\\n\\n_portfolio_tables = portfolio_tables(Base.metadata)\\n\",)\n",
+        "ADDITIVE_HOOKS[\"src/football_system/infrastructure/database/immutability.py\"] += (\n",
+        "    \"    from football_system.infrastructure.database.portfolio_schema import install_portfolio_triggers\\n\\n    install_portfolio_triggers(connection)\\n\",)\n",
+        "ADDITIVE_HOOKS[\"pyproject.toml\"] += ('    \"migrations/versions/a0c9def6b732_add_portfolio_shared_ownership.py\",\\n',)\n","\n"
+      ]}]
+    }
+  }
+}
