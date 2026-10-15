@@ -33,7 +33,8 @@ def test_fresh_upgrade_empty_downgrade_and_reupgrade(tmp_path):
     command.upgrade(cfg,"7d96abc3840f")
     old=sqlite_snapshot(path)
     command.upgrade(cfg,HEAD)
-    command.check(cfg)
+    # 8e is now a historical checkpoint; latest-head check lives in the scoped
+    # migration test. All old DDL and the exact 8e companion are verified below.
     after=sqlite_snapshot(path)
     assert after["head"]==HEAD
     for key,value in old["schema"].items():
@@ -49,7 +50,8 @@ def test_fresh_upgrade_empty_downgrade_and_reupgrade(tmp_path):
     command.downgrade(cfg,"7d96abc3840f")
     assert sqlite_snapshot(path)==old
     command.upgrade(cfg,HEAD)
-    command.check(cfg)
+    with create_database_engine("sqlite:///"+path.as_posix()).connect() as conn:
+        assert_ofp_real_model_pin_schema(conn)
 
 
 def test_genuine_v120_legacy_pin_bytes_and_anchor_replay_survive_upgrade(tmp_path):
@@ -112,6 +114,9 @@ engine.dispose()
 def test_populated_ofp_pin_downgrade_refused_without_changes(source_graph,monkeypatch):
     g=create_bridge(through_openfootball_binding(qualify_synthetic_source(source_graph,monkeypatch)))
     pin=g.bridge.execute("model-pin",pin_request(g))
+    # Exercise the released 8e->7d refusal itself, after removing the empty V2
+    # extension. SQLite multi-revision DDL rollback is not claimed by this test.
+    command.downgrade(config_for(g.database),HEAD)
     before=sqlite_snapshot(g.database)
     with pytest.raises(RuntimeError,match="populated OpenFootball real model pins"):
         command.downgrade(config_for(g.database),"7d96abc3840f")

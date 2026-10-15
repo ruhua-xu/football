@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "football-system"
-version = "1.3.1"
+version = "1.4.0.dev0"
 description = "Reproducible football analysis with historical settlement and backtesting"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -121,6 +121,7 @@ where = ["src"]
     "migrations/versions/6c859ab273fe_add_real_prospective_bridge.py",
     "migrations/versions/7d96abc3840f_add_openfootball_production_binding.py",
     "migrations/versions/8ea7bcd49510_add_ofp_real_model_pin_source.py",
+    "migrations/versions/9fb8cde5a621_add_scoped_openfootball_ledger.py",
 ]
 
 [tool.pytest.ini_options]

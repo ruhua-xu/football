@@ -63,7 +63,7 @@ class ModelPinRequest(Request):
 
     @model_validator(mode="after")
     def source_shape(self):
-        if self.model_source.source_type == "OPENFOOTBALL" and any(v is not None for v in
+        if self.model_source.source_type != "LEGACY" and any(v is not None for v in
                 (self.release_id, self.model_state_id, self.source_analysis_id, self.test_state)):
             raise ValueError("OFP_SOURCE_CANNOT_USE_LEGACY_IDS_OR_TEST_STATE")
         return self

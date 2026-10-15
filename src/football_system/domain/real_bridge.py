@@ -154,7 +154,7 @@ class RealModelPinV1(RealArtifact):
         require(self.model_lineage.training_cutoff_at_utc <= self.model_lineage.generated_at_utc <= self.event_at_utc, "FUTURE_MODEL_STATE")
         require(self.configuration.config_hash == self.model_lineage.config_hash,"MODEL_CONFIGURATION_HASH_MISMATCH")
         require(self.model_lineage.model_name=="ELO_THREE_WAY_BASELINE_V1","PINNED_ELO_MODEL_REQUIRED")
-        if self.model_source.source_type == "OPENFOOTBALL":
+        if self.model_source.source_type != "LEGACY":
             require(all(v is None for v in (self.release_id,self.model_state_id,self.source_analysis_id,self.state)), "OFP_PIN_USES_SOURCE_SPECIFIC_PROVENANCE")
             require(self.release_hash == self.model_source.release_hash, "OFP_PIN_RELEASE_HASH_MISMATCH")
         elif self.provenance == "LIVE_OBSERVATION":

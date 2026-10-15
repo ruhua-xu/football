@@ -37,7 +37,7 @@ def vertical(source_graph,monkeypatch):
     return through_openfootball_binding(qualify_synthetic_source(source_graph,monkeypatch))
 
 
-@pytest.mark.parametrize("head",["6c859ab273fe","7d96abc3840f","8ea7bcd49510"])
+@pytest.mark.parametrize("head",["6c859ab273fe","7d96abc3840f","8ea7bcd49510","9fb8cde5a621"])
 def test_g1_published_7d_cli_can_show_existing_synthetic_program(tmp_path,capsys,head):
     db=tmp_path/"synthetic-head-7d.sqlite"
     command.upgrade(config_for(db),head)
@@ -55,7 +55,7 @@ def test_g1_published_7d_cli_can_show_existing_synthetic_program(tmp_path,capsys
 
 
 def test_supported_heads_are_explicit_and_unknown_head_is_rejected(tmp_path):
-    assert SUPPORTED_REAL_BRIDGE_HEADS == {"6c859ab273fe","7d96abc3840f","8ea7bcd49510"}
+    assert SUPPORTED_REAL_BRIDGE_HEADS == {"6c859ab273fe","7d96abc3840f","8ea7bcd49510","9fb8cde5a621"}
     db=tmp_path/"synthetic-unknown-head.sqlite"
     command.upgrade(config_for(db),"7d96abc3840f")
     engine=create_database_engine("sqlite:///"+db.as_posix())

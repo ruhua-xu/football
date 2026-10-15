@@ -21,7 +21,18 @@ class OpenFootballModelSourceV1(MultiMarketModel):
     binding_hash: Hash
 
 
-ModelSourceV1 = Annotated[LegacyModelSourceV1 | OpenFootballModelSourceV1, Field(discriminator="source_type")]
+class OpenFootballQualifiedModelSourceV2(MultiMarketModel):
+    source_type: Literal["OPENFOOTBALL_QUALIFIED_V2"] = "OPENFOOTBALL_QUALIFIED_V2"
+    scope_id: Identifier
+    scope_hash: Hash
+    instance_id: Identifier
+    release_id: Identifier
+    release_hash: Hash
+    binding_id: Identifier
+    binding_hash: Hash
+
+
+ModelSourceV1 = Annotated[LegacyModelSourceV1 | OpenFootballModelSourceV1 | OpenFootballQualifiedModelSourceV2, Field(discriminator="source_type")]
 
 
 class VerifiedPinnedModelDescriptorV1(MultiMarketModel):
@@ -45,6 +56,6 @@ class VerifiedPinnedModelDescriptorV1(MultiMarketModel):
             raise ValueError("VERIFIED_MODEL_DESCRIPTOR_MISMATCH")
         if not self.scope_match_ids or self.scope_match_ids != tuple(sorted(set(self.scope_match_ids))):
             raise ValueError("VERIFIED_MODEL_SCOPE_REQUIRED")
-        if self.source.source_type == "OPENFOOTBALL" and self.competition_id is None:
+        if self.source.source_type != "LEGACY" and self.competition_id is None:
             raise ValueError("OFP_VERIFIED_COMPETITION_REQUIRED")
         return self

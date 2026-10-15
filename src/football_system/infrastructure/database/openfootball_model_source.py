@@ -23,9 +23,25 @@ from football_system.infrastructure.database.models import MatchRecord, Canonica
 
 class OpenFootballPinnedModelReader:
     def __init__(self, production):
+        self.production = production
         self.repo = production.openfootball_binding()
 
     def read(self, session, request, at, *, existing_pin=False):
+        """One reader/verified descriptor boundary, with explicit V1/V2 graph adapters."""
+        require(session.get_bind() is self.production._sessions.kw["bind"], "OFP_MODEL_TRANSACTION_DATABASE_MISMATCH")
+        if request.model_source.source_type == "OPENFOOTBALL_QUALIFIED_V2":
+            descriptor = self.production.openfootball_scoped_binding().read_model(session, request, at, existing_pin=existing_pin)
+        else:
+            descriptor = self._read_fixed_v1(session, request, at, existing_pin=existing_pin)
+        require(descriptor.scope_match_ids == tuple(request.scope_match_ids)
+            and descriptor.state.config_hash == descriptor.configuration.config_hash
+            and descriptor.state.state_hash == descriptor.lineage.state_hash
+            and descriptor.state.training_data_hash == descriptor.lineage.training_data_hash
+            and descriptor.season_id == descriptor.state.season_id
+            and not set(descriptor.scope_match_ids) & set(descriptor.state.training_match_ids), "OFP_VERIFIED_SCOPE_STATE_PROJECTION_MISMATCH")
+        return descriptor
+
+    def _read_fixed_v1(self, session, request, at, *, existing_pin=False):
         source = OpenFootballModelSourceV1.model_validate(request.model_source)
         require(request.source_identity == SOURCE_ID, "OFP_MODEL_SOURCE_IDENTITY_MISMATCH")
         repo = self.repo

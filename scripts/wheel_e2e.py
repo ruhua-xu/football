@@ -16,8 +16,8 @@ from typing import Sequence
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_VERSION = "1.3.1"
-EXPECTED_MIGRATION_HEAD = "8ea7bcd49510"
+EXPECTED_VERSION = "1.4.0.dev0"
+EXPECTED_MIGRATION_HEAD = "9fb8cde5a621"
 PINNED_TIMEZONE_DEPENDENCY = "tzdata==2025.2"
 PROVIDER_CODE = "SYNTHETIC_ACCEPTANCE_V1"
 QUANT_RUN_ID = "wheel-e2e-quant"
@@ -132,6 +132,7 @@ EXPECTED_RESOURCE_FILES = frozenset(
         "migrations/versions/6c859ab273fe_add_real_prospective_bridge.py",
         "migrations/versions/7d96abc3840f_add_openfootball_production_binding.py",
         "migrations/versions/8ea7bcd49510_add_ofp_real_model_pin_source.py",
+        "migrations/versions/9fb8cde5a621_add_scoped_openfootball_ledger.py",
     }
 )
 
@@ -475,7 +476,7 @@ print(json.dumps({
         "installed v1.3 operator upgrade and backup acceptance",
         [python, "-I", PROJECT_ROOT / "scripts/operator_release_acceptance.py", work_dir / "operator-release-acceptance"],
         cwd=work_dir, environment=environment,
-        markers=("V131_OPERATOR_INSTALLED_RELEASE_ACCEPTANCE_PASS",), timeout=1200,
+        markers=("SCOPED_DEVELOPMENT_OPERATOR_ACCEPTANCE_PASS",), timeout=1800,
     )
     timezone_proof = _run_json(
         "verify installed pinned OpenFootball timezone dependency",

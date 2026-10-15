@@ -118,7 +118,7 @@ class SqlAlchemyRealBridgeRepository:
     def _model_valid(self, session, pin, at):
         self._admit(session, pin.admission, at)
         require(not self._visible(session,"REAL_MODEL_PIN_INVALIDATION_V1",at,scope=("pin",pin.artifact_id)), "MODEL_INVALIDATED")
-        if pin.model_source.source_type == "OPENFOOTBALL":
+        if pin.model_source.source_type != "LEGACY":
             require(self.model_access is not None, "MODEL_AUTHORITY_CONTEXT_REQUIRED")
             if session.info.get("rb_replaying"):
                 watermark=session.info.pop("rb_watermark",None)
@@ -129,6 +129,9 @@ class SqlAlchemyRealBridgeRepository:
                         session.info["rb_watermark"]=watermark
             from football_system.infrastructure.database.ofp_real_model_pin_schema import assert_ofp_real_model_pin_schema
             assert_ofp_real_model_pin_schema(session.connection())
+            if pin.model_source.source_type == "OPENFOOTBALL_QUALIFIED_V2":
+                from football_system.infrastructure.database.openfootball_scoped_schema import assert_scoped_schema
+                assert_scoped_schema(session.connection())
             descriptor = self.model_access.verify_descriptor(session,pin,at,existing_pin=True)
             program=self._ref(session,pin.program,"REAL_OBSERVATION_PROGRAM_V1")
             require(descriptor.competition_id in program.competition_ids and descriptor.season_id==program.season_id, "MODEL_COMPETITION_SCOPE_MISMATCH")
@@ -335,9 +338,12 @@ class SqlAlchemyRealBridgeRepository:
             ad = self._get(s,r.admission_id,"REAL_SOURCE_ADMISSION_FACT_V1")
             self._admit(s,ArtifactRefV1.of(ad),at)
             require(ad.program.artifact_id==p.artifact_id and ad.kind=="MODEL" and ad.source_identity==r.source_identity, "MODEL_ADMISSION_SCOPE_MISMATCH")
-            if r.model_source.source_type == "OPENFOOTBALL":
+            if r.model_source.source_type != "LEGACY":
                 from football_system.infrastructure.database.ofp_real_model_pin_schema import assert_ofp_real_model_pin_schema
                 assert_ofp_real_model_pin_schema(s.connection())
+                if r.model_source.source_type == "OPENFOOTBALL_QUALIFIED_V2":
+                    from football_system.infrastructure.database.openfootball_scoped_schema import assert_scoped_schema
+                    assert_scoped_schema(s.connection())
                 require(self.model_access is not None, "MODEL_AUTHORITY_CONTEXT_REQUIRED")
                 if s.info.get("rb_replaying"):
                     watermark=s.info.pop("rb_watermark",None)
@@ -355,6 +361,9 @@ class SqlAlchemyRealBridgeRepository:
                     configuration=descriptor.configuration,model_lineage=descriptor.lineage)
                 relation=dict(pin_id=value.artifact_id,release_id=descriptor.source.release_id,release_hash=descriptor.source.release_hash,
                     binding_id=descriptor.source.binding_id,binding_hash=descriptor.source.binding_hash)
+                if descriptor.source.source_type == "OPENFOOTBALL_QUALIFIED_V2":
+                    relation.update(scope_id=descriptor.source.scope_id, scope_hash=descriptor.source.scope_hash, instance_id=descriptor.source.instance_id)
+                    return value,empty,(("ofpv2_real_model_pins",relation),)
                 return value,empty,(("ofp_real_model_pins",relation),)
             if p.provenance == "SYNTHETIC_SOFTWARE_ACCEPTANCE":
                 require(r.test_state is not None and r.release_id is None and r.model_state_id is None and r.source_analysis_id is None, "TEST_STATE_ONLY_IN_TEST_PROGRAM")
