@@ -1,4 +1,4 @@
-# v1.4.0 Integration Candidate IC1
+# v1.4.0 Integration Candidate IC2
 
 This is an **unpublished integration candidate**, package version `1.4.0.dev0`.
 It is not a production upgrade or the final v1.4.0 release/tag. Candidate version
@@ -16,6 +16,36 @@ accepted P1-B/PF-B runtime, numerical code, migrations, configurations and exist
 acceptance scripts are retained byte-for-byte (normal Git newline representation
 aside). No redesign of qualification or Portfolio is included.
 
+`devtools/integration_history.py` checks the tag target, all four accepted
+ancestors, their common ancestors, and recomputes the three ordinary merge trees
+to reject conflicts or unreviewed manual resolutions. It checks every earlier
+migration byte and both accepted additive migrations, duplicate revisions,
+missing parents, branches/cycles and disconnected revisions. The sole 32-revision
+chain ends in `8ea7bcd49510 → 9fb8cde5a621 → a0c9def6b732`.
+
+## Layered safety policy
+
+`devtools/safety.py` now uses `V140_LAYERED_FREEZE`, replacing the performance-only
+rule that required the entire runtime tree to equal PF-B:
+
+1. Published v1.3.1 domain contracts/numerical kernels, numerical application
+   entry points, configuration and historical fixtures remain byte-frozen.
+2. Explicitly accepted P1-B/PF-B registration, qualification, Portfolio financial
+   contracts and their exact projection manifests retain their accepted bytes.
+3. Earlier migration history and the two accepted additive revisions retain
+   their bytes and one verified DAG/head.
+4. Normal `CI / test` must project back to the published workflow with every
+   original final gate; the six algorithm hashes and Elo configuration stay fixed.
+5. On the operator host, the separate read-only boundary manifest checks actual
+   production file bytes and physical identities.
+
+New integration/tool/test modules are not blanket-rejected for differing from an
+old Phase B tree. They still require ordinary review, the unchanged historical
+compatibility tests and full acceptance. A new adapter cannot exempt or replace a
+kernel, financial contract, old migration, fixture, projection or CI gate. Focused
+positive/negative tests exercise those distinctions. Runtime implementation is
+unchanged in this candidate; the history audit reports that fact independently.
+
 ## Acceptance matrix
 
 | Requirement | Actual acceptance path |
@@ -25,7 +55,7 @@ aside). No redesign of qualification or Portfolio is included.
 | Assembly / atomic lock / dedicated capital | Existing actual PF ledger, shared legacy ownership, typed seal/revalidation, budget and concurrent-process/crash tests |
 | Cross-competition2X1/3X4/4X11 | Existing persisted and installed-wheel paths, plus all three pass types over JP/KR-shaped independent synthetic models |
 | Settlement | One money ledger, missing/unsupported/revised results, exact payout/cash/P&L replay |
-| Legacy compatibility | Original V1 wire/math and genuine archived-v1.3.1 database/old-binary proofs |
+| Legacy compatibility | Original V1 wire/math and genuine archived-v1.3.1 database/old-binary proofs; a released legacy ledger upgraded into the same database as new qualified sources, with a successful independent Portfolio settlement and exact legacy money/ownership preservation |
 | Migration upgrade/downgrade |8e→9fb→a0, full backfill including legacy version0/1, empty roundtrip, injected downgrade rollback, populated refusal |
 | Frozen mathematics | Original source-byte projections, six frozen algorithm identities and Elo configuration hash |
 | Production safety | Existing protected runtime/databases/inputs remain untouched; actual runtime is still v1.3.0 |
@@ -43,7 +73,7 @@ path does not depend on DE/GB or a five-league enumeration. Other European domes
 leagues can use the same reviewed capability after their own source qualification.
 
 The current accepted V2 profile intentionally admits **regular domestic-league
-regulation-time** evidence. Champions League, AFC Champions League and other
+regulation-time** evidence. Champions League, Europa League, AFC Champions League and other
 tournament formats require reviewed stage/group/knockout and regulation/extra-time/
 penalty semantics. Their competition IDs and future qualified-model adapters can
 feed the same program/pin/snapshot/Portfolio ownership interfaces; eligibility

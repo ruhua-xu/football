@@ -19,11 +19,12 @@ FREEZE=["tests/contract/test_p0_catalog_scope_gate.py","tests/contract/test_v120
     "tests/contract/test_scoped_compatibility.py","tests/contract/test_portfolio_compatibility.py"]
 PATTERNS={
     "devtools":dict(fast=["devtools/tests"],integration=["devtools/tests","tests/integration/test_database_schema.py",
-        "tests/integration/test_sqlite_checkout_lifecycle.py","tests/integration/test_migration_url_encoding.py","tests/integration/test_portfolio_processes.py","tests/e2e/test_wheel_e2e_script.py"]),
+        "tests/integration/test_sqlite_checkout_lifecycle.py","tests/integration/test_migration_url_encoding.py","tests/integration/test_portfolio_processes.py",
+        "tests/integration/test_v140*.py","tests/e2e/test_wheel_e2e_script.py"]),
     "portfolio":dict(fast=["tests/contract/test_pfa_ownership_model.py","tests/unit/test_strategy_pass*.py","tests/unit/test_return*.py"],
-        integration=["tests/integration/test_portfolio*.py","tests/integration/test_real_bridge_repository.py","tests/e2e/test_wheel_e2e_script.py"]),
+        integration=["tests/integration/test_portfolio*.py","tests/integration/test_v140*.py","tests/integration/test_real_bridge_repository.py","tests/e2e/test_wheel_e2e_script.py"]),
     "scoped":dict(fast=["tests/unit/test_openfootball_scope.py","tests/contract/test_openfootball_observed.py"],
-        integration=["tests/integration/test_scoped*.py","tests/integration/test_ofp_real*.py"]),
+        integration=["tests/integration/test_scoped*.py","tests/integration/test_ofp_real*.py","tests/integration/test_v140*.py"]),
     "observed":dict(fast=["tests/unit/test_observed*.py","tests/contract/test_sportmonks_observed.py"],
         integration=["tests/integration/test_observed*.py","tests/e2e/test_observed_training_cli.py"]),
     "correction":dict(fast=["tests/unit/test_training_correction*.py"],
