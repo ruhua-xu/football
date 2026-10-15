@@ -1,9 +1,12 @@
 # CI / Development Speed Optimization V1
 
 These tools are development-only and are not packaged in the application wheel.
-The existing `.github/workflows/ci.yml` stays byte-identical to accepted PF-B.
-The separate feature-only benchmark has different check names and cannot replace
-the required release gate. Deployment of a new default CI policy needs review.
+DEV_SPEED_V1 is closed. The integration candidate adopts the reviewed recommendation
+through an exact CI-only projection: the workflow remains `CI`, job remains `test`,
+and every original final gate remains. Resource-based capacity targets up to four
+workers with worksteal; explicit worker0 is the complete serial fallback. GitHub
+branch-protection and required-status settings are not changed. The old experiment
+workflow is now manual-only.
 
 ## Install tooling
 
@@ -59,11 +62,10 @@ process-tree RSS, complete collection hashes, JUnit, scheduling and per-phase ti
 `--profile-init` additionally times selected real calls without changing results.
 Use `--seed` for deterministic collection permutation; it never seeds application RNGs.
 
-The original 3149-test collection is the parallel benchmark set. The default
-serial CI still validates the same candidate, including its wheel once; parallel
-experiment jobs run pytest only. Hardware-based worker selection caps at four and
-reserves 3 GiB per worker until measurements justify another limit. It does not
-assume the local six-worker choice is optimal on GitHub runners.
+The original3149-test collection was the completed parallel benchmark set. Normal
+integration CI now runs all application tests plus tool-policy tests, then the
+unchanged migration/wheel/isolated E2E gates. Hardware-based selection caps at four
+and reserves3GiB per worker. No further full performance-matrix runs are automatic.
 
 Only two shared functional fixtures use `tests/support/empty_database.py`.
 Their template is a process-local immutable `bytes` object containing empty

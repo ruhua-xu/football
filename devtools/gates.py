@@ -63,12 +63,14 @@ def main():
     parser.add_argument("--evidence-root",type=Path,required=True)
     parser.add_argument("--temp-root",type=Path,required=True)
     parser.add_argument("--workers",default=None)
-    parser.add_argument("--dist",choices=("load","worksteal"),default="load")
+    parser.add_argument("--dist",choices=("load","worksteal"),default=None)
     parser.add_argument("--seed",type=int)
     parser.add_argument("--boundary",type=Path)
     parser.add_argument("--reuse",action="store_true")
     parser.add_argument("--plan",action="store_true")
     args=parser.parse_args()
+    if args.dist is None:
+        args.dist="worksteal" if args.mode=="FULL_RELEASE" else "load"
     targets=selections(args.mode,args.area)
     if args.mode=="FULL_RELEASE" and args.reuse:
         parser.error("FULL_RELEASE always executes its complete gates; test-pass reuse is development-only")

@@ -1,15 +1,10 @@
 name: Development Speed Benchmark V1
 
 on:
-  push:
-    branches: [feature/ci-development-speed-v1]
-    paths:
-      - devtools/**
-      - tests/support/**
-      - tests/integration/test_training_admission_persistence.py
-      - tests/e2e/test_production_quant_cli.py
-      - .github/workflows/development-speed.yml
   workflow_dispatch:
+
+# DEV_SPEED_V1 is closed. Retained only for explicitly requested diagnostics;
+# ordinary pushes/PRs use the complete CI workflow, not repeated experiments.
 
 permissions:
   contents: read

@@ -6,6 +6,10 @@ import json
 from pathlib import Path
 import subprocess
 import tarfile
+import sys
+
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+from devtools.ci_policy import project_ci  # noqa: E402
 
 BASE="dcc83d1e82f585ae2b4827b0ee7727422b24942a"
 PROTECTED=("src","config","migrations","scripts","data/fixtures","pyproject.toml","daily.cmd")
@@ -13,7 +17,7 @@ PROTECTED=("src","config","migrations","scripts","data/fixtures","pyproject.toml
 
 def verify(root,boundary=None):
     # Performance tooling must not edit any released runtime/math/data/build contract.
-    changed=subprocess.check_output(["git","diff","--name-only",BASE,"--",*PROTECTED,".github/workflows/ci.yml"],cwd=root).decode().splitlines()
+    changed=subprocess.check_output(["git","diff","--name-only",BASE,"--",*PROTECTED],cwd=root).decode().splitlines()
     if changed:
         raise ValueError("PROTECTED_RUNTIME_OR_REQUIRED_CI_CHANGED:"+",".join(changed))
     added=subprocess.check_output(["git","ls-files","--others","--exclude-standard","--",*PROTECTED],cwd=root).decode().splitlines()
@@ -25,6 +29,8 @@ def verify(root,boundary=None):
         for item in archive:
             if item.isfile():
                 current=(root/item.name).read_bytes().replace(b"\r\n",b"\n")
+                if item.name==".github/workflows/ci.yml":
+                    current=project_ci(current)
                 if current!=archive.extractfile(item).read().replace(b"\r\n",b"\n"):
                     raise ValueError("PROTECTED_BYTES_CHANGED:"+item.name)
                 checked+=1
@@ -41,7 +47,7 @@ def verify(root,boundary=None):
             assert (before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns)==(after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns)
             assert actual==record["sha256"] and [after.st_dev,after.st_ino]==record["file_identity"],name
         production="PASS_EXACT_PROTECTED_BYTES_AND_FILE_IDENTITIES"
-    return dict(status="PASS",protected_baseline=BASE,protected_files=checked,required_ci_workflow="BYTE_IDENTICAL",
+    return dict(status="PASS",protected_baseline=BASE,protected_files=checked,required_ci_workflow="EXACT_APPROVED_PARALLEL_PROJECTION_ORIGINAL_GATES_RETAINED",
         frozen_hashes=frozen.FROZEN_IDENTITIES,production_boundary=production,production_sql_connections=0,production_writes=0)
 
 
