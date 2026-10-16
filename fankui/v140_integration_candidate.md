@@ -1,4 +1,4 @@
-# v1.4.0 Integration Candidate IC2
+# v1.4.0 Integration Candidate IC2 — targeted repair
 
 This is an **unpublished integration candidate**, package version `1.4.0.dev0`.
 It is not a production upgrade or the final v1.4.0 release/tag. Candidate version
@@ -11,10 +11,20 @@ promotion remains part of the subsequent reviewed release process.
 - Accepted PF-B: `dcc83d1e82f585ae2b4827b0ee7727422b24942a`.
 - Reviewed DEV_SPEED_V1: `13826b7d4ced04d3545cd146427c8ccf0302c67f`.
 
-The independent branch uses ordinary merges from the published baseline. The
-accepted P1-B/PF-B runtime, numerical code, migrations, configurations and existing
-acceptance scripts are retained byte-for-byte (normal Git newline representation
-aside). No redesign of qualification or Portfolio is included.
+The independent branch uses ordinary merges from the published baseline. Accepted
+application/numerical code, configurations and existing acceptance scripts retain
+their bytes (normal Git newline representation aside). The only migration repair
+is two guarded `BEGIN IMMEDIATE` statements at the9fb upgrade/downgrade entrances.
+Alembic still owns head updates and commit/rollback; `env.py`, engine configuration,
+all published migrations and the PF-B migration remain unchanged. Exact reverse
+projections admit these two anchored guards, not other migration or kernel changes.
+
+The second targeted repair gives `workflow_dispatch` a real whitespace range:
+feature branches compare their merge-base with `origin/<default>`; the default
+branch checks its first-parent change (including merge commits), or empty tree for
+an initial commit. A feature at its base also checks its last commit. Shallow or
+unresolvable/ambiguous histories fail explicitly. Push/PR ranges and `CI / test`,
+4/worksteal configuration, worker0 fallback and all original release gates remain.
 
 `devtools/integration_history.py` checks the tag target, all four accepted
 ancestors, their common ancestors, and recomputes the three ordinary merge trees
@@ -44,7 +54,8 @@ old Phase B tree. They still require ordinary review, the unchanged historical
 compatibility tests and full acceptance. A new adapter cannot exempt or replace a
 kernel, financial contract, old migration, fixture, projection or CI gate. Focused
 positive/negative tests exercise those distinctions. Runtime implementation is
-unchanged in this candidate; the history audit reports that fact independently.
+unchanged except for the explicit9fb repair; the history audit records both the
+original and repaired migration hashes separately.
 
 ## Acceptance matrix
 

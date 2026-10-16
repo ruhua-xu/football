@@ -87,13 +87,6 @@ jobs:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PUSH_BEFORE_SHA: ${{ github.event.before }}
           PUSH_AFTER_SHA: ${{ github.event.after }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          zero_sha="0000000000000000000000000000000000000000"
-          if [[ "$EVENT_NAME" == "pull_request" ]]; then
-            git diff --check "$PR_BASE_SHA...$PR_HEAD_SHA"
-          elif [[ "$PUSH_BEFORE_SHA" == "$zero_sha" ]]; then
-            empty_tree_sha="$(git hash-object -t tree -w /dev/null)"
-            git diff --check "$empty_tree_sha" "$PUSH_AFTER_SHA"
-          else
-            git diff --check "$PUSH_BEFORE_SHA" "$PUSH_AFTER_SHA"
-          fi
+          python -m devtools.whitespace

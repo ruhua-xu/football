@@ -8,6 +8,7 @@ import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from devtools.ci_policy import project_ci  # noqa: E402
 from devtools.integration_history import PFB, RELEASE, archive_files, audit  # noqa: E402
+from devtools.repair_policy import project_repair  # noqa: E402
 
 PUBLISHED_ROOTS=("src/football_system/domain/services","config","data/fixtures")
 PUBLISHED_FILES=("daily.cmd","alembic.ini",
@@ -49,7 +50,7 @@ def verify_layers(root,layers):
         expected=layer["files"]
         for name,raw in expected.items():
             path=root/name
-            if not path.is_file() or path.read_bytes().replace(b"\r\n",b"\n")!=raw:
+            if not path.is_file() or project_repair(name,path.read_bytes().replace(b"\r\n",b"\n"))!=raw:
                 raise ValueError("FROZEN_LAYER_BYTES_CHANGED:"+layer["name"]+":"+name)
         for folder in layer["exclusive_roots"]:
             actual={p.relative_to(root).as_posix() for p in (root/folder).rglob("*") if p.is_file() and "__pycache__" not in p.parts}

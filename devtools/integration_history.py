@@ -8,6 +8,11 @@ from pathlib import Path
 import subprocess
 import tarfile
 
+try:
+    from devtools.repair_policy import MIGRATION, MIGRATION_BEFORE_SHA256, project_repair
+except ModuleNotFoundError:  # Direct `python devtools/integration_history.py` entry.
+    from repair_policy import MIGRATION, MIGRATION_BEFORE_SHA256, project_repair
+
 RELEASE="f689ff7340598fd37f061473383461117ecb637d"
 P1B="27808d8e4228f197e4fa9f28cb651567895795bb"
 PFB="dcc83d1e82f585ae2b4827b0ee7727422b24942a"
@@ -101,17 +106,21 @@ def audit(root):
     if additions["P1-B"]!=["migrations/versions/9fb8cde5a621_add_scoped_openfootball_ledger.py"] or additions["PF-B"]!=["migrations/versions/a0c9def6b732_add_portfolio_shared_ownership.py"]:
         raise ValueError("UNREVIEWED_MIGRATION_ADDITION")
     actual={p.relative_to(root).as_posix():p.read_bytes().replace(b"\r\n",b"\n") for p in (root/"migrations").rglob("*") if p.is_file() and "__pycache__" not in p.parts}
-    if actual!=pf:
+    if {name:project_repair(name,raw) for name,raw in actual.items()}!=pf:
         raise ValueError("INTEGRATED_MIGRATIONS_DIFFER_FROM_ACCEPTED_DAG")
     dag=parse_dag(actual)
     if dag["chain"][-3:]!=["8ea7bcd49510","9fb8cde5a621",HEAD]:
         raise ValueError("INTEGRATION_UPGRADE_CHAIN_CHANGED")
     runtime_changes=git(root,"diff","--name-only",PFB,"--",*RUNTIME_PATHS).splitlines()
     runtime_additions=git(root,"ls-files","--others","--exclude-standard","--",*RUNTIME_PATHS).splitlines()
+    unreviewed=[name for name in runtime_changes if name!=MIGRATION]+runtime_additions
     return dict(status="PASS_V140_HISTORY_AND_MIGRATION_AUDIT",current_commit=git(root,"rev-parse","HEAD"),anchors=ANCHORS,
         common_ancestors=bases,ordinary_merges=merge_proofs,migration_additions=additions,migration_dag=dag,
         accepted_runtime_unchanged=not(runtime_changes or runtime_additions),runtime_changes=runtime_changes,runtime_additions=runtime_additions,
-        old_migration_bytes_unchanged=True,migration_execution_or_production_writes=0)
+        unreviewed_runtime_changes=unreviewed,accepted_runtime_preserved_except_reviewed_repair=not unreviewed,
+        approved_migration_repair=dict(file=MIGRATION,before_sha256=MIGRATION_BEFORE_SHA256,after_sha256=hashlib.sha256(actual[MIGRATION]).hexdigest(),
+            scope="TWO_ANCHORED_SQLITE_DDL_TRANSACTION_GUARDS_ONLY",alembic_head_management_unchanged=True),
+        published_migration_bytes_unchanged=True,accepted_migration_projection_matches=True,migration_execution_or_production_writes=0)
 
 
 def main():

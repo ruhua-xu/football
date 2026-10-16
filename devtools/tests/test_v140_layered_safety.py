@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from devtools import integration_history, safety
+from devtools.repair_policy import MIGRATION, REPAIR_PATHS
 
 ROOT=Path(__file__).resolve().parents[2]
 
@@ -18,14 +19,16 @@ def materialize(root,layer):
     for name,raw in layer["files"].items():
         path=root/name
         path.parent.mkdir(parents=True,exist_ok=True)
-        path.write_bytes(raw)
+        path.write_bytes((ROOT/name).read_bytes() if name in REPAIR_PATHS else raw)
 
 
 def test_actual_candidate_preserves_layered_freeze_and_accepted_history(tmp_path):
     value=safety.verify(ROOT)
     assert value["policy"]=="V140_LAYERED_FREEZE"
     history=value["history_and_migrations"]
-    assert history["accepted_runtime_unchanged"]
+    assert history["accepted_runtime_preserved_except_reviewed_repair"]
+    assert history["unreviewed_runtime_changes"]==[]
+    assert history["approved_migration_repair"]["file"]==MIGRATION
     assert len(history["ordinary_merges"])==3
     assert len(history["migration_dag"]["revisions"])==32
     assert history["migration_dag"]["chain"][-3:]==["8ea7bcd49510","9fb8cde5a621","a0c9def6b732"]
