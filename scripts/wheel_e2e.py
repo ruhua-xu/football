@@ -16,7 +16,7 @@ from typing import Sequence
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_VERSION = "1.4.0.dev0"
+EXPECTED_VERSION = "1.4.0"
 EXPECTED_MIGRATION_HEAD = "a0c9def6b732"
 PINNED_TIMEZONE_DEPENDENCY = "tzdata==2025.2"
 PROVIDER_CODE = "SYNTHETIC_ACCEPTANCE_V1"

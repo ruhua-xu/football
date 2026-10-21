@@ -6,6 +6,7 @@ import pytest
 
 from devtools import integration_history, safety
 from devtools.repair_policy import MIGRATION, REPAIR_PATHS
+from devtools.rc_policy import HUNKS as RC_HUNKS
 
 ROOT=Path(__file__).resolve().parents[2]
 
@@ -19,7 +20,7 @@ def materialize(root,layer):
     for name,raw in layer["files"].items():
         path=root/name
         path.parent.mkdir(parents=True,exist_ok=True)
-        path.write_bytes((ROOT/name).read_bytes() if name in REPAIR_PATHS else raw)
+        path.write_bytes((ROOT/name).read_bytes() if name in REPAIR_PATHS|set(RC_HUNKS) else raw)
 
 
 def test_actual_candidate_preserves_layered_freeze_and_accepted_history(tmp_path):

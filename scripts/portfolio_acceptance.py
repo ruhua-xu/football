@@ -52,7 +52,7 @@ def main():
     args = parser.parse_args()
     prefix = Path(sys.prefix).resolve()
     assert prefix in Path(football_system.__file__).resolve().parents
-    assert importlib.metadata.version("football-system") == "1.4.0.dev0"
+    assert importlib.metadata.version("football-system") == "1.4.0"
     # Only acceptance scripts are imported from the checkout. The already-loaded
     # application package and every one of its submodules must remain installed.
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))

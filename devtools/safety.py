@@ -9,6 +9,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from devtools.ci_policy import project_ci  # noqa: E402
 from devtools.integration_history import PFB, RELEASE, archive_files, audit  # noqa: E402
 from devtools.repair_policy import project_repair  # noqa: E402
+from devtools.rc_policy import project_rc, verify_rc_scope  # noqa: E402
 
 PUBLISHED_ROOTS=("src/football_system/domain/services","config","data/fixtures")
 PUBLISHED_FILES=("daily.cmd","alembic.ini",
@@ -50,7 +51,7 @@ def verify_layers(root,layers):
         expected=layer["files"]
         for name,raw in expected.items():
             path=root/name
-            if not path.is_file() or project_repair(name,path.read_bytes().replace(b"\r\n",b"\n"))!=raw:
+            if not path.is_file() or project_repair(name,project_rc(name,path.read_bytes().replace(b"\r\n",b"\n")))!=raw:
                 raise ValueError("FROZEN_LAYER_BYTES_CHANGED:"+layer["name"]+":"+name)
         for folder in layer["exclusive_roots"]:
             actual={p.relative_to(root).as_posix() for p in (root/folder).rglob("*") if p.is_file() and "__pycache__" not in p.parts}
@@ -66,6 +67,7 @@ def verify_layers(root,layers):
 def verify(root,boundary=None):
     root=Path(root)
     layers=verify_layers(root,freeze_layers(root))
+    rc_scope=verify_rc_scope(root)
     history=audit(root)
     ci_name=".github/workflows/ci.yml"
     ci_base=archive_files(root,RELEASE,ci_name)[ci_name]
@@ -86,7 +88,7 @@ def verify(root,boundary=None):
             assert (before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns)==(after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns)
             assert actual==record["sha256"] and [after.st_dev,after.st_ino]==record["file_identity"],name
         production="PASS_EXACT_PROTECTED_BYTES_AND_FILE_IDENTITIES"
-    return dict(status="PASS",policy="V140_LAYERED_FREEZE",layers=layers,history_and_migrations=history,
+    return dict(status="PASS",policy="V140_LAYERED_FREEZE",layers=layers,history_and_migrations=history,rc_scope=rc_scope,
         required_ci_workflow="EXACT_APPROVED_PARALLEL_PROJECTION_ORIGINAL_GATES_RETAINED",
         frozen_hashes=frozen.FROZEN_IDENTITIES,elo_config_hash=ELO_CONFIG_HASH,
         production_boundary=production,production_sql_connections=0,production_writes=0)

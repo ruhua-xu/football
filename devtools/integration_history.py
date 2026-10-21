@@ -10,14 +10,16 @@ import tarfile
 
 try:
     from devtools.repair_policy import MIGRATION, MIGRATION_BEFORE_SHA256, project_repair
+    from devtools.rc_policy import ACCEPTED as RC_ACCEPTED, RUNTIME_METADATA, verify_rc_scope
 except ModuleNotFoundError:  # Direct `python devtools/integration_history.py` entry.
     from repair_policy import MIGRATION, MIGRATION_BEFORE_SHA256, project_repair
+    from rc_policy import ACCEPTED as RC_ACCEPTED, RUNTIME_METADATA, verify_rc_scope
 
 RELEASE="f689ff7340598fd37f061473383461117ecb637d"
 P1B="27808d8e4228f197e4fa9f28cb651567895795bb"
 PFB="dcc83d1e82f585ae2b4827b0ee7727422b24942a"
 SPEED="13826b7d4ced04d3545cd146427c8ccf0302c67f"
-ANCHORS=dict(published_v131=RELEASE,accepted_p1b=P1B,accepted_pfb=PFB,accepted_speed_v1=SPEED)
+ANCHORS=dict(published_v131=RELEASE,accepted_p1b=P1B,accepted_pfb=PFB,accepted_speed_v1=SPEED,accepted_ic2_repair=RC_ACCEPTED)
 HEAD="a0c9def6b732"
 RUNTIME_PATHS=("src","config","migrations","scripts","data/fixtures","pyproject.toml","daily.cmd")
 
@@ -113,11 +115,12 @@ def audit(root):
         raise ValueError("INTEGRATION_UPGRADE_CHAIN_CHANGED")
     runtime_changes=git(root,"diff","--name-only",PFB,"--",*RUNTIME_PATHS).splitlines()
     runtime_additions=git(root,"ls-files","--others","--exclude-standard","--",*RUNTIME_PATHS).splitlines()
-    unreviewed=[name for name in runtime_changes if name!=MIGRATION]+runtime_additions
+    rc_scope=verify_rc_scope(root)
+    unreviewed=[name for name in runtime_changes if name not in RUNTIME_METADATA|{MIGRATION}]+runtime_additions
     return dict(status="PASS_V140_HISTORY_AND_MIGRATION_AUDIT",current_commit=git(root,"rev-parse","HEAD"),anchors=ANCHORS,
         common_ancestors=bases,ordinary_merges=merge_proofs,migration_additions=additions,migration_dag=dag,
         accepted_runtime_unchanged=not(runtime_changes or runtime_additions),runtime_changes=runtime_changes,runtime_additions=runtime_additions,
-        unreviewed_runtime_changes=unreviewed,accepted_runtime_preserved_except_reviewed_repair=not unreviewed,
+        unreviewed_runtime_changes=unreviewed,accepted_runtime_preserved_except_reviewed_repair=not unreviewed,rc_scope=rc_scope,
         approved_migration_repair=dict(file=MIGRATION,before_sha256=MIGRATION_BEFORE_SHA256,after_sha256=hashlib.sha256(actual[MIGRATION]).hexdigest(),
             scope="TWO_ANCHORED_SQLITE_DDL_TRANSACTION_GUARDS_ONLY",alembic_head_management_unchanged=True),
         published_migration_bytes_unchanged=True,accepted_migration_projection_matches=True,migration_execution_or_production_writes=0)

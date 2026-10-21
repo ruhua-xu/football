@@ -21,10 +21,11 @@ from tests.integration.openfootball_upgrade_support import sqlite_snapshot
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def genuine_database(tmp_path, *, postlock=False):
-    old = tmp_path / "published-v131"
+def genuine_database(tmp_path, *, postlock=False, release="1.3.1"):
+    references={"1.3.0":"0f677e834d5e2b6eb092ecaf86e4c70a60e38e98","1.3.1":"f689ff7340598fd37f061473383461117ecb637d"}
+    old = tmp_path / ("published-v131" if release=="1.3.1" else "published-v130")
     old.mkdir()
-    raw = subprocess.check_output(["git", "archive", "f689ff7340598fd37f061473383461117ecb637d", "src", "config", "migrations", "scripts", "data/fixtures", "alembic.ini", "pyproject.toml"], cwd=ROOT)
+    raw = subprocess.check_output(["git", "archive", references[release], "src", "config", "migrations", "scripts", "data/fixtures", "alembic.ini", "pyproject.toml"], cwd=ROOT)
     with tarfile.open(fileobj=BytesIO(raw)) as archive:
         archive.extractall(old, filter="data")
     work = tmp_path / "old-lifecycle"
@@ -37,7 +38,7 @@ import football_system
 from scripts.real_bridge_acceptance import exercise
 from football_system.application.real_bridge_requests import REQUEST_TYPES
 from football_system.infrastructure.database.real_bridge_repository import SqlAlchemyRealBridgeRepository
-assert football_system.__version__=='1.3.1' and Path(sys.argv[1]) in Path(football_system.__file__).parents
+assert football_system.__version__==sys.argv[4] and Path(sys.argv[1]) in Path(football_system.__file__).parents
 def denied(*args,**kwargs):raise AssertionError('GENUINE_LEGACY_ACCEPTANCE_NETWORK_FORBIDDEN')
 socket.socket.connect=denied
 if sys.argv[3]=='False':
@@ -76,7 +77,7 @@ else:
         replacement_lock_id=revision.artifact_id,versions=versions,old_api_postlock_revision=True,real_observation_count=0)
 print(json.dumps(summary))
 """
-    result = subprocess.run([sys.executable, "-B", "-c", code, str(old), str(work), str(postlock)], cwd=old,
+    result = subprocess.run([sys.executable, "-B", "-c", code, str(old), str(work), str(postlock), release], cwd=old,
         env=os.environ | {"PYTHONPATH": str(old / "src"), "PYTHONDONTWRITEBYTECODE": "1", "PYTHONUTF8": "1"},
         capture_output=True, text=True, encoding="utf-8", timeout=900)
     assert result.returncode == 0, result.stdout + result.stderr

@@ -3,6 +3,7 @@ import hashlib
 import json
 from pathlib import Path
 from devtools.repair_policy import project_repair
+from devtools.rc_policy import project_rc
 
 MANIFEST=json.loads(Path(__file__).with_name("pfb_projection.json").read_text(encoding="utf-8"))
 PORTFOLIO_NEW_FILES=set(MANIFEST["new_files"])
@@ -10,7 +11,7 @@ PORTFOLIO_RUNTIME_NEW_FILES={name for name in PORTFOLIO_NEW_FILES if not name.st
 
 
 def project_portfolio(relative,raw):
-    raw=project_repair(relative,raw)
+    raw=project_repair(relative,project_rc(relative,raw))
     record=MANIFEST["files"].get(relative)
     if record is None:
         return raw

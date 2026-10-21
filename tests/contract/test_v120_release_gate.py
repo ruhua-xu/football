@@ -98,7 +98,7 @@ def test_real_bridge_configuration_and_other_lifecycle_classes_are_unchanged():
 
 def test_v120_version_dependency_and_frozen_model_identities():
     project=tomllib.loads((ROOT/"pyproject.toml").read_text(encoding="utf-8"))
-    assert project["project"]["version"]==football_system.__version__=="1.4.0.dev0"
+    assert project["project"]["version"]==football_system.__version__=="1.4.0"
     assert "tzdata==2025.2" in project["project"]["dependencies"]
     assert MODEL_VERSION=="1" and EloBaselineConfig().config_hash=="c98d595d3afb03fe629e776fa9a0e70f24e31fcd49884be3ff11e9c979ca78e4"
     module=ast.parse(old_text("src/football_system/infrastructure/files/real_bridge.py"))
